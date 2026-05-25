@@ -1,0 +1,15 @@
+dart_2027_guidance_ynzz\event_groups.o: ../Middlewares/Third_Party/FreeRTOS/Source/event_groups.c
+dart_2027_guidance_ynzz\event_groups.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdlib.h
+dart_2027_guidance_ynzz\event_groups.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h
+dart_2027_guidance_ynzz\event_groups.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stddef.h
+dart_2027_guidance_ynzz\event_groups.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdint.h
+dart_2027_guidance_ynzz\event_groups.o: ../Core/Inc/FreeRTOSConfig.h
+dart_2027_guidance_ynzz\event_groups.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/projdefs.h
+dart_2027_guidance_ynzz\event_groups.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/portable.h
+dart_2027_guidance_ynzz\event_groups.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/deprecated_definitions.h
+dart_2027_guidance_ynzz\event_groups.o: ../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F/portmacro.h
+dart_2027_guidance_ynzz\event_groups.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/mpu_wrappers.h
+dart_2027_guidance_ynzz\event_groups.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/task.h
+dart_2027_guidance_ynzz\event_groups.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/list.h
+dart_2027_guidance_ynzz\event_groups.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/timers.h
+dart_2027_guidance_ynzz\event_groups.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/event_groups.h
