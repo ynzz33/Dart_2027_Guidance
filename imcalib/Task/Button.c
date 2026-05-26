@@ -53,40 +53,35 @@ void Short_Press_Process(void)
         {
                 case 1:
                 {
-                        // Vision_Transmit(Vision_Cmd_Work);
-                        //==================电池上电==============
+                        // ==================电池上电==============
                         // Total_Power_Control(Power_ON);
-                        // Vision_Self_Text();
-                        Vision_Transmit( Vision_Cmd_Record_Start );
-            //             Guidance_State = Start;
-
-
-                        // Vision_Self_Text();
-                                         Dart_Trriger_Color_Set(Team_RED);
+                        // ==================视觉自检，内录==============
+                        Vision_Self_Text();
+                        Guidance_State = Start;
+                        // Vision_Transmit(Vision_Cmd_Work);
+                        // Vision_Transmit( Vision_Cmd_Record_Start );
+                        // ==================阵营切换-红==============
+                        // Dart_Trriger_Color_Set(Team_RED);
 
                 }break;
                 case 2:
                 {
-                        Vision_Transmit(Vision_Cmd_Record_Stop);
-                        Guidance_State = End;
-                        // Vision_Transmit(Vision_Cmd_Work);
-                        //==================电池掉电==============
-                                         Dart_Trriger_Color_Set(Team_Blue);
+                        // ==================视觉内录==============
+                        // Vision_Transmit(Vision_Cmd_Record_Stop);
+                        // Guidance_State = End;
+                        // ==================阵营切换-蓝==============
+                        // Dart_Trriger_Color_Set(Team_Blue);
 
                 }break;
                 case 3:
                 {
+                        // ==================电池掉电==============
                         Total_Power_Control(Power_OFF);
-                        // Vision_Transmit(Vision_Cmd_Record_Start);
-                        // //==================开灯==============
                 }break;
                 case 4:
                 {
+                        // ==================放歌==============
                         Buzzer_play_song(song_ni);
-                        // Vision_Transmit(Vision_Cmd_Record_Stop);
-                        //==================关灯==============
-                        // Dart_Trigger_Power_Control(Power_OFF);
-                        // Buzzer_stop();
                 }break;
                 case 8:
                 {

@@ -69,74 +69,19 @@ void Data_Updata(void)
     Servo_Updata();
 }
 
-
-void Self_Text_Process(void)
-{
-    switch(Self_Text.Self_Text_Process)
-    {
-        case Self_Text_Vision:
-        {
-            switch(Self_Text.Vision_Self_Text_flag)
-            {
-                case Self_Text_Failure:
-                {
-                    Surface.target_angle_Euler[NOW][PITCH] = 30;
-                    Surface.target_angle_Euler[NOW][ROLL]  = 30;
-                    Surface.target_angle_Euler[NOW][YAW]   = 30;
-                    // Self_Text.Self_Text_Process = Self_Text_OK;
-                    // Self_Text.Self_Text_Process = Self_Text_Dart_Trigeer;
-                }break;
-            }
-        }break;
-        case Self_Text_Dart_Trigeer:
-        {
-            switch(Self_Text.Dart_Trigger_Self_Text_flag)
-            {
-                case Self_Text_Failure:
-                {
-                    Surface.target_angle_Euler[NOW][PITCH] = -30;
-                    Surface.target_angle_Euler[NOW][ROLL]  = -30;
-                    Surface.target_angle_Euler[NOW][YAW]   = -30;
-                    // Self_Text.Self_Text_Process = Self_Text_OK;
-                }break;
-                case Self_Text_Success:
-                {
-                    Surface.target_angle_Euler[NOW][PITCH] = 0;
-                    Surface.target_angle_Euler[NOW][ROLL]  = 0;
-                    Surface.target_angle_Euler[NOW][YAW]   = 0;
-                    Self_Text.Self_Text_Process = Self_Text_OK;
-                }break;
-            }
-        }break;
-        case Self_Text_OK:
-        {
-        }break;
-    }
-}
-
 void Guidance_Start(void)
 {
-    if (Self_Text.Vision_Self_Text_flag==Self_Text_Failure)
+    if(Self_Text.Self_Text_Process!=5)
     {
-        // if (Self_Text.Vision_Self_Text_flag_cnt<=10)
-        // {
-            // Self_Text.Vision_Self_Text_flag_cnt++;
-            Vision_Self_Text();
-        // }
+        
     }
-    else if (Self_Text.Dart_Trigger_Self_Text_flag==Self_Text_Failure)
-    {
-        Dart_Trigger_Self_Text();
-        Self_Text.Dart_Trigger_Self_Text_flag_cnt++;
-    }
-    Self_Text_Process();
 }
 void Guidance_Stable(void)
 {
         // Surface.target_angle_Euler[NOW][PITCH] = Low_Pass_Filter(Surface.current_angle_Euler[NOW][PITCH],Surface.current_angle_Euler[LAST][PITCH],0.7f);//(Stable_Pitch - Surface.current_angle_Euler[NOW][PITCH])/2;
         // Surface.target_angle_Euler[NOW][ROLL]  =  0;//Surface.current_angle_Euler[NOW][ROLL];
         // Surface.target_angle_Euler[NOW][YAW]   = Low_Pass_Filter(Surface.current_angle_Euler[NOW][YAW],Surface.current_angle_Euler[LAST][YAW],0.7f);  //Surface.current_angle_Euler[NOW][YAW];
-    // Buzzer_play_song(song_ni);
+        // Buzzer_play_song(song_ni);
         if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE)
         {
             Vision_Transmit(Vision_Cmd_Work);
@@ -206,7 +151,7 @@ void get_current_Target(void)
             {
                 // if (Self_Text.Self_Text_Process==Self_Text_Start)
                 // {
-                    Guidance_Start();
+                Guidance_Start();
                 // }
             }break;
             case Stable:
@@ -229,11 +174,11 @@ void get_current_State(void)
     if (Self_Text.Self_Text_Process==Self_Text_OK)
     {
         Guidance_State = Start;
-        if (Self_Text.Self_Text_Process<5)
-        {
-            // Vision_Transmit( Vision_Cmd_Record_Start );
-            Self_Text.Self_Text_Process = 5;
-        }
+        // if (Self_Text.Self_Text_Process<5)
+        // {
+        //     // Vision_Transmit( Vision_Cmd_Record_Start );
+        //     Self_Text.Self_Text_Process = 5;
+        // }
         // static uint8_t cnt = 0 ;
         // if (cnt++>20&&cnt<30)
         // {

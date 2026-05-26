@@ -26,8 +26,7 @@ void Vofa_Send_Data2(float data1, float data2)
 {
 	Vofa_data_2.ch_data[0] = data1;
 	Vofa_data_2.ch_data[1] = data2;
-	// HAL_UART_Transmit_DMA(&huart3, (uint8_t *)&Vofa_data_2, sizeof(Vofa_data_2));
-	HAL_UART_Transmit(&huart2, (uint8_t *)&Vofa_data_2, sizeof(Vofa_data_2),1);
+	HAL_UART_Transmit_DMA(&huart2, (uint8_t *)&Vofa_data_2, sizeof(Vofa_data_2));
 }
 
 void Vofa_Send_Data4(float data1, float data2,float data3, float data4)

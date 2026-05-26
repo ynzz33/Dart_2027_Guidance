@@ -90,8 +90,8 @@
 
 /* 音符频率定义 END */
 // 系统时钟配置
-#define BUZZER_SYS_CLOCK         168000000  // HCLK = 170MHz
-#define BUZZER_TIM_PRESCALER     168         // 预分频值
+#define BUZZER_SYS_CLOCK         170000000  // HCLK = 170MHz
+#define BUZZER_TIM_PRESCALER     170         // 预分频值
 
 // 频率范围
 #define BUZZER_MIN_FREQ         0

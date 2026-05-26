@@ -27,7 +27,47 @@ Project File Date:  05/25/2026
 <h2>Output:</h2>
 *** Using Compiler 'V5.06 update 7 (build 960)', folder: 'D:\keil\keil_core\ARM\armcc_5\Bin'
 Build target 'Dart_2027_Guidance_Ynzz'
-"Dart_2027_Guidance_Ynzz\Dart_2027_Guidance_Ynzz.axf" - 0 Error(s), 0 Warning(s).
+compiling user_lib.c...
+..\imcalib\User\user_lib.c(91): warning:  #223-D: function "Vision_Self_Text" declared implicitly
+              Vision_Self_Text();
+..\imcalib\User\user_lib.c(106): warning:  #223-D: function "Dart_Trigger_Self_Text" declared implicitly
+              Dart_Trigger_Self_Text();
+..\imcalib\User\user_lib.c(110): error:  #65: expected a ";"
+              Wait_cnt_Dart = 10pop0000000000;
+..\imcalib\User\user_lib.c: 2 warnings, 1 error
+compiling CallBack_Task.c...
+..\imcalib\Task\CallBack_Task.c(136): warning:  #188-D: enumerated type mixed with another type
+      HAL_GPIO_WritePin( HEAD_PORT ,HEAD_PIN ,Power_State);
+..\imcalib\Task\CallBack_Task.c(208): warning:  #188-D: enumerated type mixed with another type
+      HAL_GPIO_WritePin( POWER_PORT ,POWER_PIN ,Power_State);
+..\imcalib\Task\CallBack_Task.c(227): error:  #154: expression must have struct or union type
+  	    Vision_Rx_Buf.Vision_Receive_Cnt++;
+..\imcalib\Task\CallBack_Task.c: 2 warnings, 1 error
+compiling Init_Config.c...
+compiling buzzer.c...
+..\imcalib\Task\buzzer.c(365): warning:  #186-D: pointless comparison of unsigned integer with zero
+    if (freq < BUZZER_MIN_FREQ || freq > BUZZER_MAX_FREQ) {
+..\imcalib\Task\buzzer.c(40): warning:  #177-D: variable "startup_notes"  was declared but never referenced
+  static const uint16_t startup_notes[] = {
+..\imcalib\Task\buzzer.c(45): warning:  #177-D: variable "alarm_notes"  was declared but never referenced
+  static const uint16_t alarm_notes[] = {
+..\imcalib\Task\buzzer.c: 3 warnings, 0 errors
+compiling Button.c...
+compiling TotalControl.c...
+compiling app_freertos.c...
+../Core/Src/app_freertos.c(160): warning:  #223-D: function "Self_Text_Task" declared implicitly
+          Self_Text_Task();
+../Core/Src/app_freertos.c: 1 warning, 0 errors
+compiling PNG_Task.c...
+..\imcalib\Task\PNG_Task.c(61): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  	if (fabsf(PNG_Data->V_c) < Vc_min)
+..\imcalib\Task\PNG_Task.c(66): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  	Surface-> target_angle_Euler[NOW][PITCH] = PNG_Data->los_GYRO[NOW][Y] * PNG_Data->N_R * PNG_Data->V_c / K_Dyn * 180.f/M_PI;
+..\imcalib\Task\PNG_Task.c(67): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  	Surface-> target_angle_Euler[NOW][YAW]   = PNG_Data->los_GYRO[NOW][X] * PNG_Data->N_R * PNG_Data->V_c / K_Dyn * 180.f/M_PI;
+..\imcalib\Task\PNG_Task.c: 3 warnings, 0 errors
+compiling surface_control_task.c...
+"Dart_2027_Guidance_Ynzz\Dart_2027_Guidance_Ynzz.axf" - 2 Error(s), 11 Warning(s).
 
 <h2>Software Packages used:</h2>
 
@@ -50,7 +90,8 @@ Package Vendor: Keil
 
    * Component: ARM::CMSIS:CORE@6.1.0
       Include file:  CMSIS/Core/Include/tz_context.h
-Build Time Elapsed:  00:00:01
+Target not created.
+Build Time Elapsed:  00:00:06
 </pre>
 </body>
 </html>

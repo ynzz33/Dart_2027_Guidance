@@ -32,6 +32,7 @@
 #include "IMU.h"
 #include "Init_Config.h"
 #include "TotalControl.h"
+#include "surface_control_task.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -154,8 +155,12 @@ void SelfTestTask(void const * argument)
   for(;;)
   {
 	// Total_Power_Control(Power_ON);
+    if (Guidance_State == Self_Text_State)
+    {
+        Self_Text_Task();
+    }
 	  Buzzer_play_task(&Buzzer_message);
-    osDelay(10);
+    osDelay(100);
   }
   /* USER CODE END SelfTestTask */
 }

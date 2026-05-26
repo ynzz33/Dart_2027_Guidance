@@ -28,9 +28,11 @@ void TotalInitTask(void)
 
 
 
-		HAL_UART_Receive_DMA(&huart3, Vision_Rx_Buf, sizeof(Vision_Rx_Buf));
-    HAL_UART_Receive_DMA(&huart2, Rx_Buf, sizeof(Rx_Buf));
-    HAL_HalfDuplex_EnableTransmitter( &huart1 );//镖头通信发送初始化使能
+    HAL_HalfDuplex_EnableTransmitter( &huart1 );                                 //镖头通信:半双工先置发送模式
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart2, Rx_Buf, sizeof(Rx_Buf));               //调试:空闲不定长接收
+		__HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
+		HAL_UARTEx_ReceiveToIdle_DMA(&huart3, Vision_Rx_Buf, sizeof(Vision_Rx_Buf));//视觉:空闲不定长接收
+		__HAL_DMA_DISABLE_IT(huart3.hdmarx, DMA_IT_HT);                              //关掉半传输中断,避免半满时误回调
 
     ADC_Init();//adc_battery输入
 

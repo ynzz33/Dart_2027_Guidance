@@ -59,6 +59,10 @@ void Dart_Trigger_Receive(Dart_Trigger_Data_t* Data)
                 Data->Borad_State_Light_ON      = Trigger_Rx_Buf[5]>>2&0x01;
                 Data->Borad_State_Voltage       = Trigger_Rx_Buf[5]>>1&0x01;
                 Data->Borad_State_Light_Error   = Trigger_Rx_Buf[5]&0x01;
+                if (Self_Text.Dart_Trigger_Self_Text_flag==Self_Text_Failure&&Data->Borad_State_Voltage==0&&Data->Borad_State_Light_Error==0)
+                {
+                    Self_Text.Dart_Trigger_Self_Text_flag=Self_Text_Success;
+                }
 
             }break;
             case Color_Set:
@@ -67,17 +71,11 @@ void Dart_Trigger_Receive(Dart_Trigger_Data_t* Data)
             }break;
         }
     }
-    if (Self_Text.Dart_Trigger_Self_Text_flag==Self_Text_Failure)
-    {
-        if (Data->Borad_State_Voltage==0&&Data->Borad_State_Light_Error==0)
-        {
-            Self_Text.Dart_Trigger_Self_Text_flag=Self_Text_Success;
-        }
-    }
 }
 void Dart_Trigger_Transmit(Dart_Trigger_Data_t* Data)
 {
-    HAL_HalfDuplex_EnableTransmitter(&huart1);//单线串口:发送前置发送模式
+    HAL_UART_AbortReceive(&DART_UART_Handle); 
+    HAL_HalfDuplex_EnableTransmitter(&DART_UART_Handle);//单线串口:发送前置发送模式
     memset(Trigger_Tx_Buf, 0, sizeof(Trigger_Tx_Buf));
     switch (Data->Frame_Cmd)
     {
@@ -88,7 +86,7 @@ void Dart_Trigger_Transmit(Dart_Trigger_Data_t* Data)
             Trigger_Tx_Buf[2] = 0x00;
             Data->Frame_Tail = crc8_maxim_with_reflect(Trigger_Tx_Buf,3);
             Trigger_Tx_Buf[3] = Data->Frame_Tail;
-            HAL_UART_Transmit_DMA(&huart1, Trigger_Tx_Buf, 4);
+            HAL_UART_Transmit_DMA(&DART_UART_Handle, Trigger_Tx_Buf, 4);
         }break;
         case Color_Set:
         {
@@ -98,7 +96,7 @@ void Dart_Trigger_Transmit(Dart_Trigger_Data_t* Data)
             Trigger_Tx_Buf[3] = Data->Tx_Set_Team_Color;
             Data->Frame_Tail = crc8_maxim_with_reflect(Trigger_Tx_Buf,4);
             Trigger_Tx_Buf[4] = Data->Frame_Tail;
-            HAL_UART_Transmit_DMA(&huart1, Trigger_Tx_Buf, 5);
+            HAL_UART_Transmit_DMA(&DART_UART_Handle, Trigger_Tx_Buf, 5);
         }break;
     }
 
@@ -137,12 +135,11 @@ void Dart_Trigger_Power_Control(uint8_t Power_State)
 }
 void Dart_Trigger_Self_Text(void)
 {
-    Dart_Trigger_Power_Control(Power_ON);
     Dart_Trigger_State_Check();
 }
 
 
-void Vision_Handle(uint8_t* Buf)
+void Vision_Receive(uint8_t* Buf)
 {
     Vision_Rx_Data.Vision_Head = Buf[0];
     Vision_Rx_Data.Vision_Tail = Buf[5];
@@ -168,34 +165,10 @@ void Vision_Handle(uint8_t* Buf)
         Vision_Rx_Data.Record_State[1] = (int16_t)(Buf[3]<<8|Buf[4]);
     }
 }
-void Vision_Receive(void)
-{
-    if (Self_Text.Vision_Self_Text_flag==Self_Text_Failure)
-    {
-        Vision_Rx_Data.Vision_Self_Text_Data = Vision_Rx_Buf[1];
-        if (Vision_Rx_Data.Vision_Self_Text_Data==Vision_Cmd_Self_Text)
-        {
-            Self_Text.Vision_Self_Text_flag = Self_Text_Success;
-            Self_Text.Self_Text_Process = Self_Text_Dart_Trigeer;
-        }
-    }
-    else
-    {
-        Vision_Handle(Vision_Rx_Buf);
-    }
-    if (Self_Text.Vision_Self_Text_flag==0)
-    {
-        HAL_UART_Receive_DMA(&huart3, Vision_Rx_Buf, sizeof(Vision_Rx_Buf)-4);
-    }
-    else
-    {
-        HAL_UART_Receive_DMA(&huart3,Vision_Rx_Buf,sizeof(Vision_Rx_Buf) );
-    }
-}
 void Vision_Transmit(uint8_t Cmd)
 {
     Vision_Tx_Buf[1] = Cmd;
-    HAL_UART_Transmit_DMA( &huart3,Vision_Tx_Buf,sizeof(Vision_Tx_Buf) );
+    HAL_UART_Transmit_DMA( &Vision_UART_Handle,Vision_Tx_Buf,sizeof(Vision_Tx_Buf) );
 }
 void Vision_Self_Text(void)
 {
@@ -208,41 +181,83 @@ void Total_Power_Control(uint8_t Power_State)
     HAL_GPIO_WritePin( POWER_PORT ,POWER_PIN ,Power_State);
 }
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == USART1)
+    if (huart->Instance == DART_UART_Instance)
     {
-        Dart_Trigger_Data.Communicate_Flag = Receive;
-        Dart_Trigger_Communicate(Dart_Trigger_Data.Communicate_Flag);
-        Dart_Trigger_Data.Frame_Cmd = NONE;
-    }
-    else if (huart->Instance == USART2)
-    {
-        HAL_UART_Receive_DMA(&huart2, Rx_Buf, sizeof(Rx_Buf));
-    }
-    else if (huart->Instance == USART3)
-    {
-        flag++;
-        Vision_Receive();
+        HAL_HalfDuplex_EnableReceiver(&DART_UART_Handle);   //单线串口:发送后置接收模式
+        //不定长接收:任意 IDLE 或收满 buffer 都会触发 RxEventCallback
+        HAL_UARTEx_ReceiveToIdle_DMA(&DART_UART_Handle, Trigger_Rx_Buf, sizeof(Trigger_Rx_Buf));
+        __HAL_DMA_DISABLE_IT(DART_UART_Handle.hdmarx, DMA_IT_HT);  //关掉半传输中断,只在 IDLE/TC 触发
     }
 }
 
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+//------------------ 空闲接收事件回调:替换原来的 HAL_UART_RxCpltCallback ------------------
+//触发时机: 1) 收到 IDLE (任意空闲间隔)  2) DMA 收满整个 buffer
+//Size 是本次实际接收到的字节数
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
-    if (huart->Instance == USART1)
+    if (huart->Instance == DART_UART_Instance)
     {
-        HAL_HalfDuplex_EnableReceiver(&huart1);//单线串口：发送后置接收模式
-        switch (Dart_Trigger_Data.Frame_Cmd)
+        //触发板 Status_Cheak 回包 7 字节, Color_Set 回包 5 字节
+        if (Size >= 4 && Trigger_Rx_Buf[0] == 0xAA)
         {
-            case Status_Cheak:
-            {
-                HAL_UART_Receive_DMA(&huart1, Trigger_Rx_Buf, 7);
-            }break;
-            case Color_Set:
-            {
-                HAL_UART_Receive_DMA(&huart1, Trigger_Rx_Buf, 5);
-            }break;
+            Dart_Trigger_Receive(&Dart_Trigger_Data);
+            Dart_Trigger_Data.Dart_Trigger_Receive_Cnt++;
         }
+        Dart_Trigger_Data.Frame_Cmd = NONE;
+        //半双工不在这里重启接收, 等下一次 TxCpltCallback 启动
+    }
+    else if (huart->Instance == PC_UART_Instance)
+    {
+        //调试串口收到数据先丢弃, 立即重启监听
+        HAL_UARTEx_ReceiveToIdle_DMA(&PC_UART_Handle, Rx_Buf, sizeof(Rx_Buf));
+        __HAL_DMA_DISABLE_IT(PC_UART_Handle.hdmarx, DMA_IT_HT);
+    }
+    else if (huart->Instance == Vision_UART_Instance)
+    {
+        if (Self_Text.Vision_Self_Text_flag == Self_Text_Failure)
+        {
+            //自检包: head + cmd, 至少 2 字节
+            Vision_Rx_Data.Vision_Head           = Vision_Rx_Buf[0];
+            Vision_Rx_Data.Vision_Self_Text_Data = Vision_Rx_Buf[1];
+            if (Size >= 2 && Vision_Rx_Data.Vision_Self_Text_Data == Vision_Cmd_Self_Text)
+            {
+                Self_Text.Vision_Self_Text_flag = Self_Text_Success;
+                Self_Text.Self_Text_Process     = Self_Text_Dart_Trigeer;
+            }
+        }
+        else if (Size == 6)
+        {
+            //正常包: 帧头+帧尾合法才解析,错位/错包自动丢弃
+            uint8_t h = Vision_Rx_Buf[0], t = Vision_Rx_Buf[5];
+            Vision_Receive(Vision_Rx_Buf);
+        }
+        Vision_Rx_Data.Vision_Receive_Cnt++;
+        HAL_UARTEx_ReceiveToIdle_DMA(&Vision_UART_Handle, Vision_Rx_Buf, sizeof(Vision_Rx_Buf));
+        __HAL_DMA_DISABLE_IT(Vision_UART_Handle.hdmarx, DMA_IT_HT);
+    }
+}
+
+//UART 错误回调:出错时也要把接收重新拉起来,否则会卡死
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == DART_UART_Instance)
+    {
+        HAL_UART_AbortReceive(&DART_UART_Handle);
+        //半双工不主动重启,等下一次发送
+    }
+    else if (huart->Instance == PC_UART_Instance)
+    {
+        HAL_UART_AbortReceive(&PC_UART_Handle);
+        HAL_UARTEx_ReceiveToIdle_DMA(&PC_UART_Handle, Rx_Buf, sizeof(Rx_Buf));
+        __HAL_DMA_DISABLE_IT(PC_UART_Handle.hdmarx, DMA_IT_HT);
+    }
+    else if (huart->Instance == Vision_UART_Instance)
+    {
+        HAL_UART_AbortReceive(&Vision_UART_Handle);
+        HAL_UARTEx_ReceiveToIdle_DMA(&Vision_UART_Handle, Vision_Rx_Buf, sizeof(Vision_Rx_Buf));
+        __HAL_DMA_DISABLE_IT(Vision_UART_Handle.hdmarx, DMA_IT_HT);
     }
 }
 

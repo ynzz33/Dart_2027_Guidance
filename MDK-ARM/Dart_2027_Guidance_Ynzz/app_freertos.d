@@ -63,3 +63,4 @@ dart_2027_guidance_ynzz\app_freertos.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\inc
 dart_2027_guidance_ynzz\app_freertos.o: ../imcalib/Task/Init_Config.h
 dart_2027_guidance_ynzz\app_freertos.o: ../imcalib/Task/TotalControl.h
 dart_2027_guidance_ynzz\app_freertos.o: ../imcalib/Tool/Pid.h
+dart_2027_guidance_ynzz\app_freertos.o: ../imcalib/Task/surface_control_task.h

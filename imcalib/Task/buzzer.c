@@ -363,7 +363,7 @@ const Buzzer_song_t song_ni = {
 //******************************************************************************
 void Buzzer_set_frequency(uint16_t freq){
   if (freq < BUZZER_MIN_FREQ || freq > BUZZER_MAX_FREQ) {
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 0);
+    __HAL_TIM_SET_COMPARE(&BUZZER_TIM_HANDLE, BUZZER_TIM_CHANNEL, 0);
     return;
   }
 
@@ -371,10 +371,10 @@ void Buzzer_set_frequency(uint16_t freq){
   uint32_t ccr = arr / 5;
   if (ccr == 0) ccr = 1;
 
-  __HAL_TIM_SET_PRESCALER(&htim2, BUZZER_TIM_PRESCALER);
-  __HAL_TIM_SET_AUTORELOAD(&htim2, arr);
-  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, ccr);
-  __HAL_TIM_SET_COUNTER(&htim2, 0);
+  __HAL_TIM_SET_PRESCALER(&BUZZER_TIM_HANDLE, BUZZER_TIM_PRESCALER);
+  __HAL_TIM_SET_AUTORELOAD(&BUZZER_TIM_HANDLE, arr);
+  __HAL_TIM_SET_COMPARE(&BUZZER_TIM_HANDLE, BUZZER_TIM_CHANNEL, ccr);
+  __HAL_TIM_SET_COUNTER(&BUZZER_TIM_HANDLE, 0);
 }
 
 //******************************************************************************
@@ -426,7 +426,7 @@ void Buzzer_stop(void)
 
   Buzzer_message.cmd = Buzzer_CMD_PAUSE;
   // 立即停止PWM输出
-  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 0);
+  __HAL_TIM_SET_COMPARE(&BUZZER_TIM_HANDLE, BUZZER_TIM_CHANNEL, 0);
 }
 
 //******************************************************************************

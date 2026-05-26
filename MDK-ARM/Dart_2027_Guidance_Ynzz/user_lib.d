@@ -39,3 +39,10 @@ dart_2027_guidance_ynzz\user_lib.o: ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4x
 dart_2027_guidance_ynzz\user_lib.o: ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart.h
 dart_2027_guidance_ynzz\user_lib.o: ../Drivers/STM32G4xx_HAL_Driver/Inc/stm32g4xx_hal_uart_ex.h
 dart_2027_guidance_ynzz\user_lib.o: ../Core/Inc/tim.h
+dart_2027_guidance_ynzz\user_lib.o: ../imcalib/Task/surface_control_task.h
+dart_2027_guidance_ynzz\user_lib.o: ../imcalib/Task/IMU.h
+dart_2027_guidance_ynzz\user_lib.o: ../imcalib/User/mytype.h
+dart_2027_guidance_ynzz\user_lib.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdlib.h
+dart_2027_guidance_ynzz\user_lib.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdarg.h
+dart_2027_guidance_ynzz\user_lib.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\string.h
+dart_2027_guidance_ynzz\user_lib.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h

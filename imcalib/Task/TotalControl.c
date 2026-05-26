@@ -10,6 +10,7 @@
 // #include "user_lib.h"
 #include "cmsis_os.h"
 #include "PNG_Task.h"
+#include "usart.h"
 
 // void ALL_reset(uint8_t reset)
 // {
@@ -20,7 +21,10 @@
 
 void TotalControl(void)
 {
+	if (huart2.gState == HAL_UART_STATE_READY)
+	{
 	Vofa();
+	}
 	surface_control_task();
 	ADC_Voltage_Real = ADC_GET_REAL_VALUE();
 	// PNG_Guidance(&Vision_Rx_Data,&PNG_Data,&Surface,&IMU_Data);
@@ -94,7 +98,7 @@ void Vofa(void)
 	// IMU_Data.Q[NOW][0],
 	// IMU_Data.Q[NOW][1],
 	// IMU_Data.Q[NOW][2],
-	// IMU_Data.Q[NOW][3]
+	// IMU_Data.Q[NOW][3]000
 
 		//============逻辑================
 	Surface.target_angle_Euler[NOW][PITCH],
@@ -103,16 +107,18 @@ void Vofa(void)
 	Surface.current_angle_Euler[NOW][PITCH],
 	Surface.current_angle_Euler[NOW][ROLL ],
 	Surface.current_angle_Euler[NOW][YAW  ],
-	Vision_Rx_Data.Record_State[0],
-	Vision_Rx_Data.Record_State[1],
+	Vision_Rx_Data.Vision_Receive_Cnt,
+	Dart_Trigger_Data.Dart_Trigger_Receive_Cnt,
+	Vision_Rx_Data.Vision_Head,
+	Vision_Rx_Data.x[NOW],
 	Vision_Rx_Data.y[NOW],
-	Button_Data.Press_Short_Cnt,
-	// Surface.Finally_Angle[NOW][Wing_left   ],
+	Vision_Rx_Data.Vision_Tail,
+	Surface.Finally_Angle[NOW][Wing_left   ],
 	Surface.Finally_Angle[NOW][Wing_right  ],
 	Surface.Finally_Angle[NOW][Vertical_fin],
-	Wing_left_ZERO_POINT    ,
-	Wing_right_ZERO_POINT   ,
-	Vertical_fin_ZERO_POINT ,
+//	Wing_left_ZERO_POINT    ,
+//	Wing_right_ZERO_POINT   ,
+//	Vertical_fin_ZERO_POINT ,
 	IMU_Data.G[NOW][PITCH],
 	IMU_Data.G[NOW][ROLL ],
 	IMU_Data.G[NOW][YAW  ],

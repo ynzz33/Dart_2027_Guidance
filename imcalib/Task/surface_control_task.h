@@ -35,6 +35,7 @@ enum
 
 enum
 {
+    Self_Text_State,
     Start,
     Stable,
     Terminal,

@@ -4,16 +4,30 @@
 #include "stm32g4xx_hal.h"
 #ifndef CALLBACK_TASK_H
 #define CALLBACK_TASK_H
+
 #define LED_PORT GPIOA
 #define LED_PIN GPIO_PIN_4
+
 #define BUZZER_TIM_HANDLE        htim2
 #define BUZZER_TIM_CHANNEL       TIM_CHANNEL_3
+
 #define HEAD_PORT GPIOB
 #define HEAD_PIN GPIO_PIN_6
+
 #define Button_PORT GPIOA
 #define Button_PIN GPIO_PIN_7
+
 #define POWER_PORT GPIOA
 #define POWER_PIN GPIO_PIN_6
+
+#define DART_UART_Instance USART1
+#define DART_UART_Handle huart1
+
+#define PC_UART_Instance USART2
+#define PC_UART_Handle huart2
+
+#define Vision_UART_Instance USART3
+#define Vision_UART_Handle huart3
 enum
 {
 	None,
@@ -64,6 +78,7 @@ typedef struct
 	uint8_t Borad_State_Voltage;
 	uint8_t Borad_State_Light_Error;
 	uint8_t Frame_Tail;
+	uint32_t Dart_Trigger_Receive_Cnt;
 }Dart_Trigger_Data_t;
 
 typedef struct
@@ -75,6 +90,7 @@ typedef struct
 	uint8_t Vision_recognize_flag;
 	uint8_t Vision_Self_Text_Data;
 	uint8_t Record_State[2];
+	uint32_t Vision_Receive_Cnt;
 } Vision_Rx_Buf_t;
 
 extern uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5],flag;
