@@ -175,11 +175,13 @@ void SelfTestTask(void const * argument)
 void IMUTask(void const * argument)
 {
   /* USER CODE BEGIN IMUTask */
+  IMU_Calibrate();
+  TickType_t xLastWake = xTaskGetTickCount();
   /* Infinite loop */
   for(;;)
   {
     IMU_Task();
-    osDelay( 1 );
+    vTaskDelayUntil(&xLastWake, pdMS_TO_TICKS(CTRL_PERIOD_MS));
   }
   /* USER CODE END IMUTask */
 }
@@ -194,12 +196,13 @@ void IMUTask(void const * argument)
 void TotalControlTask(void const * argument)
 {
   /* USER CODE BEGIN TotalControlTask */
+  TickType_t xLastWake = xTaskGetTickCount();
   /* Infinite loop */
   for(;;)
   {
     TotalControl();
     // control_cnt++;
-    osDelay(1);
+    vTaskDelayUntil(&xLastWake, pdMS_TO_TICKS(CTRL_PERIOD_MS));
   }
   /* USER CODE END TotalControlTask */
 }

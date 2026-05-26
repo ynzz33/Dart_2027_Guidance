@@ -82,10 +82,14 @@ float pid_calc(pid_t* pid, float get, float set , float delta_time)
     {
         pid->pout  = pid->p * pid->err[NOW];
         pid->iout += pid->i * pid->err[NOW]*delta_time;
-        pid->dout  = pid->d * (pid->err[NOW] - pid->err[LAST])/delta_time;
-        if (delta_time<1e-6f)
+        if (pid->d == 0.0f)
         {
             pid->dout = 0.0f;
+        }
+        else
+        {
+            pid->dout = pid->d * (pid->err[NOW] - pid->err[LAST])/delta_time;
+            if (delta_time < 1e-6f) pid->dout = 0.0f;
         }
 
         abs_limit(&(pid->iout), pid->IntegralLimit);
@@ -141,7 +145,7 @@ void PID_struct_init(
     pid->f_param_init = pid_param_init;
     /*init pid param */
     pid->f_param_init(pid, mode, maxout, intergral_limit, kp, ki, kd);
-    FeedForwardParamInit(pid->xFeedForward, ff_param1, ff_param2);
+    FeedForwardParamInit(&pid->xFeedForward, ff_param1, ff_param2);
 }
 
 void FeedForwardParamInit(FFC_t *FFC, float param1, float param2)

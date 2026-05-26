@@ -7,6 +7,7 @@
 #include "stdbool.h"
 #include "string.h"
 #include "stdint.h"
+#include "common_defs.h"
 
 #define mat         arm_matrix_instance_f32 //float
 #define mat_64      arm_matrix_instance_f64 //double
@@ -17,7 +18,6 @@
 #define mat_trans   arm_mat_trans_f32//�������ת��
 #define mat_inv     arm_mat_inverse_f32
 #define mat_inv_f64 arm_mat_inverse_f64
-#define dT 0.001f
 
 typedef struct
 {

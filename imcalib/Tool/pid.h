@@ -40,7 +40,7 @@ typedef struct __pid_t
 	float MaxOutput;
 	float IntegralLimit;
 
-	FFC_t * xFeedForward;
+	FFC_t xFeedForward;
 
 	float set[3];
 	float get[3];

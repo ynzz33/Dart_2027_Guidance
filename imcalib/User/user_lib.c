@@ -48,9 +48,6 @@ void Self_Text_Process(void)
             {
                 case Self_Text_Failure:
                 {
-                    Surface.target_angle_Euler[NOW][PITCH] = 30;
-                    Surface.target_angle_Euler[NOW][ROLL]  = 30;
-                    Surface.target_angle_Euler[NOW][YAW]   = 30;
                     // Self_Text.Self_Text_Process = Self_Text_OK;
                     // Self_Text.Self_Text_Process = Self_Text_Dart_Trigeer;
                 }break;
@@ -62,16 +59,10 @@ void Self_Text_Process(void)
             {
                 case Self_Text_Failure:
                 {
-                    Surface.target_angle_Euler[NOW][PITCH] = -30;
-                    Surface.target_angle_Euler[NOW][ROLL]  = -30;
-                    Surface.target_angle_Euler[NOW][YAW]   = -30;
                     // Self_Text.Self_Text_Process = Self_Text_OK;
                 }break;
                 case Self_Text_Success:
                 {
-                    Surface.target_angle_Euler[NOW][PITCH] = 0;
-                    Surface.target_angle_Euler[NOW][ROLL]  = 0;
-                    Surface.target_angle_Euler[NOW][YAW]   = 0;
                     Self_Text.Self_Text_Process = Self_Text_OK;
                 }break;
             }

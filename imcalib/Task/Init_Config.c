@@ -43,6 +43,9 @@ void TotalInitTask(void)
 		Kalman_Vel_Init();
 
 		Total_Power_Control(Power_ON);
+    Surface.target_angle_Euler[NOW][PITCH] = 30;
+    Surface.target_angle_Euler[NOW][ROLL]  = 30;
+    Surface.target_angle_Euler[NOW][YAW]   = 30;
 }
 
 

@@ -8,7 +8,7 @@
 #include "mytype.h"
 #include "spi.h"
 #include "arm_math.h"
-//#include "cmsis_os.h"
+#include "cmsis_os.h"
 #include "filter.h"
 #include "math.h"
 #include "pid.h"
@@ -62,7 +62,7 @@ void IMU_Attitude_Algorithm(void)
     /* G_Real_X         */  gx = IMU_Data.G_Rad[NOW][X],
     /* G_Real_Y         */  gy = IMU_Data.G_Rad[NOW][Y],
     /* G_Real_Z         */  gz = IMU_Data.G_Rad[NOW][Z],
-    /* 重力加速度,方便归一*/  gravity = 8.886f;
+    /* 重力加速度,方便归一*/  gravity = GRAVITY_MS2;
 #endif
 #if 1   /*mahony补偿*/
     /*逆旋转矩阵的转化*/
@@ -74,7 +74,7 @@ void IMU_Attitude_Algorithm(void)
     tz = IMU_Data.R_matrix_T[2][2] ;
     /*实际加速度归一化*/
     float mahony_temp[3] = {0};
-    float acc_norm = sqrt(a_raw_x*a_raw_x+a_raw_y*a_raw_y+a_raw_z*a_raw_z);
+    float acc_norm = sqrtf(a_raw_x*a_raw_x+a_raw_y*a_raw_y+a_raw_z*a_raw_z);
     if (acc_norm<0.001f)
     {
         ax_normed = 0;
@@ -135,12 +135,12 @@ void IMU_Attitude_Algorithm(void)
 #if 1   /*四元数解算及欧拉角转换*/
 
     /*四元数积分*/
-    q0 -= (0.125f*dT*(q1*gx + q2*gy + q3*gz));
-    q1 += (0.125f*dT*(q0*gx + q2*gz - q3*gy));
-    q2 += (0.125f*dT*(q0*gy - q1*gz + q3*gx));
-    q3 += (0.125f*dT*(q0*gz + q1*gy - q2*gx));
+    q0 -= (0.5f*dT*(q1*gx + q2*gy + q3*gz));
+    q1 += (0.5f*dT*(q0*gx + q2*gz - q3*gy));
+    q2 += (0.5f*dT*(q0*gy - q1*gz + q3*gx));
+    q3 += (0.5f*dT*(q0*gz + q1*gy - q2*gx));
     /*四元数更归一化*/
-    float q_norm = sqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
+    float q_norm = sqrtf(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3);
     if (q_norm<0.001f)
     {
         q0 = 1;
@@ -156,13 +156,13 @@ void IMU_Attitude_Algorithm(void)
         q3 /=q_norm;
     }
     /*欧拉角转换*/
-    IMU_Data.Euler[NOW][PITCH]  = asin (2.0f*(q0*q2-q3*q1));
-    IMU_Data.Euler[NOW][YAW]    = atan2(2.0f*(q0*q3+q1*q2),1.0f-2.0f*(q3*q3+q2*q2));
-    IMU_Data.Euler[NOW][ROLL]   = atan2(2.0f*(q0*q1+q3*q2),1.0f-2.0f*(q2*q2+q1*q1));
+    IMU_Data.Euler[NOW][PITCH]  = asinf (2.0f*(q0*q2-q3*q1));
+    IMU_Data.Euler[NOW][YAW]    = atan2f(2.0f*(q0*q3+q1*q2),1.0f-2.0f*(q3*q3+q2*q2));
+    IMU_Data.Euler[NOW][ROLL]   = atan2f(2.0f*(q0*q1+q3*q2),1.0f-2.0f*(q2*q2+q1*q1));
 
-    IMU_Data.Euler[NOW][PITCH]  = IMU_Data.Euler[NOW][PITCH] /M_PI*180;
-    IMU_Data.Euler[NOW][ROLL]   = IMU_Data.Euler[NOW][ROLL]  /M_PI*180;
-    IMU_Data.Euler[NOW][YAW]    = -(IMU_Data.Euler[NOW][YAW]   /M_PI*180);
+    IMU_Data.Euler[NOW][PITCH]  =   RAD2DEG(IMU_Data.Euler[NOW][PITCH]);
+    IMU_Data.Euler[NOW][ROLL]   =   RAD2DEG(IMU_Data.Euler[NOW][ROLL]);
+    IMU_Data.Euler[NOW][YAW]    = -(RAD2DEG(IMU_Data.Euler[NOW][YAW]));
 #endif
 #if 1   /*历史值记录，数据更新*/
     // if (IMU_Data.Euler[NOW][PITCH] < 0)
@@ -305,26 +305,43 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr)
             {
                 case ACC:
                 {
-                    IMU_Data.A[NOW][X] = -(int16_t)(rx_buf[2]<<8|rx_buf[1])/16/128.0f;
-                    IMU_Data.A[NOW][Y] = -(int16_t)(rx_buf[4]<<8|rx_buf[3])/16/128.0f;
-                    IMU_Data.A[NOW][Z] = -(int16_t)(rx_buf[6]<<8|rx_buf[5])/16/128.0f;
+                    IMU_Data.A[NOW][X] = -(int16_t)(rx_buf[2]<<8|rx_buf[1]) * ACC_LSB_16G;
+                    IMU_Data.A[NOW][Y] = -(int16_t)(rx_buf[4]<<8|rx_buf[3]) * ACC_LSB_16G;
+                    IMU_Data.A[NOW][Z] = -(int16_t)(rx_buf[6]<<8|rx_buf[5]) * ACC_LSB_16G;
+                    for (int k = 0; k < 3; k++)
+                    {
+                        if (isnan(IMU_Data.A[NOW][k]) || fabsf(IMU_Data.A[NOW][k]) > ACC_SAT_G)
+                            IMU_Data.A[NOW][k] = IMU_Data.A[LAST][k];
+                    }
                     IMU_Data.A[NOW][X] = KalmanFilter(&IMU_Kalman_Filter[ACC][X],IMU_Data.A[NOW][X],IMU_KF_Q,IMU_KF_R);
                     IMU_Data.A[NOW][Y] = KalmanFilter(&IMU_Kalman_Filter[ACC][Y],IMU_Data.A[NOW][Y],IMU_KF_Q,IMU_KF_R);
                     IMU_Data.A[NOW][Z] = KalmanFilter(&IMU_Kalman_Filter[ACC][Z],IMU_Data.A[NOW][Z],IMU_KF_Q,IMU_KF_R);
+                    for (int k = 0; k < 3; k++) IMU_Data.A[LAST][k] = IMU_Data.A[NOW][k];
 
                 }break;
                 case GYR:
                 {
-                    IMU_Data.G[NOW][PITCH] = ((int16_t)(rx_buf[2]<<8|rx_buf[1]))/16.4;
-                    IMU_Data.G[NOW][ROLL ] = ((int16_t)(rx_buf[4]<<8|rx_buf[3]))/16.4;
-                    IMU_Data.G[NOW][YAW  ] = ((int16_t)(rx_buf[6]<<8|rx_buf[5]))/16.4;
+                    IMU_Data.G[NOW][PITCH] = ((int16_t)(rx_buf[2]<<8|rx_buf[1])) / GYRO_LSB_2000DPS;
+                    IMU_Data.G[NOW][ROLL ] = ((int16_t)(rx_buf[4]<<8|rx_buf[3])) / GYRO_LSB_2000DPS;
+                    IMU_Data.G[NOW][YAW  ] = ((int16_t)(rx_buf[6]<<8|rx_buf[5])) / GYRO_LSB_2000DPS;
+                    for (int k = 0; k < 3; k++)
+                    {
+                        if (isnan(IMU_Data.G[NOW][k]) || fabsf(IMU_Data.G[NOW][k]) > GYRO_SAT_DPS)
+                            IMU_Data.G[NOW][k] = IMU_Data.G[LAST][k];
+                    }
+                    if (IMU_Data.calib_done)
+                    {
+                        for (int k = 0; k < 3; k++)
+                            IMU_Data.G[NOW][k] -= IMU_Data.G_Offset[k];
+                    }
                     IMU_Data.G[NOW][PITCH] = KalmanFilter(&IMU_Kalman_Filter[GYR][PITCH],IMU_Data.G[NOW][PITCH],IMU_KF_Q,IMU_KF_R);
                     IMU_Data.G[NOW][ROLL ] = KalmanFilter(&IMU_Kalman_Filter[GYR][ROLL ],IMU_Data.G[NOW][ROLL ],IMU_KF_Q,IMU_KF_R);
                     IMU_Data.G[NOW][YAW  ] = KalmanFilter(&IMU_Kalman_Filter[GYR][YAW  ],IMU_Data.G[NOW][YAW  ],IMU_KF_Q,IMU_KF_R);
                     for (int i = 0;i<3;i++)
                     {
-                        IMU_Data.G_Rad[NOW][i] = IMU_Data.G[NOW][i]/180*M_PI;
+                        IMU_Data.G_Rad[NOW][i] = DEG2RAD(IMU_Data.G[NOW][i]);
                         Surface.current_gyro_Euler[NOW][i] = IMU_Data.G[NOW][i];
+                        IMU_Data.G[LAST][i] = IMU_Data.G[NOW][i];
                     }
                     receiveflag++;
                 }break;
@@ -332,7 +349,7 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr)
                 {
                     IMU_Data.M[NOW][X] = -(int16_t)((rx_buf[2] << 5) | (rx_buf[1]>>3));
                     IMU_Data.M[NOW][Y] = -(int16_t)((rx_buf[4] << 5) | (rx_buf[3]>>3));
-                    IMU_Data.M[NOW][Z] = -(int16_t)((rx_buf[6] << 7) | (rx_buf[5]>>1))*0.3125;
+                    IMU_Data.M[NOW][Z] = -(int16_t)((rx_buf[6] << 7) | (rx_buf[5]>>1))*0.3125f;
                 }break;
 
             }
@@ -389,6 +406,34 @@ void IMU_Init(void)
     BMX055_Init_Acc_Gyr();
 
     // BMX055_Init_Mag();
+}
+
+/*
+ * 静态零偏校准:上电后保持飞镖静止 2 秒,采样均值作为 gyro/acc 零偏。
+ * 校准期间 calib_done=0,IMU_Data_Read 不减偏,保证采样的是真实零位。
+ */
+void IMU_Calibrate(void)
+{
+    const uint16_t N = 2000;
+    float gsum[3] = {0}, asum[3] = {0};
+    IMU_Data.calib_done = 0;
+    for (uint16_t n = 0; n < N; n++)
+    {
+        IMU_Data_Read();
+        for (int i = 0; i < 3; i++)
+        {
+            gsum[i] += IMU_Data.G[NOW][i];
+            asum[i] += IMU_Data.A[NOW][i];
+        }
+        osDelay(1);
+    }
+    for (int i = 0; i < 3; i++)
+    {
+        IMU_Data.G_Offset[i] = gsum[i] / (float)N;
+        IMU_Data.A_Offset[i] = asum[i] / (float)N;
+    }
+    IMU_Data.A_Offset[Z] -= 1.0f;
+    IMU_Data.calib_done = 1;
 }
 
 

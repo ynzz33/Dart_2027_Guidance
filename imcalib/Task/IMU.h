@@ -2,6 +2,7 @@
 // Created by ynz on 2025/11/17.
 //
 #include "mytype.h"
+#include "common_defs.h"
 #ifndef IMU_H
 #define IMU_H
 
@@ -18,20 +19,14 @@
 #define MAG_CS_PORT GPIOA
 #define MAG_CS_PIN GPIO_PIN_11
 
-#define dT 0.001f
-
 #define mahony_MAXOUT 10.00f
-#define mahony_i_maxout 0.0f
-#define mahony_Kp 5.0f
-#define mahony_Ki 0.00f
-#define mahony_Kd 0.5f
+#define mahony_i_maxout 1.00f
+#define mahony_Kp 2.0f  //5
+#define mahony_Ki 0.01f
+#define mahony_Kd 0.0f  //0.5
 
 #define IMU_KF_Q 1.0f
 #define IMU_KF_R 5000.0f
-
-
-// #define M_PI 3.14159265358979323846
-#define M_PI 3.14159
 
 enum
 {
@@ -81,12 +76,16 @@ typedef struct
     float A_World[2][3];
     float Velocity[2][2][3];
     float temp[2][3];
+    float G_Offset[3];
+    float A_Offset[3];
+    uint8_t calib_done;
 }
 IMU_DATA_t;
 
 
 extern IMU_DATA_t IMU_Data;
 void IMU_Init(void);
+void IMU_Calibrate(void);
 void BMX055_Write(uint8_t Sensor,uint8_t Reg_Addr,uint8_t data);
 void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr);
 void IMU_Data_Read(void);
