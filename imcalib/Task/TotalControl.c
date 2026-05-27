@@ -52,7 +52,7 @@ void Vofa(void)
 		// Button_Data.TIM_INIT_FLAG,
 		// Button_Data.Start_Time,
 		// Button_Data.Short_Press_Start_Time,
-		// Button_Data.Current_Time,
+		// Button_Data.Current_Time,1
 		// Button_Data.Continuous_Time,
 		// Button_Data.Continuous_FLag,
 		// Button_Data.Debounce_Time,

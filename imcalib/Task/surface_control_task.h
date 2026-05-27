@@ -28,17 +28,17 @@
 
 #define  Servo_UL_ZERO      1570
 #define  Servo_UR_ZERO      1660
-#define  Servo_DR_ZERO      1550
-#define  Servo_DL_ZERO      1580
+#define  Servo_DR_ZERO      1570
+#define  Servo_DL_ZERO      1400
 
-#define  Servo_PWM_MIN      1100
-#define  Servo_PWM_MAX      2200
+#define  Servo_PWM_MIN      1000
+#define  Servo_PWM_MAX      2000
 
 /* X 翼方向系数:台架联调时单轴阶跃,反向了翻号(不要动公式) */
-#define  SIGN_UL  (+1.0f)
-#define  SIGN_UR  (-1.0f)
-#define  SIGN_DR  (-1.0f)
-#define  SIGN_DL  (+1.0f)
+#define  SIGN_UL  (-1.0f)
+#define  SIGN_UR  (+1.0f)
+#define  SIGN_DR  (+1.0f)
+#define  SIGN_DL  (-1.0f)
 
  enum
 {
@@ -120,6 +120,7 @@ extern Self_Text_t Self_Text;
 extern uint8_t Guidance_State;
 extern uint8_t Wing_Servo_Control_Flag;
 extern uint16_t end_cnt ;
+extern uint16_t Guidance_cnt[3];
 void surface_control_task(void);
 
 

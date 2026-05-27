@@ -17,7 +17,7 @@ float ABS(float num)
 	float value = (num<0) ? -num : num;
  	
 	return value;
-}
+}                                            
 
 void abs_limit(float *a, float ABS_MAX)
 {
@@ -29,14 +29,14 @@ void abs_limit(float *a, float ABS_MAX)
 
 void pid_init(void)
 {
-    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,40,10,0.5f,0.0f,0.4f,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,40,10,0.8f,0.08f,0.8f,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,65,10,0.8f,0.05f,0.2f,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,10,4,0.1f,0.0f,0.0f,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,10,4,0.1f,0.0f,0.0f,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,10,4,0.1f,0.0f,0.0f,0.0f,0.0f);
 
     // 角速度环PID参数 - 更注重响应速度
-    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,20,5,0.5f,0.02f ,0.6f,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,20,5,0.6f,0.05f, 0.8f,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,45,0,0.75f,0.01f,0.4f,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,10,4,0.1f  ,0.0f  ,0.0f,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,10,4,0.1f  ,0.0f  ,0.0f,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,10,4,0.1f  ,0.0f  ,0.0f,0.0f,0.0f);
 
     // 设置控制死区，减少小误差时的舵机抖动
     surface_control_pid[Angle][PITCH].deadband = 0.5f;

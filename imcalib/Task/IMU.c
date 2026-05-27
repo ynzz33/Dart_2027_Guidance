@@ -162,7 +162,7 @@ void IMU_Attitude_Algorithm(void)
 
     IMU_Data.Euler[NOW][PITCH]  =   RAD2DEG(IMU_Data.Euler[NOW][PITCH]);
     IMU_Data.Euler[NOW][ROLL]   =   RAD2DEG(IMU_Data.Euler[NOW][ROLL]);
-    IMU_Data.Euler[NOW][YAW]    = -(RAD2DEG(IMU_Data.Euler[NOW][YAW]));
+    IMU_Data.Euler[NOW][YAW]    =   RAD2DEG(IMU_Data.Euler[NOW][YAW]);
 #endif
 #if 1   /*历史值记录，数据更新*/
     // if (IMU_Data.Euler[NOW][PITCH] < 0)
