@@ -25,8 +25,8 @@ typedef struct	__FFC_t
 	float FFC_pos_out;
 	float set_point;
 
-	double num1;
-	double num2;
+	float num1;
+	float num2;
 
 }FFC_t;
 
@@ -79,6 +79,7 @@ void pid_init(void);
 static void pid_param_init(pid_t *pid,uint8_t mode,float maxout,float intergral_limit,float kp,float ki,float kd );
 /*PID���㺯��*/
 float pid_calc(pid_t* pid, float get, float set , float delta_time);
+float Deadband_Soften(float err, float deadband);
 void Euler_pid_Cale(float delta_time_z);
 float FeedForwardController(FFC_t *FFC,float target,float num1,float num2);
 extern pid_t surface_control_pid[2][3];

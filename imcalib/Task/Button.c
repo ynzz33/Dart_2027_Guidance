@@ -81,7 +81,7 @@ void Short_Press_Process(void)
                 case 4:
                 {
                         // ==================放歌==============
-                        Buzzer_play_song(song_ni);
+                        // Buzzer_play_song(song_ni);
                 }break;
                 case 8:
                 {

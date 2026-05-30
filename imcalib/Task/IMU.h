@@ -19,14 +19,17 @@
 #define MAG_CS_PORT GPIOA
 #define MAG_CS_PIN GPIO_PIN_11
 
-#define mahony_MAXOUT 10.00f
-#define mahony_i_maxout 1.00f
-#define mahony_Kp 2.0f  //5
-#define mahony_Ki 0.01f
-#define mahony_Kd 0.0f  //0.5
+/* Mahony 互补滤波:预测(陀螺积分)-校正(加速度拉回重力方向),即"更聪明的输入滤波" */
+#define mahony_MAXOUT   10.00f   /* 修正量限幅,防加速度突变把姿态拉飞 */
+#define mahony_i_maxout  1.00f   /* 积分限幅 */
+#define mahony_Kp        10.0f    /* 加速度校正强度:大→快速消陀螺漂移但易被振动带歪;小→抗扰好但收敛慢 */
+#define mahony_Ki        0.01f   /* 估计陀螺零偏残差,通常 0.005~0.02 */
+#define mahony_Kd        0.0f    /* 必须为 0:标准 Mahony 只有 PI,D 项会放大噪声 */
 
-#define IMU_KF_Q 1.0f
-#define IMU_KF_R 5000.0f
+#define GYR_KF_Q 1.0f
+#define GYR_KF_R 1000.0f
+#define ACC_KF_Q 1.0f
+#define ACC_KF_R 1000.0f
 
 enum
 {

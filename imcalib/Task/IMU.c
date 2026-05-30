@@ -313,9 +313,9 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr)
                         if (isnan(IMU_Data.A[NOW][k]) || fabsf(IMU_Data.A[NOW][k]) > ACC_SAT_G)
                             IMU_Data.A[NOW][k] = IMU_Data.A[LAST][k];
                     }
-                    IMU_Data.A[NOW][X] = KalmanFilter(&IMU_Kalman_Filter[ACC][X],IMU_Data.A[NOW][X],IMU_KF_Q,IMU_KF_R);
-                    IMU_Data.A[NOW][Y] = KalmanFilter(&IMU_Kalman_Filter[ACC][Y],IMU_Data.A[NOW][Y],IMU_KF_Q,IMU_KF_R);
-                    IMU_Data.A[NOW][Z] = KalmanFilter(&IMU_Kalman_Filter[ACC][Z],IMU_Data.A[NOW][Z],IMU_KF_Q,IMU_KF_R);
+                    IMU_Data.A[NOW][X] = KalmanFilter(&IMU_Kalman_Filter[ACC][X],IMU_Data.A[NOW][X],ACC_KF_Q,ACC_KF_R);
+                    IMU_Data.A[NOW][Y] = KalmanFilter(&IMU_Kalman_Filter[ACC][Y],IMU_Data.A[NOW][Y],ACC_KF_Q,ACC_KF_R);
+                    IMU_Data.A[NOW][Z] = KalmanFilter(&IMU_Kalman_Filter[ACC][Z],IMU_Data.A[NOW][Z],ACC_KF_Q,ACC_KF_R);
                     for (int k = 0; k < 3; k++) IMU_Data.A[LAST][k] = IMU_Data.A[NOW][k];
 
                 }break;
@@ -334,9 +334,9 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr)
                         for (int k = 0; k < 3; k++)
                             IMU_Data.G[NOW][k] -= IMU_Data.G_Offset[k];
                     }
-                    IMU_Data.G[NOW][PITCH] = KalmanFilter(&IMU_Kalman_Filter[GYR][PITCH],IMU_Data.G[NOW][PITCH],IMU_KF_Q,IMU_KF_R);
-                    IMU_Data.G[NOW][ROLL ] = KalmanFilter(&IMU_Kalman_Filter[GYR][ROLL ],IMU_Data.G[NOW][ROLL ],IMU_KF_Q,IMU_KF_R);
-                    IMU_Data.G[NOW][YAW  ] = KalmanFilter(&IMU_Kalman_Filter[GYR][YAW  ],IMU_Data.G[NOW][YAW  ],IMU_KF_Q,IMU_KF_R);
+                    IMU_Data.G[NOW][PITCH] = KalmanFilter(&IMU_Kalman_Filter[GYR][PITCH],IMU_Data.G[NOW][PITCH],GYR_KF_Q,GYR_KF_R);
+                    IMU_Data.G[NOW][ROLL ] = KalmanFilter(&IMU_Kalman_Filter[GYR][ROLL ],IMU_Data.G[NOW][ROLL ],GYR_KF_Q,GYR_KF_R);
+                    IMU_Data.G[NOW][YAW  ] = KalmanFilter(&IMU_Kalman_Filter[GYR][YAW  ],IMU_Data.G[NOW][YAW  ],GYR_KF_Q,GYR_KF_R);
                     for (int i = 0;i<3;i++)
                     {
                         IMU_Data.G_Rad[NOW][i] = DEG2RAD(IMU_Data.G[NOW][i]);

@@ -73,13 +73,14 @@ void Data_Updata(void)
 
 void Guidance_Start(void)//自检后的判断
 {
-
+        // Surface.target_angle_Euler[NOW][PITCH]  = 0;
+        // Surface.target_angle_Euler[NOW][ROLL]  = 0;
+        // Surface.target_angle_Euler[NOW][YAW]  = 0;
 }
 void Guidance_Stable(void)//自稳
 {
-        // Surface.target_angle_Euler[NOW][PITCH] = Low_Pass_Filter(Surface.current_angle_Euler[NOW][PITCH],Surface.current_angle_Euler[LAST][PITCH],0.7f);//(Stable_Pitch - Surface.current_angle_Euler[NOW][PITCH])/2;
-        // Surface.target_angle_Euler[NOW][ROLL]  =  0;//Surface.current_angle_Euler[NOW][ROLL];
-        // Surface.target_angle_Euler[NOW][YAW]   = Low_Pass_Filter(Surface.current_angle_Euler[NOW][YAW],Surface.current_angle_Euler[LAST][YAW],0.7f);  //Surface.current_angle_Euler[NOW][YAW];
+        Surface.target_angle_Euler[NOW][ROLL]  = Surface.current_angle_Euler[NOW][ROLL];
+        Surface.target_angle_Euler[NOW][YAW]  = Surface.current_angle_Euler[NOW][YAW];
         // Buzzer_play_song(song_ni);
         if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE)
         {
@@ -91,33 +92,33 @@ void Guidance_Terminal(void)//制导段
     taskENTER_CRITICAL();
     Vision_Rx_Buf_t v = Vision_Rx_Data;
     taskEXIT_CRITICAL();       
+    // Surface.target_angle_Euler[NOW][PITCH]  = 0;
+    // Surface.target_angle_Euler[NOW][ROLL]  = 0;
+    // Surface.target_angle_Euler[NOW][YAW]  = 0;
+
     Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
     Surface.target_angle_Euler[NOW][ROLL]  = 0;
-        Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
+    Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
 
-    // if (v.Vision_recognize_flag == RECOGNIZE_SUCCESS)
-    // {
-    //     // PNG_Guidance(&Vision_Rx_Data,&PNG_Data,&Surface,&IMU_Data);
-    //     Surface.target_angle_Euler[NOW][PITCH] = v.x[NOW]+Surface.current_angle_Euler[NOW][PITCH]  ;
-    //     Surface.target_angle_Euler[NOW][YAW]   = v.y[NOW]+Surface.current_angle_Euler[NOW][YAW]    ;
-    //     if (v.y[NOW]<10 && v.y[NOW]>-10)
-    //     {
-    //         Surface.target_angle_Euler[NOW][ROLL]  = Surface.current_angle_Euler[NOW][ROLL]/2;
-    //     }
-    //     else
-    //     {
-    //         Surface.target_angle_Euler[NOW][ROLL]  = v.y[NOW]*0.8f;
-    //     }
-    // }
-    // if (v.Vision_recognize_flag == RECOGNIZE_FAILURE)
-    // {
-    //     Vision_Transmit(Vision_Cmd_Work);
-    //     // PNG_Data.FOV_GYRO[X] = 0;
-    //     // PNG_Data.FOV_GYRO[Y] = 0;
-    //     Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-    //     Surface.target_angle_Euler[NOW][ROLL]  = 0;
-    //     Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
-    // }
+    if (v.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+    {
+        // PNG_Guidance(&Vision_Rx_Data,&PNG_Data,&Surface,&IMU_Data);
+        Surface.target_angle_Euler[NOW][PITCH] = v.x[NOW]+Surface.current_angle_Euler[NOW][PITCH]  ;
+        Surface.target_angle_Euler[NOW][YAW]   = v.y[NOW]+Surface.current_angle_Euler[NOW][YAW]    ;
+        if (v.y[NOW]<10 && v.y[NOW]>-10)
+        {
+            Surface.target_angle_Euler[NOW][ROLL]  = Surface.current_angle_Euler[NOW][ROLL]/2;
+        }
+    }
+    if (v.Vision_recognize_flag == RECOGNIZE_FAILURE)
+    {
+        Vision_Transmit(Vision_Cmd_Work);
+        // PNG_Data.FOV_GYRO[X] = 0;
+        // PNG_Data.FOV_GYRO[Y] = 0;
+        Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+        Surface.target_angle_Euler[NOW][ROLL]  = 0;
+        Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
+    }  
 }
 void Guidance_End(void)
 {
@@ -135,6 +136,7 @@ void Guidance_End(void)
 
 void get_current_Target(void)
 {
+        // Guidance_State = Stable;
         switch(Guidance_State)
         {
             case Start:
@@ -173,17 +175,17 @@ void get_current_State(void)
         //     cnt = 40 ;
         // }
     }
-    else if (Guidance_State == Start && IMU_Data.A_Normed[NOW][X] >= 0.90f)
+    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][X] >= 0.80f||IMU_Data.A[NOW][X] <= -1.50f))
     {
         if (Guidance_cnt[0]++ > 10)
         {
             Guidance_State = Stable;
             Guidance_cnt[0] = 0;
             // Stable_Pitch = IMU_Data.A_Normed[NOW][PITCH];
-            Vision_Transmit( Vision_Cmd_Record_Start );
+            // Vision_Transmit( Vision_Cmd_Record_Start );
         }
     }
-    else if (Guidance_State == Stable && IMU_Data.Euler[NOW][PITCH]<=-5.0f)
+    else if (Guidance_State == Stable && IMU_Data.Euler[NOW][PITCH]<=0.0f)
     {
         if(Guidance_cnt[1]++>10)
         {
@@ -223,7 +225,7 @@ void Wing_left_Control(float data)
     // __HAL_TIM_SET_COMPARE( &htim4,Wing_left_Channel   ,Surface.Finally_Angle[NOW][Wing_left]);
     __HAL_TIM_SET_COMPARE( &htim4,Wing_left_Channel,Wing_left_ZERO_POINT);
 
-}
+} 
 void Wing_right_Control(float data)
 {
     //变小向上，变大向下
@@ -285,31 +287,33 @@ void Wing_Control_FIXED_WING(void)
 /* X 翼 4 个舵机 PWM 写入:接 TIM3 CH2 TIM4 CH2-CH4 (PB6/PB7/PB8/PB9)
  * 输入 data 单位是度(±90 内), 内部映射到 PWM 微秒并做 ZERO 偏置 + 限幅
  */
-static inline uint16_t pwm_clip_us(float us)
-{
-    if (us < (float)Servo_PWM_MIN) return (uint16_t)Servo_PWM_MIN;
-    if (us > (float)Servo_PWM_MAX) return (uint16_t)Servo_PWM_MAX;
-    return (uint16_t)us;
-}
 void Wing_UL_Control(float data)//硬件原因导致左上舵机接在了 TIM3 上，所以单独写函数控制
 {
     Surface.Finally_Angle[NOW][UP_LEFT]  = Servo_UL_ZERO + (data / 90.0f * 1000.0f);
-    __HAL_TIM_SET_COMPARE(&htim3, Servo_UL_Channel, pwm_clip_us(Surface.Finally_Angle[NOW][UP_LEFT]));
+    __HAL_TIM_SET_COMPARE(&htim3, Servo_UL_Channel, Surface.Finally_Angle[NOW][UP_LEFT]);
+    
+    // __HAL_TIM_SET_COMPARE(&htim3, Servo_UL_Channel, Servo_UL_ZERO);
 }
 void Wing_UR_Control(float data)
 { 
     Surface.Finally_Angle[NOW][UP_RIGHT] = Servo_UR_ZERO + (data / 90.0f * 1000.0f);
-    __HAL_TIM_SET_COMPARE(&htim4, Servo_UR_Channel, pwm_clip_us(Surface.Finally_Angle[NOW][UP_RIGHT]));
+    __HAL_TIM_SET_COMPARE(&htim4, Servo_UR_Channel, Surface.Finally_Angle[NOW][UP_RIGHT]);
+    
+    // __HAL_TIM_SET_COMPARE(&htim3, Servo_UL_Channel, Servo_UR_ZERO);
 }
 void Wing_DL_Control(float data)
 {
     Surface.Finally_Angle[NOW][DOWN_LEFT]  = Servo_DL_ZERO + (data / 90.0f * 1000.0f);
-    __HAL_TIM_SET_COMPARE(&htim4, Servo_DL_Channel, pwm_clip_us(Surface.Finally_Angle[NOW][DOWN_LEFT]));
+    __HAL_TIM_SET_COMPARE(&htim4, Servo_DL_Channel, Surface.Finally_Angle[NOW][DOWN_LEFT]);
+
+    // __HAL_TIM_SET_COMPARE(&htim3, Servo_UL_Channel, Servo_DR_ZERO);
 }
 void Wing_DR_Control(float data)
 {
     Surface.Finally_Angle[NOW][DOWN_RIGHT] = Servo_DR_ZERO + (data / 90.0f * 1000.0f);
-    __HAL_TIM_SET_COMPARE(&htim4, Servo_DR_Channel, pwm_clip_us(Surface.Finally_Angle[NOW][DOWN_RIGHT]));
+    __HAL_TIM_SET_COMPARE(&htim4, Servo_DR_Channel, Surface.Finally_Angle[NOW][DOWN_RIGHT]);
+
+    // __HAL_TIM_SET_COMPARE(&htim3, Servo_UL_Channel, Servo_DL_ZERO);
 }
 void Wing_Control_VECTOR_NOZZLE(void)
 {
@@ -366,9 +370,9 @@ void surface_control_task(void)
     {
         if (Guidance_State==Stable||Guidance_State==Terminal)
         {
-            float p = 0;//Surface.output_gyro_Euler[NOW][PITCH];
-            float r = 40;//Surface.output_gyro_Euler[NOW][ROLL];
-            float y = 0;//Surface.output_gyro_Euler[NOW][YAW];原始的都反了改一下sign就好
+            float p = Surface.output_gyro_Euler[NOW][PITCH];
+            float r = Surface.output_gyro_Euler[NOW][ROLL];
+            float y = Surface.output_gyro_Euler[NOW][YAW];//极性已改完
             /* X 翼标准混控:4 舵面成 ╳ 形,每片同时承担 P/R/Y。
              * SIGN_xx 在台架联调时单轴阶跃测试,若某舵反向了翻号,不要动公式本身。 */
             Surface.output_angle_Servo[NOW][UP_LEFT]    = SIGN_UL * ( +p + r - y );
@@ -382,7 +386,7 @@ void surface_control_task(void)
             // Surface.output_angle_Servo[NOW][i],
             // Surface.output_angle_Servo[LAST][i], 0.7f);
 
-            abs_limit(&Surface.output_angle_Servo[NOW][i], 40.0f);
+            abs_limit(&Surface.output_angle_Servo[NOW][i], 60.0f);
         }
     }
     if(DART_TYPE == FIXED_WING    )//飞翼

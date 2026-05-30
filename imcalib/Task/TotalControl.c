@@ -34,6 +34,7 @@ void TotalControl(void)
 void Vofa(void)
 {
 	Vofa_Send_Data24(
+#if 0
 		//====================Dart_Trigger============
 		// Dart_Trigger_Data.Communicate_Flag,
 		// Dart_Trigger_Data.Frame_Head,
@@ -99,16 +100,45 @@ void Vofa(void)
 	// IMU_Data.Q[NOW][1],
 	// IMU_Data.Q[NOW][2],
 	// IMU_Data.Q[NOW][3]000
-
+#endif
 		//============逻辑================
+	// Surface.target_angle_Euler[NOW][PITCH],
+	// Surface.target_angle_Euler[NOW][ROLL ],
+	// Surface.target_angle_Euler[NOW][YAW  ],
+	// Surface.current_angle_Euler[NOW][PITCH],
+	// Surface.current_angle_Euler[NOW][ROLL ],
+	// Surface.current_angle_Euler[NOW][YAW  ],
+	// Vision_Rx_Data.x[NOW],
+	// Vision_Rx_Data.y[NOW],
+	// Surface.Finally_Angle[NOW][UP_LEFT   ],
+	// Surface.Finally_Angle[NOW][UP_RIGHT  ],
+	// Surface.Finally_Angle[NOW][DOWN_RIGHT],
+	// Surface.Finally_Angle[NOW][DOWN_LEFT   ],
+	// IMU_Data.G[NOW][PITCH],
+	// IMU_Data.G[NOW][ROLL ],
+	// IMU_Data.G[NOW][YAW  ],
+	// IMU_Data.A[NOW][X],
+	// IMU_Data.A[NOW][Y],
+	// IMU_Data.A[NOW][Z],
+	// IMU_Data.A_Normed[NOW][X],
+	// IMU_Data.A_Normed[NOW][Y],
+	// IMU_Data.A_Normed[NOW][Z],
+	// Self_Text.Self_Text_Process,
+	// ADC_Voltage_Real,
+	// Guidance_State
+	
 	Surface.target_angle_Euler[NOW][PITCH],
 	Surface.target_angle_Euler[NOW][ROLL ],
 	Surface.target_angle_Euler[NOW][YAW  ],
 	Surface.current_angle_Euler[NOW][PITCH],
 	Surface.current_angle_Euler[NOW][ROLL ],
 	Surface.current_angle_Euler[NOW][YAW  ],
-	Vision_Rx_Data.x[NOW],
-	Vision_Rx_Data.y[NOW],
+	temp[1],
+	temp[2],
+	temp[3],
+	Surface.output_gyro_Euler[NOW][PITCH],
+    Surface.output_gyro_Euler[NOW][ROLL],
+    Surface.output_gyro_Euler[NOW][YAW],
 	Surface.Finally_Angle[NOW][UP_LEFT   ],
 	Surface.Finally_Angle[NOW][UP_RIGHT  ],
 	Surface.Finally_Angle[NOW][DOWN_RIGHT],
@@ -119,12 +149,10 @@ void Vofa(void)
 	IMU_Data.A[NOW][X],
 	IMU_Data.A[NOW][Y],
 	IMU_Data.A[NOW][Z],
-	IMU_Data.A_Normed[NOW][X],
-	IMU_Data.A_Normed[NOW][Y],
-	IMU_Data.A_Normed[NOW][Z],
-	Self_Text.Self_Text_Process,
 	ADC_Voltage_Real,
 	Guidance_State
+
+
 	//============逻辑================
 		// Surface.current_angle_Euler[NOW][PITCH],
 		// Surface.current_angle_Euler[NOW][ROLL ],			//转换后的欧拉角，即当前欧拉角

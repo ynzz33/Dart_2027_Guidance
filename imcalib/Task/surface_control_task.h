@@ -26,13 +26,12 @@
 #define  Servo_DR_Channel   TIM_CHANNEL_3   /* PB8 - DOWN_LEFT  */
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* PB9 - DOWN_RIGHT */
 
-#define  Servo_UL_ZERO      1570
-#define  Servo_UR_ZERO      1660
-#define  Servo_DR_ZERO      1570
-#define  Servo_DL_ZERO      1400
+#define  Servo_UL_ZERO      1600
+#define  Servo_UR_ZERO      1600
+#define  Servo_DR_ZERO      1600
+#define  Servo_DL_ZERO      1600
 
-#define  Servo_PWM_MIN      1000
-#define  Servo_PWM_MAX      2000
+#define  Servo_PWM_Limit      500
 
 /* X 翼方向系数:台架联调时单轴阶跃,反向了翻号(不要动公式) */
 #define  SIGN_UL  (-1.0f)
