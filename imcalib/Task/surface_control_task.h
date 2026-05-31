@@ -27,9 +27,9 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* PB9 - DOWN_RIGHT */
 
 #define  Servo_UL_ZERO      1600
-#define  Servo_UR_ZERO      1600
-#define  Servo_DR_ZERO      1600
-#define  Servo_DL_ZERO      1600
+#define  Servo_UR_ZERO      1680
+#define  Servo_DR_ZERO      1570
+#define  Servo_DL_ZERO      1650
 
 #define  Servo_PWM_Limit      500
 
@@ -38,6 +38,9 @@
 #define  SIGN_UR  (+1.0f)
 #define  SIGN_DR  (+1.0f)
 #define  SIGN_DL  (-1.0f)
+
+/* X 翼舵机机械偏转角限幅(度),统一替代散落的 60.0f 字面量 */
+#define  SERVO_ANGLE_LIMIT  60.0f
 
  enum
 {
@@ -120,6 +123,7 @@ extern uint8_t Guidance_State;
 extern uint8_t Wing_Servo_Control_Flag;
 extern uint16_t end_cnt ;
 extern uint16_t Guidance_cnt[3];
+extern float servo_lat_scale;   /* Vofa 可观测:横侧保留比例 k,1=未饱和,<1=正为保 pitch 缩 roll/yaw */
 void surface_control_task(void);
 
 

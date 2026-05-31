@@ -31,11 +31,11 @@ void pid_init(void)
 {
     PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,60,4,0.7f,0.00f,0.0f,0.3f,0.7f);
     PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,60,4,0.7f,0.00f,0.0f,0.3f,0.7f);
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,60,4,0.7f,0.00f,0.0f,0.3f,0.7f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,60,4,1.7f,0.00f,0.0f,0.3f,0.7f);
 
     PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,60,4,0.13f,0.0f,0.00f,0.3f,0.7f);
     PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,60,4,0.13f,0.0f,0.00f,0.3f,0.7f);
-    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,60,4,0.13f,0.0f,0.00f,0.3f,0.7f);
+    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,60,4,0.33f,0.0f,0.00f,0.3f,0.7f);
 
     surface_control_pid[Angle][PITCH].deadband  = 3.0f;
     surface_control_pid[Angle][ROLL].deadband   = 3.0f;
