@@ -36,7 +36,7 @@ uint8_t DART_TYPE = VECTOR_NOZZLE;
 uint8_t Guidance_State;
 Surface_t Surface;
 Self_Text_t Self_Text;
-uint8_t Wing_Servo_Control_Flag = 1;//舵机控制标志位
+uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
 float Stable_Pitch,Stable_Yaw;
 uint16_t end_cnt = 0,Guidance_cnt[3] = {0};
 float servo_lat_scale = 1.0f;   /* 横侧(roll/yaw)保留比例 k,Pitch 优先分配时被缩放,Vofa 可观测 */
@@ -75,13 +75,13 @@ void Data_Updata(void)
 void Guidance_Start(void)//自检后的判断
 {
         Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];//pitch 靠机械/动力稳,目标=当前角:只阻尼,不死保绝对 0
-        Surface.target_angle_Euler[NOW][ROLL]  = Surface.current_angle_Euler[NOW][ROLL];
+        Surface.target_angle_Euler[NOW][ROLL]  = Surface.current_angle_Euler[NOW][ROLL]*2.0f/3.0f;
         Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
 }
 void Guidance_Stable(void)//自稳
 {
         Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];//pitch 靠机械/动力稳,目标=当前角:只阻尼,不死保绝对 0
-        Surface.target_angle_Euler[NOW][ROLL]  = Surface.current_angle_Euler[NOW][ROLL];
+        Surface.target_angle_Euler[NOW][ROLL]  = Surface.current_angle_Euler[NOW][ROLL]*2.0f/3.0f;
         Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
         // Buzzer_play_song(song_ni);
         if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE)
@@ -99,7 +99,7 @@ void Guidance_Terminal(void)//制导段
     // Surface.target_angle_Euler[NOW][YAW]  = 0;
 
     Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-    Surface.target_angle_Euler[NOW][ROLL]  = 0;
+    Surface.target_angle_Euler[NOW][ROLL]  = Surface.current_angle_Euler[NOW][ROLL]*2.0f/3.0f;
     Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
 
     if (v.Vision_recognize_flag == RECOGNIZE_SUCCESS)
@@ -113,7 +113,6 @@ void Guidance_Terminal(void)//制导段
         {
             Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         }
-        Surface.target_angle_Euler[NOW][PITCH] = v.x[NOW]+Surface.current_angle_Euler[NOW][PITCH]  ;
         Surface.target_angle_Euler[NOW][YAW]   = v.y[NOW]+Surface.current_angle_Euler[NOW][YAW]    ;
     }
     if (v.Vision_recognize_flag == RECOGNIZE_FAILURE)
@@ -140,6 +139,7 @@ void Guidance_End(void)
 void get_current_Target(void)
 {
         // Guidance_State = Stable;
+        Stable_Flag = 0;
         switch(Guidance_State)
         {
             case Start:
@@ -148,8 +148,9 @@ void get_current_Target(void)
             }break;
             case Stable:
             {
-                if(IMU_Data.Euler[NOW][PITCH]<=20.0f)
+                if(IMU_Data.Euler[NOW][PITCH]<=15.0f)
                 {
+                    Stable_Flag = 1;
                     Guidance_Stable();
                 }
             }break;
@@ -356,7 +357,8 @@ void Servo_Mix_PitchPriority(float p, float r, float y)
 
 void Wing_Control_VECTOR_NOZZLE(void)
 {
-    if (Guidance_State == Terminal||Guidance_State == Self_Text_State)
+    if (Guidance_State == Terminal||Guidance_State == Self_Text_State||Stable_Flag ==1 )
+    // if (Guidance_State == Self_Text_State)
     {
         Wing_UL_Control(Surface.output_angle_Servo[NOW][UP_LEFT]    );
         Wing_UR_Control(Surface.output_angle_Servo[NOW][UP_RIGHT]   );
