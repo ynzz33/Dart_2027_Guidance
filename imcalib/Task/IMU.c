@@ -329,7 +329,7 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr)
                         if (isnan(IMU_Data.G[NOW][k]) || fabsf(IMU_Data.G[NOW][k]) > GYRO_SAT_DPS)
                             IMU_Data.G[NOW][k] = IMU_Data.G[LAST][k];
                     }
-                    if (IMU_Data.calib_done)
+                    if (IMU_Data.calib_done!=0)
                     {
                         for (int k = 0; k < 3; k++)
                             IMU_Data.G[NOW][k] -= IMU_Data.G_Offset[k];

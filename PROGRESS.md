@@ -2,7 +2,7 @@
 
 > 项目进度的单一入口。详细技术方案见文末「[详细方案文档](#详细方案文档)」。
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
-> 最后更新：2026-05-31
+> 最后更新：2026-06-02
 
 ## 项目简介
 
@@ -53,12 +53,19 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - 方案：pitch 先限幅全额保留，roll/yaw 横侧分量统一乘 `k=min(1, minᵢ(LIMIT−sgn(Lᵢ)·Pᵢ)/|Lᵢ|)` 缩进舵机余量；反解 pitch 恒=p、与 k 无关（已独立数学核验）。
 - 配套：[surface_control_task.h](imcalib/Task/surface_control_task.h) 新增 `SERVO_ANGLE_LIMIT 60.0f` + `servo_lat_scale`（Vofa 观测 k）。下游 Wing/PID/SIGN_xx 标定全不变。
 
+### 世界系 pitch/yaw 解算 / roll 反旋（2026-06-02，输出端）
+- 台架确认 IMU 欧拉 pitch/yaw 是 **ZYX 世界系参考**（绕纵轴横滚 90°，PITCH 读数几乎不变）→ PID 输出是「世界系 pitch/yaw 力矩需求」，但 X 翼舵面产生**机体系**力矩，缺一层 roll 反旋。
+- 新增 `Roll_Derotate_PitchYaw(Pw,Yw,&Pb,&Yb)`（[surface_control_task.c](imcalib/Task/surface_control_task.c)，置于 `Servo_Mix_PitchPriority` 前）：Δ=当前roll−Stable_roll，`Pb=cosΔ·Pw+sinΔ·Yw, Yb=−sinΔ·Pw+cosΔ·Yw`；roll 通道（绕纵轴）不动，Δ=0 恒等。VECTOR_NOZZLE 调用点先反旋再送混控。
+- 用户初选「输入端转换」，台架确认欧拉角为世界系后改为**输出端净版**（输入端会多一层多余 R(Δ)、因 pitch/yaw 增益不等而交叉耦合）。
+- 配套：`ROLL_WORLD_COMP_SIGN`（±1 翻号宏）+ `Roll_World_Comp_Flag`（运行时直通开关，0=旧行为便于 A/B）+ Vofa 观测量 `roll_world_delta / roll_world_pb / roll_world_yb`。下游混控/PID/IMU/SIGN_xx 标定全不变。
+
 ---
 
 ## 当前 TODO
 
 ### ⏳ 待 Vofa 台架验证
 - **Pitch 优先分配**（完整验证清单见 [plan-pitch-priority-mixing.md](plan-pitch-priority-mixing.md#验证清单待台架执行配合-vofa)）：纯 pitch 阶跃时 `servo_lat_scale`≡1；大 roll/yaw 饱和时 k<1 而从输出反解的 pitch 分量不变；长跑 >5 min 无 HardFault。
+- **roll→世界 pitch/yaw 反旋 SIGN**：`Roll_World_Comp_Flag=0` 行为同旧版（直通对照）；置 1 且 Δ≈0 时恒等（`roll_world_delta`≈0、pb≈Pw、yb≈Yw）；横滚 +90° 给纯世界 pitch（Pw>0,Yw=0）应得 pb≈0、yb≈±Pw 且机头朝**正确**世界方向修正，反了则把 `ROLL_WORLD_COMP_SIGN` 翻成 −1 重编。
 
 ### 🔜 下一步（待 Vofa 验证后）
 - **启用并标定 FFC** `num1/num2`：先内环角速度环，阶跃目标看超调/滞后。

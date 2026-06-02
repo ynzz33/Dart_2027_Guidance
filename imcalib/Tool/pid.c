@@ -29,20 +29,30 @@ void abs_limit(float *a, float ABS_MAX)
 
 void pid_init(void)
 {
-    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,60,4,0.7f,0.00f,0.0f,0.3f,0.7f);
-    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,60,4,0.2f,0.00f,0.0f,0.3f,0.7f);
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,60,4,3.7f,0.00f,0.0f,0.3f,0.7f);
+// //镖体1
+    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,80,4,0.1f,0.00f,0.0f,0.3f,0.7f);
+    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,40,4,0.2f,0.00f,0.0f,0.3f,0.7f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,80,4,3.1f,0.00f,0.0f,0.3f,0.3f);
 
-    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,60,4,0.13f,0.0f,0.00f,0.3f,0.7f);
-    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,60,4,0.05f,0.0f,0.00f,0.3f,0.7f);
-    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,60,4,1.20f,0.0f,0.00f,0.3f,0.7f);
+    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,80,4,0.08f,0.0f,0.00f,0.3f,0.7f);
+    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,70,4,0.8f,0.0f,0.00f,0.3f,0.7f);
+    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,80,4,1.05f,0.0f,0.1f,0.3f,0.3f);
 
-    surface_control_pid[Angle][PITCH].deadband  = 3.0f;
-    surface_control_pid[Angle][ROLL].deadband   = 3.0f;
-    surface_control_pid[Angle][YAW].deadband    = 3.0f;
+// //镖体2
+    // PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,80,4,0.2f,0.00f,0.0f,0.3f,0.7f);
+    // PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,20,4,0.2f,0.00f,0.0f,0.3f,0.7f);
+    // PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,80,4,4.7f,0.00f,0.0f,0.3f,0.3f);
+
+    // PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,80,4,0.13f,0.0f,0.00f,0.3f,0.7f);
+    // PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,30,4,0.05f,0.0f,0.00f,0.3f,0.7f);
+    // PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,80,4,0.8f,0.0f,0.00f,0.3f,0.3f);
+     
+    surface_control_pid[Angle][PITCH].deadband  = 5.0f;
+    surface_control_pid[Angle][ROLL].deadband   = 0.0f;
+    surface_control_pid[Angle][YAW].deadband    = 0.0f;
     surface_control_pid[Gyro][PITCH].deadband   = 5.0f;
-    surface_control_pid[Gyro][ROLL].deadband    = 5.0f;
-    surface_control_pid[Gyro][YAW].deadband     = 5.0f;
+    surface_control_pid[Gyro][ROLL].deadband    = 0.0f;//3.0
+    surface_control_pid[Gyro][YAW].deadband     = 2.0f;
     
     PID_struct_init(&mahony_pid[PITCH] ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
     PID_struct_init(&mahony_pid[ROLL]  ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);

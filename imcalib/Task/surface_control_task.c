@@ -37,9 +37,12 @@ uint8_t Guidance_State;
 Surface_t Surface;
 Self_Text_t Self_Text;
 uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
-float Stable_Pitch,Stable_Yaw;
+float Stable_Euler_Angle[3] = {0};//自稳时的稳定角度，初始为0，后续更新为自检后的角度
 uint16_t end_cnt = 0,Guidance_cnt[3] = {0};
 float servo_lat_scale = 1.0f;   /* 横侧(roll/yaw)保留比例 k,Pitch 优先分配时被缩放,Vofa 可观测 */
+uint8_t Roll_World_Comp_Flag = 1;                          /* roll→世界 pitch/yaw 反旋启用,置 0 直通(旧行为) */
+float   roll_world_delta = 0.0f;                           /* Vofa 可观测:实际反旋 Δ=当前roll−Stable_roll(度) */
+float   roll_world_pb = 0.0f, roll_world_yb = 0.0f;        /* Vofa 可观测:反旋后机体系 pitch/yaw 舵令 */
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
 
@@ -74,15 +77,27 @@ void Data_Updata(void)
 
 void Guidance_Start(void)//自检后的判断
 {
-        Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];//pitch 靠机械/动力稳,目标=当前角:只阻尼,不死保绝对 0
-        Surface.target_angle_Euler[NOW][ROLL]  = Surface.current_angle_Euler[NOW][ROLL]*2.0f/3.0f;
-        Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
+    static uint16_t cnt = 0 ;
+    if(IMU_Data.calib_done==1)
+    {
+      if(cnt++>=1000)
+      {
+          cnt = 0 ;
+          IMU_Data.calib_done = 2;
+          Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
+          Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL];
+          Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
+      }
+    }
+            Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];//pitch 靠机械/动力稳,目标=当前角:只阻尼,不死保绝对 0
+            Surface.target_angle_Euler[NOW][ROLL]  = Stable_Euler_Angle[ROLL];
+            Surface.target_angle_Euler[NOW][YAW]   = Stable_Euler_Angle[YAW];
 }
 void Guidance_Stable(void)//自稳
 {
         Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];//pitch 靠机械/动力稳,目标=当前角:只阻尼,不死保绝对 0
-        Surface.target_angle_Euler[NOW][ROLL]  = Surface.current_angle_Euler[NOW][ROLL]*2.0f/3.0f;
-        Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
+        Surface.target_angle_Euler[NOW][ROLL]  = Stable_Euler_Angle[ROLL];
+        Surface.target_angle_Euler[NOW][YAW]   = Stable_Euler_Angle[YAW];
         // Buzzer_play_song(song_ni);
         if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE)
         {
@@ -99,13 +114,13 @@ void Guidance_Terminal(void)//制导段
     // Surface.target_angle_Euler[NOW][YAW]  = 0;
 
     Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-    Surface.target_angle_Euler[NOW][ROLL]  = Surface.current_angle_Euler[NOW][ROLL]*2.0f/3.0f;
+    Surface.target_angle_Euler[NOW][ROLL]  = Stable_Euler_Angle[ROLL];
     Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
 
     if (v.Vision_recognize_flag == RECOGNIZE_SUCCESS)
     {
         // PNG_Guidance(&Vision_Rx_Data,&PNG_Data,&Surface,&IMU_Data);
-        if(Surface.current_angle_Euler[NOW][PITCH]<-10)
+        if(Surface.current_angle_Euler[NOW][PITCH]<-10.0f)
         {
             Surface.target_angle_Euler[NOW][PITCH] = v.x[NOW]+Surface.current_angle_Euler[NOW][PITCH]  ;
         }
@@ -148,7 +163,7 @@ void get_current_Target(void)
             }break;
             case Stable:
             {
-                if(IMU_Data.Euler[NOW][PITCH]<=15.0f)
+                if(IMU_Data.Euler[NOW][PITCH]<=22.0f)
                 {
                     Stable_Flag = 1;
                     Guidance_Stable();
@@ -171,8 +186,7 @@ void get_current_State(void)
         Guidance_State = Start;
         if (Self_Text.Self_Text_Process<5)
         {
-            Vision_Transmit( Vision_Cmd_Record_Start );
-            Self_Text.Self_Text_Process = 5;
+            Self_Text.Self_Text_Process = 5; 
         }
         // static uint8_t cnt = 0 ;
         // if (cnt++>20&&cnt<30)
@@ -182,10 +196,11 @@ void get_current_State(void)
         //     cnt = 40 ;
         // }
     }
-    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][X] >= 0.80f||IMU_Data.A[NOW][X] <= -1.50f))
+    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][X] >= 0.80f||IMU_Data.A[NOW][X] <= -2.0f))
     {
         if (Guidance_cnt[0]++>5)
         {
+            Vision_Transmit( Vision_Cmd_Record_Start );
             Guidance_State = Stable;
             Guidance_cnt[0] = 0;
             // Stable_Pitch = IMU_Data.A_Normed[NOW][PITCH];
@@ -200,7 +215,7 @@ void get_current_State(void)
             Guidance_cnt[1] = 0;
         }
     }
-    else if (Guidance_State == Terminal && IMU_Data.A[NOW][X]>= 1.50f&&IMU_Data.A_Normed[NOW][X] >= 0.80f)
+    else if (Guidance_State == Terminal &&IMU_Data.A_Normed[NOW][X] >= 0.90f&& IMU_Data.A[NOW][X]>= 1.50f)
     {
         if(Guidance_cnt[2]++>5)
         {
@@ -322,12 +337,39 @@ void Wing_DR_Control(float data)
 
     // __HAL_TIM_SET_COMPARE(&htim3, Servo_UL_Channel, Servo_DL_ZERO);
 }
+/* === 世界系 pitch/yaw 解算:roll 反旋(输出端) ===
+ * 喂 PID 的 ZYX 欧拉 pitch/yaw 是世界系参考(绕纵轴横滚不改 pitch 读数,已台架确认),
+ * 故 PID 输出 = 世界系 pitch/yaw 力矩需求;但 X 翼舵面产生的是机体系力矩。
+ * 机身相对参考姿态横滚 Δ=当前roll−Stable_roll 后,把 (Pw,Yw) 反旋 Δ 投到机体系:
+ *     Pb =  cosΔ·Pw + sinΔ·Yw
+ *     Yb = −sinΔ·Pw + cosΔ·Yw
+ * Δ=0(标称 roll)→恒等。roll 通道绕纵轴,不在此处理。
+ * Roll_World_Comp_Flag=0 时直通(=旧行为,便于 A/B);
+ * ROLL_WORLD_COMP_SIGN 为横滚正向/舵面朝向符号,台架单轴阶跃验证后可翻 ±1。*/
+void Roll_Derotate_PitchYaw(float Pw, float Yw, float *Pb, float *Yb)
+{
+    if (!Roll_World_Comp_Flag)
+    {
+        roll_world_delta = 0.0f;
+        roll_world_pb = Pw;  roll_world_yb = Yw;
+        *Pb = Pw;  *Yb = Yw;
+        return;
+    }
+    float d_deg = Surface.current_angle_Euler[NOW][ROLL] - Stable_Euler_Angle[ROLL];
+    float d = DEG2RAD(ROLL_WORLD_COMP_SIGN * d_deg);
+    float c = cosf(d), s = sinf(d);
+    roll_world_delta = d_deg;
+    *Pb =  c * Pw + s * Yw;
+    *Yb = -s * Pw + c * Yw;
+    roll_world_pb = *Pb;  roll_world_yb = *Yb;
+}
+
 /* Pitch 优先最小能量控制分配:
  * pitch 全额保留,roll/yaw 等比缩到舵机余量内 → 调 roll/yaw 不污染 pitch。
  * 写入 Surface.output_angle_Servo[NOW][0..3](已含 SIGN,已在 ±SERVO_ANGLE_LIMIT 内)。*/
 void Servo_Mix_PitchPriority(float p, float r, float y)
 {
-    float pitch_limit = SERVO_ANGLE_LIMIT-20;                   //pitch优先，但也有限幅
+    float pitch_limit = SERVO_ANGLE_LIMIT-45;                   //pitch优先，但也有限幅
     abs_limit(&p, pitch_limit);                           /* 1) pitch 分量优先*/
 
     float P[4], L[4];                                           /* 2) 拆 pitch 分量 / 横侧分量(逻辑符号阵) */
@@ -413,12 +455,33 @@ void surface_control_task(void)
     if(DART_TYPE == VECTOR_NOZZLE   )//x翼
     {
         if (Guidance_State==Stable||Guidance_State==Terminal)
+        // if (Guidance_State==Terminal)
         {
-            /* Pitch 优先最小能量分配:pitch 全保,roll/yaw 等比缩进限幅,不污染 pitch。
-             * SIGN_xx 仍在函数内逐片乘上,标定流程不变。 */
-            Servo_Mix_PitchPriority(Surface.output_gyro_Euler[NOW][PITCH],
-                                    Surface.output_gyro_Euler[NOW][ROLL],
-                                    Surface.output_gyro_Euler[NOW][YAW]);
+            /* 先把世界系 pitch/yaw 输出按当前 roll 反旋到机体系,再做 Pitch 优先最小能量分配:
+             * pitch 全保,roll/yaw 等比缩进限幅,不污染 pitch。SIGN_xx 仍在函数内逐片乘上,标定流程不变。 */
+            float p_body, y_body;
+            Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
+                                   Surface.output_gyro_Euler[NOW][YAW],
+                                   &p_body, &y_body);
+            // p_body = 0.0f; y_body = 0.0f;
+            // if(Guidance_State==Terminal||IMU_Data.Euler[NOW][PITCH]<=-15.0f)
+            // {
+            //     p_body*=0.7f;
+            //     y_body*=0.7f;
+            // }
+            // else 
+            if(Guidance_State==Terminal||IMU_Data.Euler[NOW][PITCH]<-15.0f)
+            {
+                p_body*=0.85f;
+                y_body*=1.05f;
+            }
+            if(Guidance_State==Stable)
+            {
+                p_body = 0;
+            }
+            Servo_Mix_PitchPriority(p_body,
+                                    Surface.target_angle_Euler[NOW][ROLL],//镖体1这里是0
+                                    y_body);
         }
         for (int i = 0; i < 4; i++)                    /* 安全网:分配已保证在限内,此处仅兜底 FP 误差 */
             abs_limit(&Surface.output_angle_Servo[NOW][i], SERVO_ANGLE_LIMIT);
