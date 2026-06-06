@@ -27,16 +27,16 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* PB9 - DOWN_RIGHT */
 
 //镖体1
-// #define  Servo_UL_ZERO      1650
-// #define  Servo_UR_ZERO      1630
-// #define  Servo_DR_ZERO      1540
-// #define  Servo_DL_ZERO      1500
+// #define  Servo_UL_ZERO      1470
+// #define  Servo_UR_ZERO      1620
+// #define  Servo_DR_ZERO      1550
+// #define  Servo_DL_ZERO      1520
 
 // //镖体2
-#define  Servo_UL_ZERO      1450
-#define  Servo_UR_ZERO      1550
+#define  Servo_UL_ZERO      1480
+#define  Servo_UR_ZERO      1450
 #define  Servo_DR_ZERO      1450
-#define  Servo_DL_ZERO      1380
+#define  Servo_DL_ZERO      1520
 
 #define  Servo_PWM_Limit      850
 
@@ -48,6 +48,15 @@
 
 /* X 翼舵机机械偏转角限幅(度),统一替代散落的 60.0f 字面量 */
 #define  SERVO_ANGLE_LIMIT  65.0f
+
+/* === 控制分配(混控)参数 ===
+ * Alloc_Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
+ * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
+#define  AXIS_LIMIT_PITCH   50.0f   /* 交付A:三轴各自独立限幅(度),可调 */
+#define  AXIS_LIMIT_ROLL    40.0f
+#define  AXIS_LIMIT_YAW     50.0f
+#define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
+#define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
 
 /* === 世界系 pitch/yaw 解算(roll 反旋) ===
  * 喂 PID 的 ZYX 欧拉 pitch/yaw 是世界系参考,PID 输出即世界系 pitch/yaw 力矩需求;
@@ -117,6 +126,8 @@ typedef struct
     float current_gyro_Euler [3][3];
     float output_gyro_Euler  [3][3];
     float Finally_Angle      [3][4];
+    float Stable_Euler_Angle[3];//自稳时的稳定角度，初始为0，后续更新为自检后的角度
+    int16_t Guidance_cnt[4];
     uint8_t pid_cale_flag;
     uint8_t Text_Flag;
 }Surface_t;
@@ -135,14 +146,20 @@ extern Surface_t Surface;
 extern Self_Text_t Self_Text;
 extern uint8_t Guidance_State;
 extern uint8_t Wing_Servo_Control_Flag;
-extern uint16_t end_cnt ;
-extern uint16_t Guidance_cnt[3];
 extern float servo_lat_scale;   /* Vofa 可观测:横侧保留比例 k,1=未饱和,<1=正为保 pitch 缩 roll/yaw */
 extern uint8_t Roll_World_Comp_Flag;          /* 1=启用 roll→世界 pitch/yaw 反旋,0=直通(旧行为,便于 A/B) */
 extern float   roll_world_delta;               /* Vofa:实际反旋 Δ=当前roll−Stable_roll(度) */
 extern float   roll_world_pb, roll_world_yb;   /* Vofa:反旋后机体系 pitch/yaw 舵令 */
+extern float   los_world_target[3];            /* Vofa:末制导锁存的世界系视线目标 [PITCH]/[YAW](度) */
+extern uint8_t Alloc_Mode;                     /* 控制分配档:0=旧pitch优先对照 1=三轴限幅 2=最小能量 */
+extern float   Alloc_B[3][4];                  /* 舵效矩阵 τ=B·u,行[p,r,y]列[UL,UR,DR,DL];默认理想阵,可台架辨识替换 */
+extern float   alloc_u0[4], alloc_u_out[4];    /* Vofa:分配解(投影/降级后,×SIGN前) / 最终写舵值(×SIGN限幅后) */
+extern float   alloc_alpha, alloc_u0_span, alloc_v_scale, alloc_p_scale; /* Vofa:零空间投影α / u0极差 / 降级横侧缩放比 / pitch缩放比 */
+extern uint8_t alloc_infeasible, alloc_singular_flag;     /* Vofa:不可达降级(0可达/1缩横侧/2连pitch也缩) / 求逆奇异退回 */
 void surface_control_task(void);
 void Roll_Derotate_PitchYaw(float Pw, float Yw, float *Pb, float *Yb);
+void Servo_Mix_AxisLimit(float p, float r, float y);
+void Servo_Mix_MinEnergy(float p, float r, float y);
 
 
 #endif //SURFACE_CONTROL_TSAK_H

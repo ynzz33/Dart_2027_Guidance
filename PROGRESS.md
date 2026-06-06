@@ -2,7 +2,7 @@
 
 > 项目进度的单一入口。详细技术方案见文末「[详细方案文档](#详细方案文档)」。
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
-> 最后更新：2026-06-02
+> 最后更新：2026-06-03
 
 ## 项目简介
 
@@ -59,12 +59,31 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - 用户初选「输入端转换」，台架确认欧拉角为世界系后改为**输出端净版**（输入端会多一层多余 R(Δ)、因 pitch/yaw 增益不等而交叉耦合）。
 - 配套：`ROLL_WORLD_COMP_SIGN`（±1 翻号宏）+ `Roll_World_Comp_Flag`（运行时直通开关，0=旧行为便于 A/B）+ Vofa 观测量 `roll_world_delta / roll_world_pb / roll_world_yb`。下游混控/PID/IMU/SIGN_xx 标定全不变。
 
+### 末制导视线目标锁存 / 帧间 IMU 航位推算（2026-06-03，输入端）
+- **症状**：末制导镜头反馈超过目标后，镖体在同一水平线上来回首振、不趋近目标（镜头随机头刚性转动一越过目标就读数翻号，机体却只绕质心摆头）。
+- **诊断**：视觉 ~20Hz（`SAMPLE_RATE`）、控制 1kHz（`CTRL_PERIOD_MS`）。原 `Guidance_Terminal` 每 tick 重算 `target=v+current`，送 `pid_calc` 后外环误差 `set−get` 把 `current` 精确相消，只剩被零阶保持 50ms 的视觉误差 `v.y`；新鲜 IMU 姿态被代数抵消、不进外环 → 控制环 50ms 盲转过冲、下帧符号翻转 → 极限环首振，左右气动力相消、净侧力≈0 故质心不平移。
+- **方案（方向A，贴合「输入端/融合解决」偏好）**：仅在视觉**新帧到达**那一刻用当时姿态锁存世界系视线方向 `los_world=v+current`，帧间保持不变；目标喂锁存值 → 外环误差=`los_world−current`，机体一转误差即减、50ms 内闭环。本质＝用 1kHz IMU 把 20Hz 视觉的空档补上（航位推算），非输出端低通、不动 PID 增益、与 roll 反旋 / Pitch 优先分配独立叠加。
+- **落地**：[CallBack_Task.h](imcalib/Task/CallBack_Task.h) / [.c](imcalib/Task/CallBack_Task.c) 新增 `Vision_Recog_Cnt`（仅识别成功帧递增，控制端据此判新帧）；[surface_control_task.c](imcalib/Task/surface_control_task.c) `Guidance_Terminal` 重写为「新帧锁存＋帧间保持」，新增全局 `los_world_target[3]`（Vofa 可观测，[.h](imcalib/Task/surface_control_task.h) 导出）；PITCH 保留原 `<-10°` 门控；丢目标(FAILURE) 解锁并保持当前姿态。
+
+### 控制分配重写：可调三轴限幅 + 真正最小能量分配（2026-06-03，输出端）
+- **动机**：原 `Servo_Mix_PitchPriority` 本质是「pitch 优先缩横侧」的启发式饱和，且 `k` 公式写反成倒数（[.c:412](imcalib/Task/surface_control_task.c#L412) `|L|/(LIMIT−P)` 应为 `(LIMIT−P)/|L|`）实际没正常工作；调用点 roll 还误传 `target_angle_Euler[ROLL]`(≈0) 而非 PID 输出。
+- **拆两交付物 + 运行时开关 `Alloc_Mode`**（0=旧对照/1=三轴限幅/2=最小能量，仿 `Roll_World_Comp_Flag` 风格，Vofa 在线可切）：
+  - **交付A `Servo_Mix_AxisLimit`**：pitch/roll/yaw 各自独立可调限幅（`AXIS_LIMIT_*`）→ 理想 X 逻辑阵 → ×SIGN。O(1) 无矩阵，替代写死单 pitch。
+  - **交付B `Servo_Mix_MinEnergy`**：真正的带约束最小能量分配。`u0=Bᵀ(BBᵀ)⁻¹v`（CMSIS `arm_mat_inverse_f32`）→ 1 维零空间余子式 `n` 投影进舵机限幅盒（`Bn=0` 不改力矩）→ 不可达按 pitch>yaw>roll 优先级二分缩 yaw/roll → 奇异退回交付A。舵效阵 `Alloc_B[3][4]` 默认理想 X 阵+预留台架辨识接口；`ALLOC_GAIN=4` 使理想阵下与交付A/旧版同幅度、复用 PID 标定。
+- **决策**：① 通用矩阵框架+默认理想B；② B=理想阵+预留辨识；③ **roll 三轴统一接 `output_gyro_Euler[ROLL]`**（修正原误传目标角）。
+- **落地**：[surface_control_task.c](imcalib/Task/surface_control_task.c)（两新函数+三辅助+调用点 switch 分派）、[.h](imcalib/Task/surface_control_task.h)（`AXIS_LIMIT_*`/`ALLOC_U_MAX`/`ALLOC_GAIN` 宏、`Alloc_Mode`/`Alloc_B`/`alloc_*` Vofa extern、函数声明）。旧 `Servo_Mix_PitchPriority` 保留作 Mode0 对照。下游 PWM/枚举/SIGN/状态机覆盖/历史移位全不变。
+- **手算自检**：理想阵零空间 `n=[-4,-4,-4,-4]∝[1,1,1,1]`；`v=[10,0,0]→u0=[10,10,-10,-10]→Bu=[40,0,0]=v×gain` ✓。
+- **诚实边界**：理想 B 是结构近似（未建模舵间耦合/左右不等/失速）；无空速无法动压调度；台架辨识前建议先用 Mode1 飞通再切 Mode2。
+
 ---
 
 ## 当前 TODO
 
 ### ⏳ 待 Vofa 台架验证
-- **Pitch 优先分配**（完整验证清单见 [plan-pitch-priority-mixing.md](plan-pitch-priority-mixing.md#验证清单待台架执行配合-vofa)）：纯 pitch 阶跃时 `servo_lat_scale`≡1；大 roll/yaw 饱和时 k<1 而从输出反解的 pitch 分量不变；长跑 >5 min 无 HardFault。
+- **视线锁存（方向A）**：末制导对静止/缓动目标，镖体应单调转向并稳定指向、不再同线首振；Vofa 拉 `los_world_target[YAW]` 应为帧间水平台阶（保持不变）、仅帧到达瞬间阶跃更新；丢目标后重新捕获能立即重锁。
+- **视觉单位核验（方向C，未做）**：`v.x/v.y` 是 `int16`，PNG 按像素用（×FOV→rad），而 `Guidance_Terminal`/锁存按度直接加；Vofa 看 `los_world_target` 量级是否与欧拉角同量级（几度~几十度），若达几百说明视觉发的是像素、需 ×FOV 转度，否则锁存目标偏大、镖体会稳定指向过大角度。
+- **控制分配三档对照（新）**：Vofa 切 `Alloc_Mode` 0/1/2 都不超 ±65、roll 现接 PID 输出无突跳；Mode2 零空间自检 `n=[-4,-4,-4,-4]`、`alloc_singular_flag≡0`；可达区 Mode2 能量 Σu² ≤ Mode1；强制大 v 看 `alloc_infeasible=1`/`alloc_v_scale<1`/pitch 保住；长跑无 NaN。台架辨识 `Alloc_B` 后把调用点经验系数 `0.85/1.05` 设 1。
+- **Pitch 优先分配**（仅 Mode0 对照保留；完整验证清单见 [plan-pitch-priority-mixing.md](plan-pitch-priority-mixing.md#验证清单待台架执行配合-vofa)）：纯 pitch 阶跃时 `servo_lat_scale`≡1；大 roll/yaw 饱和时 k<1 而从输出反解的 pitch 分量不变；长跑 >5 min 无 HardFault。
 - **roll→世界 pitch/yaw 反旋 SIGN**：`Roll_World_Comp_Flag=0` 行为同旧版（直通对照）；置 1 且 Δ≈0 时恒等（`roll_world_delta`≈0、pb≈Pw、yb≈Yw）；横滚 +90° 给纯世界 pitch（Pw>0,Yw=0）应得 pb≈0、yb≈±Pw 且机头朝**正确**世界方向修正，反了则把 `ROLL_WORLD_COMP_SIGN` 翻成 −1 重编。
 
 ### 🔜 下一步（待 Vofa 验证后）

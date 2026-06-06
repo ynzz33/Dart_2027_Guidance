@@ -91,6 +91,8 @@ typedef struct
 	uint8_t Vision_Self_Text_Data;
 	uint8_t Record_State[2];
 	uint32_t Vision_Receive_Cnt;
+	uint32_t Vision_Recog_Cnt;       /* 仅"识别成功"帧递增,纯统计用 */
+	uint8_t  Vision_New_Data_flag;   /* 视觉新有效数据到达置1; Guidance_Terminal 消费后清0,据此判新帧 → 锁存世界系视线目标 */
 } Vision_Rx_Buf_t;
 
 extern uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5],flag;
