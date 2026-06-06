@@ -2,7 +2,7 @@
 
 > 项目进度的单一入口。详细技术方案见文末「[详细方案文档](#详细方案文档)」。
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
-> 最后更新：2026-06-03
+> 最后更新：2026-06-06
 
 ## 项目简介
 
@@ -75,13 +75,22 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **手算自检**：理想阵零空间 `n=[-4,-4,-4,-4]∝[1,1,1,1]`；`v=[10,0,0]→u0=[10,10,-10,-10]→Bu=[40,0,0]=v×gain` ✓。
 - **诚实边界**：理想 B 是结构近似（未建模舵间耦合/左右不等/失速）；无空速无法动压调度；台架辨识前建议先用 Mode1 飞通再切 Mode2。
 
+### 末制导新帧判定改用显式标志位 `Vision_New_Data_flag`（2026-06-06，输入端）
+- **动机**：把 [06-03 视线锁存](#末制导视线目标锁存--帧间-imu-航位推算2026-06-03输入端) 里隐式的「计数器对比 `Vision_Recog_Cnt != last_recog_cnt`」新帧判定，换成显式、语义清晰、可在别处复用的标志位（标准生产者-消费者）。
+- **落地**：
+  - [CallBack_Task.h](imcalib/Task/CallBack_Task.h) `Vision_Rx_Buf_t` 新增 `Vision_New_Data_flag`；[CallBack_Task.c](imcalib/Task/CallBack_Task.c) `Vision_Receive` 在识别成功(0x5A)与丢目标(0x7A)两分支收到新数据即置 1（生产者，UART 中断 ~20Hz）。
+  - [surface_control_task.c](imcalib/Task/surface_control_task.c) `Guidance_Terminal`（消费者，控制 1kHz）：`if (Vision_New_Data_flag==1 && recognize==SUCCESS)` 才更新目标、**块末才置 0**；帧间(flag==0)不进，目标靠 `target_angle_Euler[NOW]` 槽保持不变（`Euler_Updata` 只移位 LAST/LLAST、不动 NOW）。
+  - **移除中间变量 `los_world_target`**：直接写 `Surface.target_angle_Euler[NOW][YAW]=v.y+current`、PITCH 同（保留 `<-10°` 门控）。`.c` 全局定义已删（[.h](imcalib/Task/surface_control_task.h) 的 `extern` 声明成孤儿、待清理）。
+  - 丢目标(FAILURE) 分支移出 flag 门控、**每 tick 跑**（`Vision_Cmd_Work` + 目标回中=当前姿态），同原始行为。
+- **影响**：`Vision_Recog_Cnt` 降级为纯统计计数、不再判新帧；Vofa 观测「锁存视线目标」改看 `Surface.target_angle_Euler[NOW][YAW]`。并发上 flag 单字节读写原子、处理后清 0（极偶然处理中来帧会丢一次触发，但数据已入 `Vision_Rx_Data`、下帧补，滞后≤50ms）。
+
 ---
 
 ## 当前 TODO
 
 ### ⏳ 待 Vofa 台架验证
-- **视线锁存（方向A）**：末制导对静止/缓动目标，镖体应单调转向并稳定指向、不再同线首振；Vofa 拉 `los_world_target[YAW]` 应为帧间水平台阶（保持不变）、仅帧到达瞬间阶跃更新；丢目标后重新捕获能立即重锁。
-- **视觉单位核验（方向C，未做）**：`v.x/v.y` 是 `int16`，PNG 按像素用（×FOV→rad），而 `Guidance_Terminal`/锁存按度直接加；Vofa 看 `los_world_target` 量级是否与欧拉角同量级（几度~几十度），若达几百说明视觉发的是像素、需 ×FOV 转度，否则锁存目标偏大、镖体会稳定指向过大角度。
+- **视线锁存（方向A）**：末制导对静止/缓动目标，镖体应单调转向并稳定指向、不再同线首振；Vofa 拉 `Surface.target_angle_Euler[NOW][YAW]` 应为帧间水平台阶（保持不变）、仅识别成功新帧到达瞬间阶跃更新；丢目标(FAILURE) 每 tick 回中、重新捕获到 SUCCESS 帧立即重锁。
+- **视觉单位核验（方向C，未做）**：`v.x/v.y` 是 `int16`，PNG 按像素用（×FOV→rad），而 `Guidance_Terminal` 锁存按度直接加；Vofa 看 `Surface.target_angle_Euler[NOW][YAW]` 量级是否与欧拉角同量级（几度~几十度），若达几百说明视觉发的是像素、需 ×FOV 转度，否则锁存目标偏大、镖体会稳定指向过大角度。
 - **控制分配三档对照（新）**：Vofa 切 `Alloc_Mode` 0/1/2 都不超 ±65、roll 现接 PID 输出无突跳；Mode2 零空间自检 `n=[-4,-4,-4,-4]`、`alloc_singular_flag≡0`；可达区 Mode2 能量 Σu² ≤ Mode1；强制大 v 看 `alloc_infeasible=1`/`alloc_v_scale<1`/pitch 保住；长跑无 NaN。台架辨识 `Alloc_B` 后把调用点经验系数 `0.85/1.05` 设 1。
 - **Pitch 优先分配**（仅 Mode0 对照保留；完整验证清单见 [plan-pitch-priority-mixing.md](plan-pitch-priority-mixing.md#验证清单待台架执行配合-vofa)）：纯 pitch 阶跃时 `servo_lat_scale`≡1；大 roll/yaw 饱和时 k<1 而从输出反解的 pitch 分量不变；长跑 >5 min 无 HardFault。
 - **roll→世界 pitch/yaw 反旋 SIGN**：`Roll_World_Comp_Flag=0` 行为同旧版（直通对照）；置 1 且 Δ≈0 时恒等（`roll_world_delta`≈0、pb≈Pw、yb≈Yw）；横滚 +90° 给纯世界 pitch（Pw>0,Yw=0）应得 pb≈0、yb≈±Pw 且机头朝**正确**世界方向修正，反了则把 `ROLL_WORLD_COMP_SIGN` 翻成 −1 重编。

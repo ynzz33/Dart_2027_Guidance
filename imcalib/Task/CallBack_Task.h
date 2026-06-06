@@ -86,6 +86,7 @@ typedef struct
 	uint8_t Vision_Head;
 	int16_t x[2];
 	int16_t y[2];
+	float Euler[2][2];  /* 锁存世界系视线角,每帧更新,供 Surface_Control_Task 用 */
 	uint8_t Vision_Tail;
 	uint8_t Vision_recognize_flag;
 	uint8_t Vision_Self_Text_Data;

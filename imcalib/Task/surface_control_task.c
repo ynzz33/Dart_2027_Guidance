@@ -38,7 +38,7 @@ Surface_t Surface;
 Self_Text_t Self_Text;
 uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
 /* === 控制分配(混控)全局 === */
-uint8_t Alloc_Mode = 1;                        /* 默认先用稳妥的三轴限幅;台架确认后可切 2=最小能量 */
+uint8_t Alloc_Mode = 0;                        /* 默认先用稳妥的三轴限幅;台架确认后可切 2=最小能量 */
 /* 舵效矩阵 B (3x4): τ = B·u, 行序[pitch,roll,yaw], 列序[UL,UR,DR,DL]. 默认理想 X 阵(BBᵀ=4I).
  * 台架辨识替换法:固定其余三舵=0,给第 j 舵单位阶跃 Δu_j(如+20°),读三轴力矩响应(可用 output_gyro_Euler
  * 内环输出或 IMU 角加速度作代理)Δτ_p/r/y,令 B[0..2][j]=Δτ_{p,r,y}/Δu_j;四舵各做一次填满12个元素.
@@ -75,8 +75,7 @@ void Servo_Updata(void)
         Surface.output_angle_Servo[LLAST][i] = Surface.output_angle_Servo[LAST][i];
         Surface.output_angle_Servo[LAST ][i] = Surface.output_angle_Servo[NOW ][i];
     }
-}
-                     
+}                    
 void Data_Updata(void)
 {
     Euler_Updata();
@@ -121,25 +120,26 @@ void Guidance_Terminal(void)//制导段
      * 姿态把视线锁存到世界系 los_world=v+current 并写入目标;帧间(flag==0)不进此块,目标靠 target_angle_Euler[NOW]
      * 保持上次锁存值不变(Euler_Updata 只移位 LAST/LLAST、不动 NOW) → 外环误差=los_world−current,机体一转误差即减,
      * 无每 tick 重算导致的盲转/符号翻转。新数据处理结束后置回0,等下一帧视觉数据中断里再置1。*/
-    if (Vision_Rx_Data.Vision_New_Data_flag == 1&&Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+    if (Vision_Rx_Data.Vision_New_Data_flag == 1)
     {
         taskENTER_CRITICAL();
         Vision_Rx_Buf_t v = Vision_Rx_Data;
         taskEXIT_CRITICAL();
-            
+        if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS) /* RECOGNIZE_SUCCESS:识别到目标,锁存世界系视线目标,更新目标角 */
+        {    
             /* YAW:始终视觉制导,用当时姿态锁存世界系视线 → 误差=锁存−当前 */
-            Surface.target_angle_Euler[NOW][YAW] = v.y[NOW] + Surface.current_angle_Euler[NOW][YAW];
+            Surface.target_angle_Euler[NOW][YAW] = Vision_Rx_Data.Euler[NOW][YAW] + Surface.current_angle_Euler[NOW][YAW];
 
             /* PITCH:仅俯冲到位(<-10°)才视觉制导(同样锁存);否则不控,目标=当前 */
             if (Surface.current_angle_Euler[NOW][PITCH] < -10.0f)
             {
-                Surface.target_angle_Euler[NOW][PITCH] = v.x[NOW] + Surface.current_angle_Euler[NOW][PITCH];
+                Surface.target_angle_Euler[NOW][PITCH] = Vision_Rx_Data.Euler[NOW][PITCH] + Surface.current_angle_Euler[NOW][PITCH];
             }
             else
             {
                 Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
             }
-
+        }
         Vision_Rx_Data.Vision_New_Data_flag = 0;   /* 新数据处理完毕,置回0,等下一帧视觉新数据再置1 */
     }
     if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE) /* RECOGNIZE_FAILURE:丢目标,保持当前姿态,请求视觉继续工作 */
@@ -381,7 +381,7 @@ void Servo_Mix_PitchPriority(float p, float r, float y)
         float ki = aL / (SERVO_ANGLE_LIMIT - sgnL * P[i]) ;      //总限幅减去pitch原始再除以横侧分量，得到比例
         if (ki < k) k = ki;                                     //在比例内就按原样，不动，如果超出比例就按比例缩放，保证在限幅内
     }
-    
+
     if (k < 0.0f) k = 0.0f;
 
     float SGN[4];                                               /* 4) 最终的合成 + 物理方向 SIGN 写入 */
@@ -419,7 +419,7 @@ void Servo_Mix_AxisLimit(float p, float r, float y)
         alloc_u_out[i] = v;
     }
 }
-
+#if 1
 /* 1 维零空间 n:n_j=(-1)^j·det(B 删去第 j 列的 3x3 子阵)。理想阵应得 n=[-4,-4,-4,-4]∝[1,1,1,1]。*/
 static void alloc_compute_nullspace(const float B[3][4], float n[4])
 {
@@ -556,7 +556,7 @@ void Servo_Mix_MinEnergy(float p, float r, float y)
     }
     alloc_u0_span = hi - lo;
 }
-
+#endif
 void Wing_Control_VECTOR_NOZZLE(void)
 {
     if (Guidance_State == Terminal||Guidance_State == Self_Text_State||Stable_Flag ==1 )
@@ -624,17 +624,11 @@ void surface_control_task(void)
                                    Surface.output_gyro_Euler[NOW][YAW],
                                    &p_body, &y_body);
             // p_body = 0.0f; y_body = 0.0f;
-            // if(Guidance_State==Terminal||IMU_Data.Euler[NOW][PITCH]<=-15.0f)
+            // if(Guidance_State==Terminal||IMU_Data.Euler[NOW][PITCH]<-15.0f)
             // {
-            //     p_body*=0.7f;
-            //     y_body*=0.7f;
+            //     p_body*=0.85f;
+            //     y_body*=1.05f;
             // }
-            // else 
-            if(Guidance_State==Terminal||IMU_Data.Euler[NOW][PITCH]<-15.0f)
-            {
-                p_body*=0.85f;
-                y_body*=1.05f;
-            }
             if(Guidance_State==Stable)
             {
                 p_body = 0;
@@ -648,7 +642,6 @@ void surface_control_task(void)
                 case 0:  Servo_Mix_PitchPriority(p_body, r_body, y_body); break;  /* 旧对照(roll 入参已改 PID 输出) */
                 case 1:  Servo_Mix_AxisLimit    (p_body, r_body, y_body); break;
                 case 2:  Servo_Mix_MinEnergy    (p_body, r_body, y_body); break;
-                default: Servo_Mix_AxisLimit    (p_body, r_body, y_body); break;
             }
         }
         for (int i = 0; i < 4; i++)                    /* 安全网:分配已保证在限内,此处仅兜底 FP 误差 */
