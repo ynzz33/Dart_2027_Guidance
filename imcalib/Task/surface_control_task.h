@@ -38,7 +38,9 @@
 #define  Servo_DR_ZERO      1540
 #define  Servo_DL_ZERO      1485
 
-/* X 翼方向系数:台架联调时单轴阶跃,反向了翻号(不要动公式) */
+/* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
+ * 左侧两片(UL,DL)取 −1 因左右舵机镜像安装;台架单轴阶跃标定,某片整体反了翻它的号。
+ * SIGN 每片三轴共享、只修整片装反;轴间配对结构由逻辑阵的列决定(见 surface_control_task.c C 阵/Alloc_B)。*/
 #define  SIGN_UL  (-1.0f)
 #define  SIGN_UR  (+1.0f)
 #define  SIGN_DR  (+1.0f)

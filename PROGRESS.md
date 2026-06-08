@@ -3,7 +3,7 @@
 > 项目进度的单一入口。详细技术方案见文末「[详细方案文档](#详细方案文档)」。
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
-> 最后更新：2026-06-08（清理 TODO：移除 SPI 超时 / 加速度标定 / FFC 启用；坐标系统一 + roll 自稳经 Vofa 确认正常）
+> 最后更新：2026-06-08（X 翼 pitch 解算几何对齐：pitch 列改四片同号、落真俯仰模态；pitch/yaw 通道已放开。前次：清理 TODO / 坐标系 + roll 经 Vofa 确认）
 
 ## 项目简介
 
@@ -74,7 +74,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
   - **交付B `Servo_Mix_MinEnergy`**：真正的带约束最小能量分配。`u0=Bᵀ(BBᵀ)⁻¹v`（CMSIS `arm_mat_inverse_f32`）→ 1 维零空间余子式 `n` 投影进舵机限幅盒（`Bn=0` 不改力矩）→ 不可达按 pitch>yaw>roll 优先级二分缩 yaw/roll → 奇异退回交付A。舵效阵 `Alloc_B[3][4]` 默认理想 X 阵+预留台架辨识接口；`ALLOC_GAIN=4` 使理想阵下与交付A/旧版同幅度、复用 PID 标定。
 - **决策**：① 通用矩阵框架+默认理想B；② B=理想阵+预留辨识；③ **roll 三轴统一接 `output_gyro_Euler[ROLL]`**（修正原误传目标角）。
 - **落地**：[surface_control_task.c](imcalib/Task/surface_control_task.c)（两新函数+三辅助+调用点 switch 分派）、[.h](imcalib/Task/surface_control_task.h)（`AXIS_LIMIT_*`/`ALLOC_U_MAX`/`ALLOC_GAIN` 宏、`Alloc_Mode`/`Alloc_B`/`alloc_*` Vofa extern、函数声明）。旧 `Servo_Mix_PitchPriority` 保留作 Mode0 对照。下游 PWM/枚举/SIGN/状态机覆盖/历史移位全不变。
-- **手算自检**：理想阵零空间 `n=[-4,-4,-4,-4]∝[1,1,1,1]`；`v=[10,0,0]→u0=[10,10,-10,-10]→Bu=[40,0,0]=v×gain` ✓。
+- **手算自检**：理想阵零空间 `n=[4,4,-4,-4]∝[1,1,-1,-1]`；`v=[10,0,0]→u0=[10,10,10,10]→Bu=[40,0,0]=v×gain` ✓。
 - **诚实边界**：理想 B 是结构近似（未建模舵间耦合/左右不等/失速）；无空速无法动压调度；台架辨识前建议先用 Mode1 飞通再切 Mode2。
 
 ### 末制导新帧判定改用显式标志位 `Vision_New_Data_flag`（2026-06-06，输入端）
@@ -114,6 +114,12 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **数值核验**（纯 Python，非硬件）：抬头/右滚/右偏 +30°→对应轴各 +30；纯绕前轴横滚 pitch 恒 0；组合旋转三轴正确解耦；Mahony 注入 +8° roll 误差收敛回 0（证 `e=a×v, ω+=Kp·e` 负反馈）。**关键发现**：原 Mahony 符号其实是对的（`pid_calc` 的 `set−get` 已把它翻正），真 bug 只在陀螺取轴 → 改动外科手术式（积分公式/Mahony/R/A_World 均不动）。
 - **诚实边界**：yaw 对齐右+后角度/速率/目标整体翻号 → yaw PID 输出或翻 → 舵面响应或反转，台架单轴确认、反了翻 yaw 舵面 SIGN（本次不动混控符号）。BMX055 加速度/陀螺封装轴向本就不同，各轴物理符号只能台架锁定。下游状态机(pitch 抬头+/过0)、发射判定(A[Y])、PNG 取轴(G_Rad[ROLL/PITCH] raw)、控制分配/roll 反旋全不变。
 
+### X 翼 pitch 解算几何对齐（2026-06-08，输出端）
+- **解算（现行正确做法）**：X 翼 4 片成 X(45°，从尾看 UL135/UR45/DR315/DL225)，每片偏转产生切向力，对三轴力矩贡献 **pitch∝cosθ=[UL−,UR+,DR+,DL−]、yaw∝sinθ=[+,+,−,−]、roll=常数[+,+,+,+]**（三模态两两正交，第 4 模态 `[+,−,+,−]` 隔片交替=零空间纯阻力）。逻辑阵配物理 `SIGN=[−1,+1,+1,−1]`（左右镜像安装）后，pitch 指令落到舵令 `u=[−,+,+,−]`=真俯仰、与 roll/yaw 正交解耦。
+- **三处把 pitch 列对齐为 `[+1,+1,+1,+1]`（四片同号）**：[surface_control_task.c](imcalib/Task/surface_control_task.c) `Servo_Mix_AxisLimit` 的 C 阵 / `Alloc_B` pitch 行 / `Servo_Mix_PitchPriority` 的 `P[]`。SIGN 不动（每片三轴共享、只修整片装反，轴间配对由逻辑阵列决定）；`Alloc_B` 零空间相应为 `n=[4,4,−4,−4]∝[1,1,−1,−1]`。
+- **待台架**：`Alloc_Mode=1` 纯 pitch 阶跃应见明确抬/低头、掉速小；抬头方向那 bit 台架定（现 `[+1,+1,+1,+1]` 反了则整体取负）。pitch/yaw 调用点清零行已注释 → 三轴放开（旧"pitch 掐死"描述已过时）。
+- *(背景：原 pitch 列 `[+1,+1,−1,−1]` 经 SIGN 落零空间→只减速不产生俯仰；先前以 BBᵀ=4I "证明解耦"仅算法对自身假设 B 自洽、非物理正确，以本条几何为准。)*
+
 ---
 
 ### 全量代码审计 + 大问题修复（2026-06-07）
@@ -138,14 +144,14 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 
 ### ✅ 已 Vofa 确认（2026-06-08）
 - **坐标系统一 / 四元数+欧拉角重定向（2026-06-07）**：经 Vofa 确认**坐标系已统一**——Euler 三轴极性正确、单轴动作与 `current_gyro_Euler` 同号、长跑不漂。（若日后发现 yaw 控制方向反，仍按原结论翻 yaw 舵面 SIGN。）
-- **内环角速度 pitch/roll 轴配对（方案B，2026-06-07）**：**roll 自稳已正常**（git「roll 调稳了很多」）——方案B 源头+四元数同步对调生效，roll 能阻尼自旋、不再渐进发散，yaw 不变、PNG 行为不变。可逐步放开 pitch 通道（现 `p_body=0;y_body=0` 仍掐死）。
+- **内环角速度 pitch/roll 轴配对（方案B，2026-06-07）**：**roll 自稳已正常**（git「roll 调稳了很多」）——方案B 源头+四元数同步对调生效，roll 能阻尼自旋、不再渐进发散，yaw 不变、PNG 行为不变。pitch/yaw 通道已放开（清零行已注释），pitch 解算几何已对齐（见时间线 2026-06-08 条）。
 
 ### ⏳ 待 Vofa 台架验证
 - **角度环绕（2026-06-07）**：roll/yaw 目标设在接近 ±180° 处、令当前姿态跨边界，输出不应出现 ~360° 假误差导致的反向猛打；±0 附近常规自稳行为不变（wrap 不触发）。
 - **视线锁存（方向A）**：末制导对静止/缓动目标，镖体应单调转向并稳定指向、不再同线首振；Vofa 拉 `Surface.target_angle_Euler[NOW][YAW]` 应为帧间水平台阶（保持不变）、仅识别成功新帧到达瞬间阶跃更新；丢目标(FAILURE) 每 tick 回中、重新捕获到 SUCCESS 帧立即重锁。
 - ✅ **视觉单位核验（方向C，已确认）**：视觉发的是**像素**，已在 `Vision_Receive` 接收时转成度（`Euler[YAW]=y/160*72`、`Euler[PITCH]=x/120*54`），`Guidance_Terminal` 锁存即为度、量纲一致，无需再 ×FOV。
-- **控制分配三档对照（含 Pitch 优先）**：Vofa 切 `Alloc_Mode` 0/1/2 输出都不超 ±`SERVO_ANGLE_LIMIT`(60)、roll 现接 PID 输出无突跳；**Mode1 优先级缩放（Pitch 优先即在此：`Alloc_Prio` 默认 {PITCH,YAW,ROLL}，不另设单独验证项）**：调试器改 `Alloc_Prio` 排列，高优先轴力矩应保住、低优先轴逐级让步，填非法排列(如{0,0,1})自动退默认不崩，`servo_lat_scale` 未饱和≡1/饱和<1；Mode2 零空间自检 `n=[-4,-4,-4,-4]`、`alloc_singular_flag≡0`、可达区能量 Σu² ≤ Mode1、强制大 v 看 `alloc_infeasible`/pitch 保住；长跑无 NaN。台架辨识 `Alloc_B` 后把调用点经验系数 `0.85/1.05` 设 1。
-- **roll→世界 pitch/yaw 反旋 SIGN**（当前 `p_body=y_body=0` 旁路、放开 pitch/yaw 后再验）：`Roll_World_Comp_Flag=0` 行为同旧版（直通对照）；置 1 且 Δ≈0 时恒等（`roll_world_delta`≈0、pb≈Pw、yb≈Yw）；横滚 +90° 给纯世界 pitch（Pw>0,Yw=0）应得 pb≈0、yb≈±Pw 且机头朝**正确**世界方向修正，反了则把 `ROLL_WORLD_COMP_SIGN` 翻成 −1 重编。
+- **控制分配三档对照（含 Pitch 优先）**：Vofa 切 `Alloc_Mode` 0/1/2 输出都不超 ±`SERVO_ANGLE_LIMIT`(60)、roll 现接 PID 输出无突跳；**Mode1 优先级缩放（Pitch 优先即在此：`Alloc_Prio` 默认 {PITCH,YAW,ROLL}，不另设单独验证项）**：调试器改 `Alloc_Prio` 排列，高优先轴力矩应保住、低优先轴逐级让步，填非法排列(如{0,0,1})自动退默认不崩，`servo_lat_scale` 未饱和≡1/饱和<1；Mode2 零空间自检 `n=[4,4,-4,-4]`、`alloc_singular_flag≡0`、可达区能量 Σu² ≤ Mode1、强制大 v 看 `alloc_infeasible`/pitch 保住；长跑无 NaN。台架辨识 `Alloc_B` 后把调用点经验系数 `0.85/1.05` 设 1。
+- **roll→世界 pitch/yaw 反旋 SIGN**（pitch/yaw 已放开，可验）：`Roll_World_Comp_Flag=0` 行为同旧版（直通对照）；置 1 且 Δ≈0 时恒等（`roll_world_delta`≈0、pb≈Pw、yb≈Yw）；横滚 +90° 给纯世界 pitch（Pw>0,Yw=0）应得 pb≈0、yb≈±Pw 且机头朝**正确**世界方向修正，反了则把 `ROLL_WORLD_COMP_SIGN` 翻成 −1 重编。
 
 ### 🔜 下一步（待 Vofa 验证后）
 - **串级内外环增益拉开**：目前外环 P=0.7 > 内环 P=0.2，与「内环>外环」偏好相反，需重标。

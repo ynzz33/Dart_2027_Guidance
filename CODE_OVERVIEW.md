@@ -154,7 +154,9 @@ End ◄──(A_Normed[Y]≥0.9 且 A[Y]≥1.5，连续5；冲击检测)── T
 
 ## 8. 混控 / 控制分配（`surface_control_task.c`，**当前重点**）
 
-X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：pitch `[+1,+1,−1,−1]`、roll `[+1,−1,−1,+1]`、yaw `[−1,+1,−1,+1]`。物理装配符号 `SIGN_UL=−1, SIGN_UR=+1, SIGN_DR=+1, SIGN_DL=−1`（**台架单轴阶跃标定**，反了翻号别动公式）。
+X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[+1,+1,+1,+1]`**、roll `[+1,−1,−1,+1]`、yaw `[−1,+1,−1,+1]`。物理装配符号 `SIGN=[UL−1, UR+1, DR+1, DL−1]`（左右舵镜像安装；台架单轴阶跃标定，某片整体反了翻它的号；SIGN 每片三轴共享，轴间配对结构由逻辑阵的列决定、不靠 SIGN）。
+
+**X 翼解算几何（pitch 为何四片同号）**：4 片成 X(45°，从尾看 UL135°/UR45°/DR315°/DL225°)，每片偏转产生切向力，对力矩贡献 **pitch∝cosθ=[UL−,UR+,DR+,DL−]、yaw∝sinθ=[+,+,−,−]、roll=常数**（三模态两两正交，第 4 模态 `[+,−,+,−]` 隔片交替=零空间纯阻力）。故 pitch 列四片同号，配 SIGN 后 pitch 指令落到舵令 `u=[−,+,+,−]`=真俯仰、与 roll/yaw 解耦。*(2026-06-08 校正：原 pitch 列 `[+1,+1,−1,−1]` 经 SIGN 落零空间、只减速不俯仰。)*
 
 **`Alloc_Mode` 运行时三档分配器**（调试器/初值切换；**默认现为 1**）：
 
@@ -168,10 +170,9 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：pitch `[+1,+1,−1,−1]`、
 - Vofa 观测量：`servo_lat_scale`(最低优先轴保留比 k)、`alloc_u0/alloc_u_out`、`alloc_alpha/v_scale/p_scale`、`alloc_infeasible/singular_flag`。
 
 ### ⭐ 当前"实际在飞什么"（极重要）
-`surface_control_task.c` 调用点里 **`p_body=0; y_body=0`**（pitch/yaw 控制**掐死**，等台架放开），`r_body=output_gyro_Euler[ROLL]`，且 **Terminal 时 `r_body=0`**。所以：
-- **Stable 阶段 = 仅 roll 自稳**；
-- **Terminal 阶段 = 当前无任何控制输出**（三轴全 0）。
-这是有意的"先单独调 roll 轴"调试状态，不是 bug。放开 pitch/yaw 前别指望末制导真打舵。
+`surface_control_task.c` 调用点 `p_body/y_body/r_body` 清零行**已注释 → 三轴全部放开**：pitch/yaw 经 `Roll_Derotate_PitchYaw` 反旋、roll 直通，全接 PID 内环输出，按 `Alloc_Mode`(默认1) 分派；Stable 与 Terminal 都打舵。
+- `Guidance_Terminal` 末尾仍**无条件把 pitch/yaw/roll 目标盖成 `Stable_Euler_Angle`**（覆盖前面视觉锁存写入的目标）→ Terminal 实际是"稳到 Stable 姿态"，**视觉制导段当前为死代码**（疑调试态；要让视觉生效需去掉那三行覆盖）。
+- 配合 2026-06-08 pitch 解算几何对齐（§8），pitch 才真正产生俯仰力矩。
 
 ---
 
@@ -224,6 +225,8 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：pitch `[+1,+1,−1,−1]`、
 **审计后跟进（2026-06-07 同日）**：TIM4 预分频统一为 **169**（与 TIM3 一致，时基差已消，用户改）；删除无用的 **`Servo_PWM_Limit`**（量纲统一为角度后失效，输出由上游 ±60 约束）；**视觉单位/轴映射经用户确认正确**（像素，接收时转度）。
 
 **2026-06-08 文档维护**：清理 TODO——**加速度标定**（用户确认现状正常）、**IMU SPI 阻塞读超时**（不处理）移出已知问题；**前馈 FFC** 决定暂不启用（效果不大 / 不易验证，代码保留关闭态）；**坐标系统一 + roll 自稳**经 Vofa 确认正常（详见 [PROGRESS.md](PROGRESS.md) 「已 Vofa 确认」）。
+
+**2026-06-08 X 翼 pitch 解算几何对齐**：pitch 逻辑列对齐为四片同号 `[+1,+1,+1,+1]`（`Servo_Mix_AxisLimit` 的 C 阵 / `Alloc_B` / `Servo_Mix_PitchPriority` 三处），使 pitch 指令落到真俯仰模态、与 roll/yaw 正交解耦（X 翼几何见 §8）；SIGN 不动。pitch/yaw 调用点清零行已注释 → 三轴放开。
 
 ---
 *维护约定：本文与 PROGRESS.md / memory `control-tuning-progress` 三方同步；改代码后更新对应小节。*
