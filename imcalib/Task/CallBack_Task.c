@@ -15,7 +15,7 @@
 #include "task.h"
 #include "TotalControl.h"
 #include "Vofa_send.h"
-uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Vision_Tx_Buf[3] = {0x5A,0,0xA5},Trigger_Rx_Buf[10],Trigger_Tx_Buf[5],flag = 0;
+uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Vision_Tx_Buf[3] = {0x5A,0,0xA5},Vision_TxDebug_Buf[50],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5],flag = 0;
 Dart_Trigger_Data_t Dart_Trigger_Data = {.Frame_Head = 0xAA,.Frame_Tail = 0x00};
 Vision_Rx_Buf_t Vision_Rx_Data ;
 static uint8_t bit_reverse(uint8_t byte) {
@@ -154,7 +154,9 @@ void Vision_Receive(uint8_t* Buf)
         Vision_Rx_Data.Vision_New_Data_flag = 1;    /* 视觉新有效数据到达 → 控制端 Guidance_Terminal 据此锁存世界系视线,消费后清0 */
         HAL_GPIO_WritePin( LED_PORT,LED_PIN,GPIO_PIN_SET );
     if (Guidance_State==Terminal)
-        Buzzer_play_song(song_ni);
+        {
+            Buzzer_play_song(song_ni);
+        }
     }
     else if(Buf[0]==0x7A&&Buf[5]==0xA7)
     {
@@ -178,7 +180,42 @@ void Vision_Transmit(uint8_t Cmd)
 void Vision_Self_Text(void)
 {
     Vision_Transmit(Vision_Cmd_Self_Text);
-}                      
+}  
+void Vision_Transmit_Debug(void)
+{
+    /* 12 个待发量,顺序固定: 加速度XYZ, 陀螺PRY, 当前欧拉角PRY, 目标欧拉角PRY */
+    float    val[12];
+    uint8_t *src;
+    uint8_t  i;
+
+    val[0]  = IMU_Data.A[NOW][X];
+    val[1]  = IMU_Data.A[NOW][Y];
+    val[2]  = IMU_Data.A[NOW][Z];
+    val[3]  = IMU_Data.G[NOW][PITCH];
+    val[4]  = IMU_Data.G[NOW][ROLL];
+    val[5]  = IMU_Data.G[NOW][YAW];
+    val[6]  = Surface.current_angle_Euler[NOW][PITCH];
+    val[7]  = Surface.current_angle_Euler[NOW][ROLL];
+    val[8]  = Surface.current_angle_Euler[NOW][YAW];
+    val[9]  = Surface.target_angle_Euler[NOW][PITCH];
+    val[10] = Surface.target_angle_Euler[NOW][ROLL];
+    val[11] = Surface.target_angle_Euler[NOW][YAW];
+
+    /* 帧头0x57 + 12×float(大端,MSB先,每个4字节) + 帧尾0x75, 共50字节(Vision_TxDebug_Buf[50])。
+     * 视觉端定长收50字节,校验首0x57/尾0x75后大端解析,如 Python: struct.unpack('>12f', buf[1:49])。 */
+    Vision_TxDebug_Buf[0] = 0x57;
+    for (i = 0; i < 12; i++)
+    {
+        src = (uint8_t *)&val[i];                       /* STM32 小端: src[0]=LSB ... src[3]=MSB */
+        Vision_TxDebug_Buf[1 + i * 4 + 0] = src[3];     /* 大端: 高字节先发 */
+        Vision_TxDebug_Buf[1 + i * 4 + 1] = src[2];
+        Vision_TxDebug_Buf[1 + i * 4 + 2] = src[1];
+        Vision_TxDebug_Buf[1 + i * 4 + 3] = src[0];
+    }
+    Vision_TxDebug_Buf[49] = 0x75;
+
+    HAL_UART_Transmit_DMA(&Vision_UART_Handle, Vision_TxDebug_Buf, sizeof(Vision_TxDebug_Buf));
+}                    
 
 
 void Total_Power_Control(uint8_t Power_State)

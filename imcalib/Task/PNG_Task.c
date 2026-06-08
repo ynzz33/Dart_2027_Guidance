@@ -46,9 +46,10 @@ void PNG_Guidance(Vision_Rx_Buf_t* Vision_Data , PNG_Data_t* PNG_Data , Surface_
 
 	PNG_Data->los_GYRO[NOW][X] = KalmanFilter( &PNG_gyro_Kalman_Filter[X],PNG_Data->los_GYRO[NOW][X], 0.01,0.5);
 	PNG_Data->los_GYRO[NOW][Y] = KalmanFilter( &PNG_gyro_Kalman_Filter[Y],PNG_Data->los_GYRO[NOW][Y], 0.01,0.5);
-	//减去自身得到相对角速度
-	PNG_Data->los_GYRO[NOW][X] -= IMU_Data->G_Rad[NOW][X];
-	PNG_Data->los_GYRO[NOW][Y] -= IMU_Data->G_Rad[NOW][Y];
+	//减去自身得到相对角速度(方案B:源头对调后纵轴chipX落在G_Rad[ROLL]、chipY落在G_Rad[PITCH],
+	//这里取回原物理轴,保持制导补偿与源头对调前完全一致)
+	PNG_Data->los_GYRO[NOW][X] -= IMU_Data->G_Rad[NOW][ROLL ];
+	PNG_Data->los_GYRO[NOW][Y] -= IMU_Data->G_Rad[NOW][PITCH];
 
 	PNG_Data->los_vector[X] = cosf(PNG_Data->los_ANGLE[NOW][X]) * cosf(PNG_Data->los_ANGLE[NOW][Y]);
 	PNG_Data->los_vector[Y] = sinf(PNG_Data->los_ANGLE[NOW][X]) * cosf(PNG_Data->los_ANGLE[NOW][Y]);

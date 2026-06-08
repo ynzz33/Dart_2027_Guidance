@@ -22,52 +22,184 @@ Dialog DLL:      TCM.DLL V1.56.4.0
  
 <h2>Project:</h2>
 C:\Users\ynz\Desktop\zzzzzzzz\0~0Hal_zzzz\g431\Dart_2027_Guidance_Ynzz\MDK-ARM\Dart_2027_Guidance_Ynzz.uvprojx
-Project File Date:  05/25/2026
+Project File Date:  06/07/2026
 
 <h2>Output:</h2>
 *** Using Compiler 'V5.06 update 7 (build 960)', folder: 'D:\keil\keil_core\ARM\armcc_5\Bin'
 Build target 'Dart_2027_Guidance_Ynzz'
-compiling user_lib.c...
-..\imcalib\User\user_lib.c(91): warning:  #223-D: function "Vision_Self_Text" declared implicitly
-              Vision_Self_Text();
-..\imcalib\User\user_lib.c(106): warning:  #223-D: function "Dart_Trigger_Self_Text" declared implicitly
-              Dart_Trigger_Self_Text();
-..\imcalib\User\user_lib.c(110): error:  #65: expected a ";"
-              Wait_cnt_Dart = 10pop0000000000;
-..\imcalib\User\user_lib.c: 2 warnings, 1 error
-compiling CallBack_Task.c...
-..\imcalib\Task\CallBack_Task.c(136): warning:  #188-D: enumerated type mixed with another type
-      HAL_GPIO_WritePin( HEAD_PORT ,HEAD_PIN ,Power_State);
-..\imcalib\Task\CallBack_Task.c(208): warning:  #188-D: enumerated type mixed with another type
-      HAL_GPIO_WritePin( POWER_PORT ,POWER_PIN ,Power_State);
-..\imcalib\Task\CallBack_Task.c(227): error:  #154: expression must have struct or union type
-  	    Vision_Rx_Buf.Vision_Receive_Cnt++;
-..\imcalib\Task\CallBack_Task.c: 2 warnings, 1 error
+assembling startup_stm32g431xx.s...
+compiling stm32g4xx_ll_adc.c...
+compiling adc.c...
+compiling stm32g4xx_hal_adc_ex.c...
+compiling spi.c...
+compiling tim.c...
+compiling dma.c...
+compiling stm32g4xx_hal_msp.c...
+compiling usart.c...
+compiling stm32g4xx_hal.c...
+compiling app_freertos.c...
+D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdlib.h(60): error:  #130: expected a "{"
+      typedef unsigned int size_t;   /* see <stddef.h> */
+D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdlib.h(561): error:  #757: variable "div_t"  is not a type name
+  extern _ARMABI_PURE div_t div(int /*numer*/, int /*denom*/);
+../Core/Src/app_freertos.c(160): warning:  #223-D: function "Self_Text_Task" declared implicitly
+          Self_Text_Task();
+../Core/Src/app_freertos.c: 1 warning, 2 errors
+compiling stm32g4xx_it.c...
+compiling gpio.c...
+compiling main.c...
+compiling stm32g4xx_hal_tim_ex.c...
+compiling stm32g4xx_hal_timebase_tim.c...
+compiling stm32g4xx_hal_adc.c...
+compiling stm32g4xx_hal_tim.c...
+compiling stm32g4xx_hal_rcc.c...
+compiling stm32g4xx_hal_pwr.c...
+compiling stm32g4xx_hal_flash_ex.c...
+compiling stm32g4xx_hal_flash.c...
+compiling stm32g4xx_hal_spi_ex.c...
+compiling stm32g4xx_hal_rcc_ex.c...
+compiling stm32g4xx_hal_flash_ramfunc.c...
+compiling stm32g4xx_hal_dma_ex.c...
+compiling stm32g4xx_hal_gpio.c...
+compiling stm32g4xx_hal_pwr_ex.c...
+compiling stm32g4xx_hal_cortex.c...
+compiling stm32g4xx_hal_exti.c...
+compiling stm32g4xx_hal_dma.c...
+compiling stm32g4xx_hal_uart_ex.c...
+compiling stm32g4xx_hal_uart.c...
+compiling stm32g4xx_hal_spi.c...
+compiling croutine.c...
+compiling event_groups.c...
+compiling list.c...
+compiling queue.c...
+compiling stream_buffer.c...
+compiling tasks.c...
+compiling timers.c...
+compiling heap_4.c...
+compiling cmsis_os.c...
+compiling port.c...
 compiling Init_Config.c...
+D:\keil\keil_core\ARM\armcc_5\Bin\..\include\string.h(44): error:  #130: expected a "{"
+      typedef unsigned int size_t;   /* see <stddef.h> */
+D:\keil\keil_core\ARM\armcc_5\Bin\..\include\math.h(145): error:  #118: a void function may not return a value
+      return ((__FLT(__x) >> 23) & 0xff) != 0xff;
+D:\keil\keil_core\ARM\armcc_5\Bin\..\include\math.h(145): error:  #20: identifier "__x" is undefined
+      return ((__FLT(__x) >> 23) & 0xff) != 0xff;
+..\imcalib\Task\Init_Config.c: 0 warnings, 3 errors
+compiling system_stm32g4xx.c...
 compiling buzzer.c...
+..\imcalib\Task\buzzer.c(30): error:  #130: expected a "{"
+  static uint8_t is_playing = 0;
+..\imcalib\Task\buzzer.c(32): error:  #29: expected an expression
+  Buzzer_message_t Buzzer_message = {.cmd = BUZZER_CMD_STOP};
+..\imcalib\Task\buzzer.c(32): error:  #65: expected a ";"
+  Buzzer_message_t Buzzer_message = {.cmd = BUZZER_CMD_STOP};
 ..\imcalib\Task\buzzer.c(365): warning:  #186-D: pointless comparison of unsigned integer with zero
     if (freq < BUZZER_MIN_FREQ || freq > BUZZER_MAX_FREQ) {
+..\imcalib\Task\buzzer.c(462): error:  #20: identifier "is_playing" is undefined
+    return is_playing && !is_paused;
+..\imcalib\Task\buzzer.c(462): error:  #20: identifier "is_paused" is undefined
+    return is_playing && !is_paused;
+..\imcalib\Task\buzzer.c(482): error:  #20: identifier "is_paused" is undefined
+          if (!is_paused)
+..\imcalib\Task\buzzer.c(484): error:  #20: identifier "is_playing" is undefined
+            is_playing = 1;
+..\imcalib\Task\buzzer.c(501): error:  #20: identifier "is_playing" is undefined
+            is_playing = 1;
+..\imcalib\Task\buzzer.c(502): error:  #20: identifier "is_paused" is undefined
+            is_paused = 0;
 ..\imcalib\Task\buzzer.c(40): warning:  #177-D: variable "startup_notes"  was declared but never referenced
   static const uint16_t startup_notes[] = {
 ..\imcalib\Task\buzzer.c(45): warning:  #177-D: variable "alarm_notes"  was declared but never referenced
   static const uint16_t alarm_notes[] = {
-..\imcalib\Task\buzzer.c: 3 warnings, 0 errors
+..\imcalib\Task\buzzer.c: 3 warnings, 9 errors
 compiling Button.c...
+D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdlib.h(60): error:  #130: expected a "{"
+      typedef unsigned int size_t;   /* see <stddef.h> */
+D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdlib.h(561): error:  #757: variable "div_t"  is not a type name
+  extern _ARMABI_PURE div_t div(int /*numer*/, int /*denom*/);
+..\imcalib\Task\Button.c: 0 warnings, 2 errors
+compiling user_lib.c...
+..\imcalib\User\user_lib.c(14): error:  #130: expected a "{"
+  void PidInit(void)
+..\imcalib\User\user_lib.c: 0 warnings, 1 error
+compiling Vofa_send.c...
+compiling CallBack_Task.c...
+..\imcalib\Task\buzzer.h(100): error:  #130: expected a "{"
+  enum
+..\imcalib\Task\buzzer.h(102): error:  #20: identifier "BUZZER_CMD_PLAY_NOTE" is undefined
+    BUZZER_CMD_PLAY_NOTE,
+..\imcalib\Task\buzzer.h(103): error:  #20: identifier "BUZZER_CMD_PLAY_SONG" is undefined
+    BUZZER_CMD_PLAY_SONG,
+..\imcalib\Task\buzzer.h(104): error:  #20: identifier "Buzzer_CMD_PAUSE" is undefined
+    Buzzer_CMD_PAUSE,
+..\imcalib\Task\buzzer.h(105): error:  #20: identifier "BUZZER_CMD_STOP" is undefined
+    BUZZER_CMD_STOP
+..\imcalib\Task\buzzer.h(106): error:  #65: expected a ";"
+  };
+..\imcalib\Task\CallBack_Task.c(134): warning:  #188-D: enumerated type mixed with another type
+      HAL_GPIO_WritePin( HEAD_PORT ,HEAD_PIN ,Power_State);
+..\imcalib\Task\CallBack_Task.c(150): warning:  #175-D: subscript out of range
+          Vision_Rx_Data.Euler[NOW][YAW] = Vision_Rx_Data.y[NOW]/160.0f*72.0f;
+..\imcalib\Task\CallBack_Task.c(184): error:  #247: function "Vision_Transmit_Debug"  has already been defined
+  void Vision_Transmit_Debug(void)
+..\imcalib\Task\CallBack_Task.c(204): warning:  #188-D: enumerated type mixed with another type
+      HAL_GPIO_WritePin( POWER_PORT ,POWER_PIN ,Power_State);
+..\imcalib\Task\CallBack_Task.c(256): warning:  #177-D: variable "h"  was declared but never referenced
+              uint8_t h = Vision_Rx_Buf[0], t = Vision_Rx_Buf[5];
+..\imcalib\Task\CallBack_Task.c(256): warning:  #177-D: variable "t"  was declared but never referenced
+              uint8_t h = Vision_Rx_Buf[0], t = Vision_Rx_Buf[5];
+..\imcalib\Task\CallBack_Task.c: 5 warnings, 7 errors
+compiling ADC_Battery.c...
+..\imcalib\Tool\ADC_Battery.c(20): warning:  #177-D: variable "Last_ADC_Z"  was declared but never referenced
+      static float ADC_Z = 0,Last_ADC_Z = 0;
+..\imcalib\Tool\ADC_Battery.c: 1 warning, 0 errors
 compiling TotalControl.c...
-compiling app_freertos.c...
-../Core/Src/app_freertos.c(160): warning:  #223-D: function "Self_Text_Task" declared implicitly
-          Self_Text_Task();
-../Core/Src/app_freertos.c: 1 warning, 0 errors
+..\imcalib\Task\surface_control_task.h(67): error:  #130: expected a "{"
+   enum
+..\imcalib\Task\surface_control_task.h(69): error:  #20: identifier "Wing_left" is undefined
+      Wing_left,
+..\imcalib\Task\surface_control_task.h(70): error:  #20: identifier "Wing_right" is undefined
+      Wing_right,
+..\imcalib\Task\surface_control_task.h(71): error:  #20: identifier "Vertical_fin" is undefined
+      Vertical_fin
+..\imcalib\Task\surface_control_task.h(72): error:  #65: expected a ";"
+  };
+..\imcalib\Task\TotalControl.c: 0 warnings, 5 errors
 compiling PNG_Task.c...
+D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdlib.h(60): error:  #130: expected a "{"
+      typedef unsigned int size_t;   /* see <stddef.h> */
+D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdlib.h(561): error:  #757: variable "div_t"  is not a type name
+  extern _ARMABI_PURE div_t div(int /*numer*/, int /*denom*/);
 ..\imcalib\Task\PNG_Task.c(61): warning:  #1035-D: single-precision operand implicitly converted to double-precision
   	if (fabsf(PNG_Data->V_c) < Vc_min)
 ..\imcalib\Task\PNG_Task.c(66): warning:  #1035-D: single-precision operand implicitly converted to double-precision
   	Surface-> target_angle_Euler[NOW][PITCH] = PNG_Data->los_GYRO[NOW][Y] * PNG_Data->N_R * PNG_Data->V_c / K_Dyn * 180.f/M_PI;
 ..\imcalib\Task\PNG_Task.c(67): warning:  #1035-D: single-precision operand implicitly converted to double-precision
   	Surface-> target_angle_Euler[NOW][YAW]   = PNG_Data->los_GYRO[NOW][X] * PNG_Data->N_R * PNG_Data->V_c / K_Dyn * 180.f/M_PI;
-..\imcalib\Task\PNG_Task.c: 3 warnings, 0 errors
+..\imcalib\Task\PNG_Task.c: 3 warnings, 2 errors
 compiling surface_control_task.c...
-"Dart_2027_Guidance_Ynzz\Dart_2027_Guidance_Ynzz.axf" - 2 Error(s), 11 Warning(s).
+../imcalib/Tool/pid.h(7): error:  #130: expected a "{"
+  enum
+../imcalib/Tool/pid.h(9): error:  #20: identifier "POSITION_PID" is undefined
+      POSITION_PID,
+../imcalib/Tool/pid.h(10): error:  #20: identifier "DELTA_PID" is undefined
+      DELTA_PID,
+../imcalib/Tool/pid.h(11): error:  #29: expected an expression
+  };
+../imcalib/Tool/pid.h(11): error:  #65: expected a ";"
+  };
+..\imcalib\Task\surface_control_task.c(133): warning:  #175-D: subscript out of range
+              Surface.target_angle_Euler[NOW][YAW] = Vision_Rx_Data.Euler[NOW][YAW] + Surface.current_angle_Euler[NOW][YAW];
+..\imcalib\Task\surface_control_task.c(128): warning:  #177-D: variable "v"  was declared but never referenced
+          Vision_Rx_Buf_t v = Vision_Rx_Data;
+..\imcalib\Task\surface_control_task.c(551): warning:  #167-D: argument of type "float (*)[4]" is incompatible with parameter of type "const float (*)[4]"
+      alloc_compute_nullspace(Alloc_B, n);
+..\imcalib\Task\surface_control_task.c: 3 warnings, 5 errors
+compiling filter.c...
+compiling pid.c...
+compiling IMU.c...
+"Dart_2027_Guidance_Ynzz\Dart_2027_Guidance_Ynzz.axf" - 36 Error(s), 16 Warning(s).
 
 <h2>Software Packages used:</h2>
 
@@ -91,7 +223,7 @@ Package Vendor: Keil
    * Component: ARM::CMSIS:CORE@6.1.0
       Include file:  CMSIS/Core/Include/tz_context.h
 Target not created.
-Build Time Elapsed:  00:00:06
+Build Time Elapsed:  00:00:10
 </pre>
 </body>
 </html>

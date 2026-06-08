@@ -58,6 +58,7 @@ typedef struct __pid_t
 
 	float max_err;
 	float deadband;
+	uint8_t angle_wrap;   /* 1=误差按角度环绕到(-180,180];atan2 周期角的角度外环(roll/yaw)用 */
 
 
 	void (*f_param_init)(struct __pid_t *pid,
@@ -80,6 +81,7 @@ static void pid_param_init(pid_t *pid,uint8_t mode,float maxout,float intergral_
 /*PID���㺯��*/
 float pid_calc(pid_t* pid, float get, float set , float delta_time);
 float Deadband_Soften(float err, float deadband);
+float Angle_Wrap_180(float deg);
 void Euler_pid_Cale(float delta_time_z);
 float FeedForwardController(FFC_t *FFC,float target,float num1,float num2);
 extern pid_t surface_control_pid[2][3];

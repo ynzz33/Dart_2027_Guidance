@@ -21,24 +21,22 @@
 #define  Vertical_fin_Change_Angle  250.0f  // 800.0f
 /* === X 翼 4 舵机布局(VECTOR_NOZZLE 模式使用),不影响原飞翼路径 === */
 //硬件原因导致左上舵机接在了 TIM3 上，所以单独写函数控制
-#define  Servo_UL_Channel   TIM_CHANNEL_2   /* PB5 - UP_LEFT    */
-#define  Servo_UR_Channel   TIM_CHANNEL_2   /* PB7 - UP_RIGHT   */
-#define  Servo_DR_Channel   TIM_CHANNEL_3   /* PB8 - DOWN_LEFT  */
-#define  Servo_DL_Channel   TIM_CHANNEL_4   /* PB9 - DOWN_RIGHT */
+#define  Servo_UL_Channel   TIM_CHANNEL_2   /* htim3 CH2 → PB5 - UP_LEFT (硬件原因独占 TIM3) */
+#define  Servo_UR_Channel   TIM_CHANNEL_2   /* htim4 CH2 → PB7 - UP_RIGHT   */
+#define  Servo_DR_Channel   TIM_CHANNEL_3   /* htim4 CH3 → PB8 - DOWN_RIGHT  */
+#define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
-//镖体1
-#define  Servo_UL_ZERO      1500
-#define  Servo_UR_ZERO      1430
-#define  Servo_DR_ZERO      1300
-#define  Servo_DL_ZERO      1520
+//镖体1 蓝色
+// #define  Servo_UL_ZERO      1460
+// #define  Servo_UR_ZERO      1460
+// #define  Servo_DR_ZERO      1300
+// #define  Servo_DL_ZERO      1505
 
-// //镖体2
-// #define  Servo_UL_ZERO      1480
-// #define  Servo_UR_ZERO      1450
-// #define  Servo_DR_ZERO      1350
-// #define  Servo_DL_ZERO      1520
-
-#define  Servo_PWM_Limit      850
+// //镖体2 红色
+#define  Servo_UL_ZERO      1490
+#define  Servo_UR_ZERO      1420
+#define  Servo_DR_ZERO      1540
+#define  Servo_DL_ZERO      1485
 
 /* X 翼方向系数:台架联调时单轴阶跃,反向了翻号(不要动公式) */
 #define  SIGN_UL  (-1.0f)
@@ -146,8 +144,9 @@ extern Surface_t Surface;
 extern Self_Text_t Self_Text;
 extern uint8_t Guidance_State;
 extern uint8_t Wing_Servo_Control_Flag;
-extern float servo_lat_scale;   /* Vofa 可观测:横侧保留比例 k,1=未饱和,<1=正为保 pitch 缩 roll/yaw */
+extern float servo_lat_scale;   /* Vofa 可观测:最低优先轴保留比(横侧 k 泛化),1=未饱和,<1=有轴被挤缩 */
 extern uint8_t Alloc_Mode;                     /* 控制分配档:0=旧pitch优先对照 1=三轴限幅 2=最小能量 */
+extern uint8_t Alloc_Prio[3];                  /* 交付A 逐级优先级:轴枚举[0]最高,默认{PITCH,YAW,ROLL};调试器在线改 */
 extern float   Alloc_B[3][4];                  /* 舵效矩阵 τ=B·u,行[p,r,y]列[UL,UR,DR,DL];默认理想阵,可台架辨识替换 */
 extern float   alloc_u0[4], alloc_u_out[4];    /* Vofa:分配解(投影/降级后,×SIGN前) / 最终写舵值(×SIGN限幅后) */
 extern float   alloc_alpha, alloc_u0_span, alloc_v_scale, alloc_p_scale; /* Vofa:零空间投影α / u0极差 / 降级横侧缩放比 / pitch缩放比 */

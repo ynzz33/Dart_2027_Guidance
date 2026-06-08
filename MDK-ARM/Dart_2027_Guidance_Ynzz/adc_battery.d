@@ -47,3 +47,4 @@ dart_2027_guidance_ynzz\adc_battery.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\incl
 dart_2027_guidance_ynzz\adc_battery.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\limits.h
 dart_2027_guidance_ynzz\adc_battery.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdio.h
 dart_2027_guidance_ynzz\adc_battery.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h
+dart_2027_guidance_ynzz\adc_battery.o: ../imcalib/User/common_defs.h

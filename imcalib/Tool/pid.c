@@ -12,14 +12,14 @@ float temp[3];
  * @param   
  * @retval  
 **********************************************************************************************************************/
-float ABS(float num)
+float ABS(float num) 
 {
 	float value = (num<0) ? -num : num;
  	
 	return value;
 }                                            
 
-void abs_limit(float *a, float ABS_MAX)
+void abs_limit(float *a, float ABS_MAX) 
 {     
     if(*a > ABS_MAX) 
         *a = ABS_MAX;
@@ -30,22 +30,22 @@ void abs_limit(float *a, float ABS_MAX)
 void pid_init(void)
 {
 // //镖体1
-    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,80,4,0.1f,0.00f,0.0f,0.3f,0.7f);
-    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,40,4,0.2f,0.00f,0.0f,0.3f,0.7f);
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,80,4,3.1f,0.00f,0.0f,0.3f,0.3f);
+    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,80,4,0.80f,0.00f,0.00f,0.3f,0.7f);
+    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,80,4,0.80f,0.00f,0.00f,0.3f,0.3f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,80,4,0.80f,0.00f,0.00f,0.3f,0.3f);
 
-    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,80,4,0.08f,0.0f,0.00f,0.3f,0.7f);
-    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,70,4,0.8f,0.0f,0.00f,0.3f,0.7f);
-    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,80,4,1.05f,0.0f,0.1f,0.3f,0.3f);
+    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,80,4,0.30f,0.00f,0.00f,0.3f,0.7f);
+    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,70,4,0.30f,0.00f,0.00f,0.3f,0.3f);
+    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,80,4,0.30f,0.00f,0.00f,0.3f,0.3f);
 
 // //镖体2
-    // PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,80,4,0.2f,0.00f,0.0f,0.3f,0.7f);
-    // PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,20,4,0.2f,0.00f,0.0f,0.3f,0.7f);
-    // PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,80,4,4.7f,0.00f,0.0f,0.3f,0.3f);
+    // PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,80,4,0.1f,0.00f,0.0f,0.3f,0.7f);
+    // PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,40,4,0.2f,0.00f,0.0f,0.3f,0.7f);
+    // PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,80,4,3.1f,0.00f,0.0f,0.3f,0.3f);
 
-    // PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,80,4,0.13f,0.0f,0.00f,0.3f,0.7f);
-    // PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,30,4,0.05f,0.0f,0.00f,0.3f,0.7f);
-    // PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,80,4,0.8f,0.0f,0.00f,0.3f,0.3f);
+    // PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,80,4,0.08f,0.0f,0.00f,0.3f,0.7f);
+    // PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,70,4,1.15f,0.0f,0.00f,0.3f,0.7f);
+    // PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,80,4,1.05f,0.0f,0.1f,0.3f,0.3f);
      
     surface_control_pid[Angle][PITCH].deadband  = 5.0f;
     surface_control_pid[Angle][ROLL].deadband   = 0.0f;
@@ -53,6 +53,11 @@ void pid_init(void)
     surface_control_pid[Gyro][PITCH].deadband   = 5.0f;
     surface_control_pid[Gyro][ROLL].deadband    = 0.0f;//3.0
     surface_control_pid[Gyro][YAW].deadband     = 2.0f;
+
+    /* 角度外环 roll/yaw 是 atan2 周期角,误差需环绕到(-180,180];pitch 是 asin∈[-90,90] 不需要。
+     * 内环(Gyro)是角速度、不是周期角,保持 0。*/
+    surface_control_pid[Angle][ROLL].angle_wrap = 1;
+    surface_control_pid[Angle][YAW].angle_wrap  = 1;
     
     PID_struct_init(&mahony_pid[PITCH] ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
     PID_struct_init(&mahony_pid[ROLL]  ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
@@ -68,9 +73,9 @@ void Euler_pid_Cale(float delta_time_z)
 
         /*num1，num2非零 时，前馈才有效果*/
         temp[i] = pid_calc( outer,Surface.current_angle_Euler[NOW][i],Surface.target_angle_Euler[NOW][i],delta_time_z);
-        temp[i] += FeedForwardController(&outer->xFeedForward,Surface.target_angle_Euler[NOW][i],outer->xFeedForward.num1,outer->xFeedForward.num2);
+        // temp[i] += FeedForwardController(&outer->xFeedForward,Surface.target_angle_Euler[NOW][i],outer->xFeedForward.num1,outer->xFeedForward.num2);
         Surface.output_gyro_Euler[NOW][i] = pid_calc( inner,Surface.current_gyro_Euler[NOW][i],temp[i],delta_time_z);
-        Surface.output_gyro_Euler[NOW][i] += FeedForwardController(&inner->xFeedForward,temp[i],inner->xFeedForward.num1,inner->xFeedForward.num2);
+        // Surface.output_gyro_Euler[NOW][i] += FeedForwardController(&inner->xFeedForward,temp[i],inner->xFeedForward.num1,inner->xFeedForward.num2);
     }
 }
 
@@ -99,11 +104,25 @@ float Deadband_Soften(float err, float deadband)
     return 0.0f;                               /* 死区内:连续归零 */
 }
 
+/**********************************************************************************************************************
+ * @brief   角度误差环绕:周期角(atan2 ∈[-180,180])跨 ±180° 边界时 set-get 会出现 ~360° 假跳变,
+ *          反向猛打致自旋;把误差归一到 (-180,180]。仅对角度外环 roll/yaw 经 angle_wrap 开启。
+**********************************************************************************************************************/
+float Angle_Wrap_180(float deg)
+{
+    while (deg >  180.0f) deg -= 360.0f;
+    while (deg < -180.0f) deg += 360.0f;
+    return deg;
+}
+
 float pid_calc(pid_t* pid, float get, float set , float delta_time)
 {
     pid->get[NOW] = get;
     pid->set[NOW] = set;
     pid->err[NOW] = set - get;
+    /* 角度环绕:周期角(atan2 ∈[-180,180])跨 ±180° 会出现 ~360° 假跳变、反向猛打致自旋;
+     * 按通道开关 angle_wrap 把误差归一到(-180,180]。放在 max_err 判断前,免得假跳触发 max_err。*/
+    if (pid->angle_wrap) pid->err[NOW] = Angle_Wrap_180(pid->err[NOW]);
     if (pid->max_err != 0 && ABS(pid->err[NOW]) >  pid->max_err)
         return 0;
 

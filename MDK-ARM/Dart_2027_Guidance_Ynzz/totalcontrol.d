@@ -44,6 +44,7 @@ dart_2027_guidance_ynzz\totalcontrol.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\inc
 dart_2027_guidance_ynzz\totalcontrol.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdarg.h
 dart_2027_guidance_ynzz\totalcontrol.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\string.h
 dart_2027_guidance_ynzz\totalcontrol.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h
+dart_2027_guidance_ynzz\totalcontrol.o: ../imcalib/User/common_defs.h
 dart_2027_guidance_ynzz\totalcontrol.o: ..\imcalib\Task\TotalControl.h
 dart_2027_guidance_ynzz\totalcontrol.o: ../imcalib/Tool/Pid.h
 dart_2027_guidance_ynzz\totalcontrol.o: ../imcalib/Tool/ADC_Battery.h
@@ -69,3 +70,4 @@ dart_2027_guidance_ynzz\totalcontrol.o: ..\imcalib\Task\PNG_Task.h
 dart_2027_guidance_ynzz\totalcontrol.o: ..\imcalib\Task\CallBack_Task.h
 dart_2027_guidance_ynzz\totalcontrol.o: ..\imcalib\Task\IMU.h
 dart_2027_guidance_ynzz\totalcontrol.o: ..\imcalib\Task\surface_control_task.h
+dart_2027_guidance_ynzz\totalcontrol.o: ../Core/Inc/usart.h

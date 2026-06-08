@@ -31,6 +31,22 @@
 #define ACC_KF_Q 1.0f
 #define ACC_KF_R 1000.0f
 
+/* === 传感器→机体系符号 (机体 X=右/东, Y=前/北, Z=上/天, 右手 ENU) ===
+ * 每轴正方向只能台架实测锁定(BMX055 加速度/陀螺两片封装轴向本就不同);默认按当前硬件,
+ * 按「验证表」做单轴动作,某轴方向反了就把对应符号翻 ±1。
+ *
+ * 加速度物理映射(寄存器序 rx2,1=accX / rx4,3=accY / rx6,5=accZ):
+ *   A[X](右)=accY寄存器, A[Y](前)=accX寄存器, A[Z](上)=accZ寄存器 —— 见 BMX055_Read,静止 A[Z]≈+g(上为正)。 */
+#define ACC_SIGN_X  (+1.0f)   /* 机体X 右/东:  + = 向右加速度为正 */
+#define ACC_SIGN_Y  (+1.0f)   /* 机体Y 前/北:  + = 向前(发射方向)加速度为正 */
+#define ACC_SIGN_Z  (-1.0f)   /* 机体Z 上/天:  使静止读数 = +g(上为正) */
+
+/* 陀螺喂四元数的机体角速度(右手 rad/s): gx(绕右)=G[PITCH]=chipGyrY, gy(绕前)=G[ROLL]=chipGyrX(纵轴),
+ * gz(绕上)=G[YAW]=chipGyrZ。右手系下 +gx=抬头、+gy=右滚、+gz=左偏(故上报 yaw 取 −gz)。 */
+#define GYR_SIGN_X  (+1.0f)   /* 绕机体X(右): + 应 = 抬头(右手) */
+#define GYR_SIGN_Y  (+1.0f)   /* 绕机体Y(前): + 应 = 右滚(右手) */
+#define GYR_SIGN_Z  (-1.0f)   /* 绕机体Z(上): + 应 = 左偏(右手);上报 yaw 右+ = −此值 */
+
 enum
 {
     ACC = 0,

@@ -109,4 +109,5 @@ void Dart_Trriger_Color_Set(uint8_t Team_Color);
 void Dart_Trigger_Power_Control(uint8_t Power_State);
 void Dart_Trigger_Self_Text(void);
 void Total_Power_Control(uint8_t Power_State);
+void Vision_Transmit_Debug(void);
 #endif //CALLBACK_TASK_H

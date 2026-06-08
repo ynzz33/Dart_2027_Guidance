@@ -44,6 +44,7 @@ dart_2027_guidance_ynzz\png_task.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include
 dart_2027_guidance_ynzz\png_task.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdarg.h
 dart_2027_guidance_ynzz\png_task.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\string.h
 dart_2027_guidance_ynzz\png_task.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h
+dart_2027_guidance_ynzz\png_task.o: ../imcalib/User/common_defs.h
 dart_2027_guidance_ynzz\png_task.o: ..\imcalib\Task\surface_control_task.h
 dart_2027_guidance_ynzz\png_task.o: ..\imcalib\Task\CallBack_Task.h
 dart_2027_guidance_ynzz\png_task.o: ../imcalib/Tool/filter.h

@@ -38,13 +38,15 @@ Surface_t Surface;
 Self_Text_t Self_Text;
 uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
 /* === 控制分配(混控)全局 === */
-uint8_t Alloc_Mode = 0;                        /* 默认先用稳妥的三轴限幅;台架确认后可切 2=最小能量 */
+uint8_t Alloc_Mode = 1;                        /* 默认=交付A三轴限幅(逐级优先级缩放,roll-only 下线性正确);0=旧PitchPriority对照 2=最小能量 */
+uint8_t Alloc_Prio[3] = { PITCH, YAW, ROLL };  /* 交付A 逐级优先级:轴枚举[0]最高,默认 pitch>yaw>roll;调试器 Watch 在线改 */
+float   servo_lat_scale = 1.0f;                /* Vofa:最低优先轴保留比(横侧 k 泛化),1=未饱和 <1=有轴被挤;此前 extern 无定义,补回 */
 /* 舵效矩阵 B (3x4): τ = B·u, 行序[pitch,roll,yaw], 列序[UL,UR,DR,DL]. 默认理想 X 阵(BBᵀ=4I).
  * 台架辨识替换法:固定其余三舵=0,给第 j 舵单位阶跃 Δu_j(如+20°),读三轴力矩响应(可用 output_gyro_Euler
  * 内环输出或 IMU 角加速度作代理)Δτ_p/r/y,令 B[0..2][j]=Δτ_{p,r,y}/Δu_j;四舵各做一次填满12个元素.
  * 单位任意一致(算法只用方向与相对幅值);改这里即可换实测值,无需改算法,奇异自动退回理想阵闭式. */
 float   Alloc_B[3][4] = {
-    { +1.0f, +1.0f, -1.0f, -1.0f },            /* pitch */
+    { +1.0f, +1.0f, +1.0f, +1.0f },            /* pitch */
     { +1.0f, -1.0f, -1.0f, +1.0f },            /* roll  */
     { -1.0f, +1.0f, -1.0f, +1.0f },            /* yaw   */
 };
@@ -96,13 +98,13 @@ void Guidance_Start(void)//自检后的判断
           Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
       }
     }
-            Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];//pitch 靠机械/动力稳,目标=当前角:只阻尼,不死保绝对 0
+            Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
             Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
             Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
 }
 void Guidance_Stable(void)//自稳
 {
-        Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];//pitch 靠机械/动力稳,目标=当前角:只阻尼,不死保绝对 0
+        Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
         Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
         // Buzzer_play_song(song_ni);
@@ -125,15 +127,15 @@ void Guidance_Terminal(void)//制导段
         taskENTER_CRITICAL();
         Vision_Rx_Buf_t v = Vision_Rx_Data;
         taskEXIT_CRITICAL();
-        if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS) /* RECOGNIZE_SUCCESS:识别到目标,锁存世界系视线目标,更新目标角 */
-        {    
+        if (v.Vision_recognize_flag == RECOGNIZE_SUCCESS) /* RECOGNIZE_SUCCESS:识别到目标,锁存世界系视线目标,更新目标角 */
+        {    /* 全程用临界区快照 v,避免与 UART 视觉中断(~20Hz 写多字段)撕裂读;清 flag 仍打真 struct */
             /* YAW:始终视觉制导,用当时姿态锁存世界系视线 → 误差=锁存−当前 */
-            Surface.target_angle_Euler[NOW][YAW] = Vision_Rx_Data.Euler[NOW][YAW] + Surface.current_angle_Euler[NOW][YAW];
+            Surface.target_angle_Euler[NOW][YAW] = v.Euler[NOW][YAW] + Surface.current_angle_Euler[NOW][YAW];
 
             /* PITCH:仅俯冲到位(<-10°)才视觉制导(同样锁存);否则不控,目标=当前 */
             if (Surface.current_angle_Euler[NOW][PITCH] < -10.0f)
             {
-                Surface.target_angle_Euler[NOW][PITCH] = Vision_Rx_Data.Euler[NOW][PITCH] + Surface.current_angle_Euler[NOW][PITCH];
+                Surface.target_angle_Euler[NOW][PITCH] = v.Euler[NOW][PITCH] + Surface.current_angle_Euler[NOW][PITCH];
             }
             else
             {
@@ -148,6 +150,9 @@ void Guidance_Terminal(void)//制导段
         Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
     }
+        Surface.target_angle_Euler[NOW][PITCH] = Surface.Stable_Euler_Angle[PITCH];
+        Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
+        Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
 }
 void Guidance_End(void)
 {
@@ -159,7 +164,7 @@ void Guidance_End(void)
     }
     Wing_Servo_Control_Flag = 0;
     // Total_Power_Control( Power_OFF )//不能太快掉电，不然openmv保存不了视频等等
-    // Buzzer_stop();
+    Buzzer_stop();
 }
 
 
@@ -175,7 +180,7 @@ void get_current_Target(void)
             }break;
             case Stable:
             {
-                if(IMU_Data.Euler[NOW][PITCH]<=22.0f)
+                if(IMU_Data.Euler[NOW][PITCH]<=30.0f)
                 {
                     Stable_Flag = 1;
                     Guidance_Stable();
@@ -201,7 +206,7 @@ void get_current_State(void)
             Self_Text.Self_Text_Process = 5; 
         }
     }
-    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][X] >= 0.80f||IMU_Data.A[NOW][X] <= -2.0f))
+    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][Y] >= 0.80f||IMU_Data.A[NOW][Y] <= -1.0f))
     {
         if (Surface.Guidance_cnt[0]++>5)
         {
@@ -218,7 +223,7 @@ void get_current_State(void)
             Surface.Guidance_cnt[1] = 0;
         }
     }
-    else if (Guidance_State == Terminal &&IMU_Data.A_Normed[NOW][X] >= 0.90f&& IMU_Data.A[NOW][X]>= 1.50f)
+    else if (Guidance_State == Terminal &&IMU_Data.A_Normed[NOW][Y] >= 0.90f&& IMU_Data.A[NOW][Y]>= 1.50f)
     {
         if(Surface.Guidance_cnt[2]++>5)
         {
@@ -228,86 +233,6 @@ void get_current_State(void)
         }
     }
 }
-
-#if 0 // DART_TYPE == FIXED_WING  (飞翼路径保留作参考,当前主程序只走 X 翼,故不编译)
-void Wing_left_Control(float data)
-{
-    //变大向上，变小向下
-    Surface.Finally_Angle[NOW][Wing_left]  =  (data/90.0f*1000.0f);
-    if (Surface.Finally_Angle[NOW][Wing_left]>=Wing_up_Change_Angle)
-    {
-        Surface.Finally_Angle[NOW][Wing_left]=Wing_up_Change_Angle;
-    }
-    else if (Surface.Finally_Angle[NOW][Wing_left]<=Wing_down_Change_Angle)
-    {
-        Surface.Finally_Angle[NOW][Wing_left]=Wing_down_Change_Angle;
-    }
-    Surface.Finally_Angle[NOW][Wing_left] = Wing_left_ZERO_POINT - Surface.Finally_Angle[NOW][Wing_left] ;
-    if (Guidance_State==Stable)
-    {
-        Surface.Finally_Angle[NOW][Wing_left] = Wing_left_ZERO_POINT;
-    }
-    // __HAL_TIM_SET_COMPARE( &htim4,Wing_left_Channel   ,Surface.Finally_Angle[NOW][Wing_left]);
-    __HAL_TIM_SET_COMPARE( &htim4,Wing_left_Channel,Wing_left_ZERO_POINT);
-
-} 
-void Wing_right_Control(float data)
-{
-    //变小向上，变大向下
-    Surface.Finally_Angle[NOW][Wing_right]  =  (data/90*1000);
-    if (Surface.Finally_Angle[NOW][Wing_right]>=Wing_up_Change_Angle )
-    {
-        Surface.Finally_Angle[NOW][Wing_right]=Wing_up_Change_Angle;
-    }
-    else if (Surface.Finally_Angle[NOW][Wing_right]<=Wing_down_Change_Angle)
-    {
-        Surface.Finally_Angle[NOW][Wing_right]=Wing_down_Change_Angle;
-    }
-    Surface.Finally_Angle[NOW][Wing_right] = Wing_right_ZERO_POINT + Surface.Finally_Angle[NOW][Wing_right];
-    if (Guidance_State==Stable)
-    {
-        Surface.Finally_Angle[NOW][Wing_right] = Wing_right_ZERO_POINT;
-    }
-    __HAL_TIM_SET_COMPARE( &htim4,Wing_right_Channel  ,Surface.Finally_Angle[NOW][Wing_right]);
-    // __HAL_TIM_SET_COMPARE( &htim4,Wing_right_Channel,Wing_right_ZERO_POINT);
-}
-void Vertical_fin_Control(float data)
-{
-    float Vertical_fin_Angle = data/90*1000;
-    if (Vertical_fin_Angle>=Vertical_fin_Change_Angle)
-    {
-        Vertical_fin_Angle= Vertical_fin_Change_Angle ;
-    }
-    else if (Vertical_fin_Angle<= -Vertical_fin_Change_Angle)
-    {
-        Vertical_fin_Angle = -Vertical_fin_Change_Angle ;
-    }
-    Surface.Finally_Angle[NOW][Vertical_fin] = Vertical_fin_ZERO_POINT + Vertical_fin_Angle;
-    if (Guidance_State==Stable)
-    {
-        Surface.Finally_Angle[NOW][Vertical_fin] = Vertical_fin_ZERO_POINT;
-    }
-    // __HAL_TIM_SET_COMPARE( &htim4,Vertical_fin_Channel,Surface.Finally_Angle[NOW][Vertical_fin]);
-    __HAL_TIM_SET_COMPARE( &htim4,Vertical_fin_Channel,Vertical_fin_ZERO_POINT);
-}
-void Wing_Control_FIXED_WING(void)
-{
-    // if (Guidance_State==End||(Guidance_State==Terminal&&Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE))
-    // {
-    //
-    // }
-    // else
-    // {
-
-        // Surface.output_angle_Servo[NOW][Wing_right]     = Near_By_Process(Surface.output_angle_Servo[NOW][Wing_right]   ,Surface.output_angle_Servo[LAST][Wing_right]   ,180);
-        // Surface.output_angle_Servo[NOW][Wing_left]      = Near_By_Process(Surface.output_angle_Servo[NOW][Wing_left]    ,Surface.output_angle_Servo[LAST][Wing_left]    ,180);
-        // Surface.output_angle_Servo[NOW][Vertical_fin]   = Near_By_Process(Surface.output_angle_Servo[NOW][Vertical_fin] ,Surface.output_angle_Servo[LAST][Vertical_fin] ,180);
-        Wing_right_Control(  Surface.output_angle_Servo[NOW][Wing_right]  );
-        Wing_left_Control(   Surface.output_angle_Servo[NOW][Wing_left]   );
-        Vertical_fin_Control(Surface.output_angle_Servo[NOW][Vertical_fin]);
-    // }
-}
-#endif
 #if 1 //DART_TYPE == VECTOR_NOZZLE
 /* X 翼 4 个舵机 PWM 写入:接 TIM3 CH2 TIM4 CH2-CH4 (PB6/PB7/PB8/PB9)
  * 输入 data 单位是度(±90 内), 内部映射到 PWM 微秒并做 ZERO 偏置 + 限幅
@@ -369,8 +294,8 @@ void Servo_Mix_PitchPriority(float p, float r, float y)
     float P[4], L[4];                                           /* 2) 拆 pitch 分量 / 横侧分量(逻辑符号阵) */
     P[UP_LEFT]    = +p;  L[UP_LEFT]    = +r - y;
     P[UP_RIGHT]   = +p;  L[UP_RIGHT]   = -r + y;
-    P[DOWN_LEFT]  = -p;  L[DOWN_LEFT]  = +r + y;
-    P[DOWN_RIGHT] = -p;  L[DOWN_RIGHT] = -r - y;
+    P[DOWN_RIGHT] = +p;  L[DOWN_RIGHT] = -r - y;
+    P[DOWN_LEFT]  = +p;  L[DOWN_LEFT]  = +r + y;
 
     float k = 1.0f;                                             /* 3) 求最大横侧比例 k */
     for (int i = 0; i < 4; i++)
@@ -378,11 +303,12 @@ void Servo_Mix_PitchPriority(float p, float r, float y)
         float aL = (L[i] < 0.0f) ? -L[i] : L[i];                // 绝对值
         if (aL < 1e-6f) continue;                               /* 该片无横侧分量,不构成约束 */
         float sgnL = (L[i] < 0.0f) ? -1.0f : 1.0f;              //拿到原来的符号以便复原
-        float ki = aL / (SERVO_ANGLE_LIMIT - sgnL * P[i]) ;      //总限幅减去pitch原始再除以横侧分量，得到比例
-        if (ki < k) k = ki;                                     //在比例内就按原样，不动，如果超出比例就按比例缩放，保证在限幅内
+        float ki = (SERVO_ANGLE_LIMIT - sgnL * P[i]) / aL;      //(限幅−pitch分量)/横侧分量 = 该片可容许的最大横侧比例(已修正:原为反写的 aL/(LIMIT−P))
+        if (ki < k) k = ki;                                     //取最严约束:在比例内按原样,超出按比例缩放,保证在限幅内
     }
 
     if (k < 0.0f) k = 0.0f;
+    if (k > 1.0f) k = 1.0f;                                     /* 上钳:未饱和时横侧全额保留、绝不放大(原缺此钳致 |r|>limit 时输出超限) */
 
     float SGN[4];                                               /* 4) 最终的合成 + 物理方向 SIGN 写入 */
     SGN[UP_LEFT]   = SIGN_UL;  SGN[UP_RIGHT]   = SIGN_UR;
@@ -395,25 +321,70 @@ void Servo_Mix_PitchPriority(float p, float r, float y)
  * 三者输出约定一致:写 Surface.output_angle_Servo[NOW][0..3](度,含SIGN,±SERVO_ANGLE_LIMIT 内),
  * 下标 0/1/2/3 = UP_LEFT/UP_RIGHT/DOWN_RIGHT/DOWN_LEFT。由调用点按 Alloc_Mode 分派。*/
 
-/* 交付A:三轴各自独立限幅 → 理想 X 逻辑阵(=Bᵀ·v) → ×SIGN。O(1) 无矩阵,最稳。*/
+/* 交付A(重写):完全可配置的逐级(字典序)优先级缩放分配。
+ * Alloc_Prio[0..2] 指定三轴优先级(轴枚举,[0]最高)。最高优先轴在前置限幅内全额保障;
+ * 次级/三级各在每片剩余舵机余量内最大化保留,绝不回削高优先轴 → 高优先轴不被低优先轴污染。
+ * 写 Surface.output_angle_Servo[NOW][0..3](度,含SIGN,±SERVO_ANGLE_LIMIT 内) 与 alloc_u_out[]。*/
 void Servo_Mix_AxisLimit(float p, float r, float y)
 {
+    /* 1) 前置轴级限幅(各轴独立),保证 |d[a]| ≤ AXIS_LIMIT(应≤SERVO_ANGLE_LIMIT) */
     abs_limit(&p, AXIS_LIMIT_PITCH);
     abs_limit(&r, AXIS_LIMIT_ROLL);
     abs_limit(&y, AXIS_LIMIT_YAW);
+    float d[3] = { p, r, y };                       /* 按 PITCH/ROLL/YAW 下标 */
 
-    float l[4];
-    l[UP_LEFT]    = +p + r - y;
-    l[UP_RIGHT]   = +p - r + y;
-    l[DOWN_RIGHT] = -p - r - y;
-    l[DOWN_LEFT]  = -p + r + y;
+    static const float C[4][3] = {                  /* 逻辑符号阵(未含物理 SIGN),列序 P/R/Y */
+        { +1.0f, +1.0f, -1.0f },                    /* UP_LEFT    */
+        { +1.0f, -1.0f, +1.0f },                    /* UP_RIGHT   */
+        { +1.0f, -1.0f, -1.0f },                    /* DOWN_RIGHT */
+        { +1.0f, +1.0f, +1.0f },                    /* DOWN_LEFT  */
+    };
 
-    float SGN[4];                              /* 按枚举下标赋值,杜绝字面顺序写错(DR=2,DL=3) */
+    /* 2) Alloc_Prio 合法性校验:必须是 {0,1,2} 的排列,否则退回默认 {PITCH,YAW,ROLL} */
+    uint8_t prio[3];
+    {
+        uint8_t seen = 0, ok = 1;
+        for (int rank = 0; rank < 3; rank++)
+        {
+            uint8_t a = Alloc_Prio[rank];
+            if (a > 2 || (seen & (1u << a))) { ok = 0; break; }
+            seen |= (1u << a);
+        }
+        if (ok) { prio[0]=Alloc_Prio[0]; prio[1]=Alloc_Prio[1]; prio[2]=Alloc_Prio[2]; }
+        else    { prio[0]=PITCH;         prio[1]=YAW;           prio[2]=ROLL;          }
+    }
+
+    /* 3) 逐级缩放:base[i]=各已定轴在片 i 的累计逻辑贡献 */
+    float base[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    float k_last  = 1.0f;
+    for (int rank = 0; rank < 3; rank++)
+    {
+        int   a = prio[rank];
+        float k = 1.0f;
+        for (int i = 0; i < 4; i++)
+        {
+            float term = C[i][a] * d[a];
+            float at   = (term < 0.0f) ? -term : term;
+            if (at < 1e-6f) continue;               /* 无贡献 → 不构成约束 */
+            float sgn  = (term < 0.0f) ? -1.0f : 1.0f;
+            float ki   = (SERVO_ANGLE_LIMIT - sgn * base[i]) / at;
+            if (ki < k) k = ki;
+        }
+        if (k < 0.0f) k = 0.0f;
+        if (k > 1.0f) k = 1.0f;
+        for (int i = 0; i < 4; i++)
+            base[i] += C[i][a] * k * d[a];          /* 叠加本级,永不回削前级 */
+        k_last = k;
+    }
+    servo_lat_scale = k_last;                       /* Vofa:最低优先轴保留比(横侧 k 的泛化) */
+
+    /* 4) ×物理装配 SIGN + 每片兜底限幅(消 FP 误差) → 写出 */
+    float SGN[4];
     SGN[UP_LEFT]    = SIGN_UL;  SGN[UP_RIGHT]   = SIGN_UR;
     SGN[DOWN_RIGHT] = SIGN_DR;  SGN[DOWN_LEFT]  = SIGN_DL;
     for (int i = 0; i < 4; i++)
     {
-        float v = SGN[i] * l[i];
+        float v = SGN[i] * base[i];
         abs_limit(&v, SERVO_ANGLE_LIMIT);
         Surface.output_angle_Servo[NOW][i] = v;
         alloc_u_out[i] = v;
@@ -619,24 +590,36 @@ void surface_control_task(void)
         {
             /* 先把世界系 pitch/yaw 输出按当前 roll 反旋到机体系,再做 Pitch 优先最小能量分配:
              * pitch 全保,roll/yaw 等比缩进限幅,不污染 pitch。SIGN_xx 仍在函数内逐片乘上,标定流程不变。 */
-            float p_body, y_body;
+            float 
+            p_body = Surface.output_gyro_Euler[NOW][PITCH], 
+            y_body = Surface.output_gyro_Euler[NOW][YAW],
+            r_body = Surface.output_gyro_Euler[NOW][ROLL];
+
             Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
                                    Surface.output_gyro_Euler[NOW][YAW],
                                    &p_body, &y_body);
-            // p_body = 0.0f; y_body = 0.0f;
+
+            // p_body = 0.0f; 
+            // y_body = 0.0f;
+            // r_body = 0.0f;
+
             // if(Guidance_State==Terminal||IMU_Data.Euler[NOW][PITCH]<-15.0f)
             // {
             //     p_body*=0.85f;
             //     y_body*=1.05f;
             // }
-            if(Guidance_State==Stable)
-            {
-                p_body = 0;
-            }
+            // if(Guidance_State==Stable)
+            // {
+            //     p_body = 0;
+            // }
+            // if(Guidance_State==Terminal) 
+            // {
+            //     r_body = 0.0f;
+            // }
+
             /* 三轴统一接 PID 内环输出(roll 绕纵轴不反旋,直接用);按 Alloc_Mode 分派分配器。
              * 注:上面 p_body*0.85/y_body*1.05 是旧分配的经验微调,Mode2 精确分配下会破坏最优,
              * B 台架辨识后应把这两个系数设 1,由 B 承担全部相对标定。*/
-            float r_body = Surface.output_gyro_Euler[NOW][ROLL];
             switch (Alloc_Mode)
             {
                 case 0:  Servo_Mix_PitchPriority(p_body, r_body, y_body); break;  /* 旧对照(roll 入参已改 PID 输出) */

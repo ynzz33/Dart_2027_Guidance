@@ -44,6 +44,7 @@ dart_2027_guidance_ynzz\callback_task.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\in
 dart_2027_guidance_ynzz\callback_task.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdarg.h
 dart_2027_guidance_ynzz\callback_task.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\string.h
 dart_2027_guidance_ynzz\callback_task.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h
+dart_2027_guidance_ynzz\callback_task.o: ../imcalib/User/common_defs.h
 dart_2027_guidance_ynzz\callback_task.o: ../Core/Inc/main.h
 dart_2027_guidance_ynzz\callback_task.o: ../Core/Inc/tim.h
 dart_2027_guidance_ynzz\callback_task.o: ../Core/Inc/usart.h

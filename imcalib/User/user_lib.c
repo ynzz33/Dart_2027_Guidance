@@ -96,6 +96,86 @@ void Self_Text_Task(void)
 }
 
 
+#if 0 // DART_TYPE == FIXED_WING  (飞翼路径保留作参考,当前主程序只走 X 翼,故不编译)
+void Wing_left_Control(float data)
+{
+    //变大向上，变小向下
+    Surface.Finally_Angle[NOW][Wing_left]  =  (data/90.0f*1000.0f);
+    if (Surface.Finally_Angle[NOW][Wing_left]>=Wing_up_Change_Angle)
+    {
+        Surface.Finally_Angle[NOW][Wing_left]=Wing_up_Change_Angle;
+    }
+    else if (Surface.Finally_Angle[NOW][Wing_left]<=Wing_down_Change_Angle)
+    {
+        Surface.Finally_Angle[NOW][Wing_left]=Wing_down_Change_Angle;
+    }
+    Surface.Finally_Angle[NOW][Wing_left] = Wing_left_ZERO_POINT - Surface.Finally_Angle[NOW][Wing_left] ;
+    if (Guidance_State==Stable)
+    {
+        Surface.Finally_Angle[NOW][Wing_left] = Wing_left_ZERO_POINT;
+    }
+    // __HAL_TIM_SET_COMPARE( &htim4,Wing_left_Channel   ,Surface.Finally_Angle[NOW][Wing_left]);
+    __HAL_TIM_SET_COMPARE( &htim4,Wing_left_Channel,Wing_left_ZERO_POINT);
+
+} 
+void Wing_right_Control(float data)
+{
+    //变小向上，变大向下
+    Surface.Finally_Angle[NOW][Wing_right]  =  (data/90*1000);
+    if (Surface.Finally_Angle[NOW][Wing_right]>=Wing_up_Change_Angle )
+    {
+        Surface.Finally_Angle[NOW][Wing_right]=Wing_up_Change_Angle;
+    }
+    else if (Surface.Finally_Angle[NOW][Wing_right]<=Wing_down_Change_Angle)
+    {
+        Surface.Finally_Angle[NOW][Wing_right]=Wing_down_Change_Angle;
+    }
+    Surface.Finally_Angle[NOW][Wing_right] = Wing_right_ZERO_POINT + Surface.Finally_Angle[NOW][Wing_right];
+    if (Guidance_State==Stable)
+    {
+        Surface.Finally_Angle[NOW][Wing_right] = Wing_right_ZERO_POINT;
+    }
+    __HAL_TIM_SET_COMPARE( &htim4,Wing_right_Channel  ,Surface.Finally_Angle[NOW][Wing_right]);
+    // __HAL_TIM_SET_COMPARE( &htim4,Wing_right_Channel,Wing_right_ZERO_POINT);
+}
+void Vertical_fin_Control(float data)
+{
+    float Vertical_fin_Angle = data/90*1000;
+    if (Vertical_fin_Angle>=Vertical_fin_Change_Angle)
+    {
+        Vertical_fin_Angle= Vertical_fin_Change_Angle ;
+    }
+    else if (Vertical_fin_Angle<= -Vertical_fin_Change_Angle)
+    {
+        Vertical_fin_Angle = -Vertical_fin_Change_Angle ;
+    }
+    Surface.Finally_Angle[NOW][Vertical_fin] = Vertical_fin_ZERO_POINT + Vertical_fin_Angle;
+    if (Guidance_State==Stable)
+    {
+        Surface.Finally_Angle[NOW][Vertical_fin] = Vertical_fin_ZERO_POINT;
+    }
+    // __HAL_TIM_SET_COMPARE( &htim4,Vertical_fin_Channel,Surface.Finally_Angle[NOW][Vertical_fin]);
+    __HAL_TIM_SET_COMPARE( &htim4,Vertical_fin_Channel,Vertical_fin_ZERO_POINT);
+}
+void Wing_Control_FIXED_WING(void)
+{
+    // if (Guidance_State==End||(Guidance_State==Terminal&&Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE))
+    // {
+    //
+    // }
+    // else
+    // {
+
+        // Surface.output_angle_Servo[NOW][Wing_right]     = Near_By_Process(Surface.output_angle_Servo[NOW][Wing_right]   ,Surface.output_angle_Servo[LAST][Wing_right]   ,180);
+        // Surface.output_angle_Servo[NOW][Wing_left]      = Near_By_Process(Surface.output_angle_Servo[NOW][Wing_left]    ,Surface.output_angle_Servo[LAST][Wing_left]    ,180);
+        // Surface.output_angle_Servo[NOW][Vertical_fin]   = Near_By_Process(Surface.output_angle_Servo[NOW][Vertical_fin] ,Surface.output_angle_Servo[LAST][Vertical_fin] ,180);
+        Wing_right_Control(  Surface.output_angle_Servo[NOW][Wing_right]  );
+        Wing_left_Control(   Surface.output_angle_Servo[NOW][Wing_left]   );
+        Vertical_fin_Control(Surface.output_angle_Servo[NOW][Vertical_fin]);
+    // }
+}
+#endif
+
 // void My_UART_IDLE_IRQHandler(UART_HandleTypeDef *huart) 
 // {
 //     uint32_t DMA_FLAGS;

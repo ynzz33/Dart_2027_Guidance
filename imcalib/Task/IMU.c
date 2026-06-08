@@ -59,10 +59,21 @@ void IMU_Attitude_Algorithm(void)
     /* G_theory_X       */  tx,
     /* G_theory_Y       */  ty,
     /* G_theory_Z       */  tz,
-    /* G_Real_X         */  gx = IMU_Data.G_Rad[NOW][X],
-    /* G_Real_Y         */  gy = IMU_Data.G_Rad[NOW][Y],
-    /* G_Real_Z         */  gz = IMU_Data.G_Rad[NOW][Z],
+    /* 统一机体系 X=右/Y=前/Z=上 (右手 ENU),陀螺与加速度同系——这是修复关键:
+       加速度 a_raw=(A[X]=右,A[Y]=前,A[Z]=上);陀螺必须取同系角速度,否则 Mahony 把
+       两个差 X↔Y 对调的系做叉乘、修正算错致姿态发散。
+       绕右(机体X)=chipGyrY=G_Rad[PITCH]; 绕前(机体Y,纵轴)=chipGyrX=G_Rad[ROLL]; 绕上(机体Z)=G_Rad[YAW]。*/
+    /* G 机体X(右)=chipY */  gx = GYR_SIGN_X * IMU_Data.G_Rad[NOW][PITCH],
+    /* G 机体Y(前)=chipX */  gy = GYR_SIGN_Y * IMU_Data.G_Rad[NOW][ROLL ],
+    /* G 机体Z(上)=chipZ */  gz = GYR_SIGN_Z * IMU_Data.G_Rad[NOW][YAW  ],
     /* 重力加速度,方便归一*/  gravity = GRAVITY_MS2;
+#endif
+#if 1   /*内环角速度反馈(deg):用原始测量(未叠Mahony),用户极性 抬头+/右滚+/右偏+*/
+    /* 串级内环要求"角速度 = 对应欧拉角的导数"。pitch(绕右)/roll(绕前)与右手机体角速度同号直通;
+       yaw 右偏+ = −绕上(右手) → 取 −gz,与新欧拉角 YAW(右+)一致。gx/gy/gz 此刻是原始测量。*/
+    Surface.current_gyro_Euler[NOW][PITCH] =  RAD2DEG(gx);
+    Surface.current_gyro_Euler[NOW][ROLL ] =  RAD2DEG(gy);
+    Surface.current_gyro_Euler[NOW][YAW  ] = -RAD2DEG(gz);
 #endif
 #if 1   /*mahony补偿*/
     /*逆旋转矩阵的转化*/
@@ -155,10 +166,11 @@ void IMU_Attitude_Algorithm(void)
         q2 /=q_norm;
         q3 /=q_norm;
     }
-    /*欧拉角转换*/
-    IMU_Data.Euler[NOW][PITCH]  = asinf (2.0f*(q0*q2-q3*q1));
-    IMU_Data.Euler[NOW][YAW]    = atan2f(2.0f*(q0*q3+q1*q2),1.0f-2.0f*(q3*q3+q2*q2));
-    IMU_Data.Euler[NOW][ROLL]   = atan2f(2.0f*(q0*q1+q3*q2),1.0f-2.0f*(q2*q2+q1*q1));
+    /*欧拉角转换 (机体系 X=右/Y=前/Z=上, q=[q0..q3]=[w,x,y,z]):
+      PITCH 绕X(右) 抬头+; ROLL 绕Y(前) 右滚+; YAW 绕Z(上) 右偏+。已数值核验三轴极性。*/
+    IMU_Data.Euler[NOW][PITCH]  = asinf (2.0f*(q2*q3 + q0*q1));
+    IMU_Data.Euler[NOW][ROLL]   = atan2f(2.0f*(q0*q2 - q1*q3), 1.0f-2.0f*(q1*q1+q2*q2));
+    IMU_Data.Euler[NOW][YAW]    = atan2f(2.0f*(q1*q2 - q0*q3), 1.0f-2.0f*(q1*q1+q3*q3));
 
     IMU_Data.Euler[NOW][PITCH]  =   RAD2DEG(IMU_Data.Euler[NOW][PITCH]);
     IMU_Data.Euler[NOW][ROLL]   =   RAD2DEG(IMU_Data.Euler[NOW][ROLL]);
@@ -305,9 +317,11 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr)
             {
                 case ACC:
                 {
-                    IMU_Data.A[NOW][X] = -(int16_t)(rx_buf[2]<<8|rx_buf[1]) * ACC_LSB_16G;
-                    IMU_Data.A[NOW][Y] = -(int16_t)(rx_buf[4]<<8|rx_buf[3]) * ACC_LSB_16G;
-                    IMU_Data.A[NOW][Z] = -(int16_t)(rx_buf[6]<<8|rx_buf[5]) * ACC_LSB_16G;
+                    /* 寄存器 rx(2,1)=accX rx(4,3)=accY rx(6,5)=accZ → 机体系 X=右/Y=前/Z=上;
+                       符号见 IMU.h ACC_SIGN_*(默认: 前=+chipX, 右=+chipY, 上=−chipZ 使静止+g)。*/
+                    IMU_Data.A[NOW][Y] = ACC_SIGN_Y * (int16_t)(rx_buf[2]<<8|rx_buf[1]) * ACC_LSB_16G;
+                    IMU_Data.A[NOW][X] = ACC_SIGN_X * (int16_t)(rx_buf[4]<<8|rx_buf[3]) * ACC_LSB_16G;
+                    IMU_Data.A[NOW][Z] = ACC_SIGN_Z * (int16_t)(rx_buf[6]<<8|rx_buf[5]) * ACC_LSB_16G;
                     for (int k = 0; k < 3; k++)
                     {
                         if (isnan(IMU_Data.A[NOW][k]) || fabsf(IMU_Data.A[NOW][k]) > ACC_SAT_G)
@@ -321,8 +335,8 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr)
                 }break;
                 case GYR:
                 {
-                    IMU_Data.G[NOW][PITCH] = ((int16_t)(rx_buf[2]<<8|rx_buf[1])) / GYRO_LSB_2000DPS;
-                    IMU_Data.G[NOW][ROLL ] = ((int16_t)(rx_buf[4]<<8|rx_buf[3])) / GYRO_LSB_2000DPS;
+                    IMU_Data.G[NOW][ROLL ] = ((int16_t)(rx_buf[2]<<8|rx_buf[1])) / GYRO_LSB_2000DPS;
+                    IMU_Data.G[NOW][PITCH] = ((int16_t)(rx_buf[4]<<8|rx_buf[3])) / GYRO_LSB_2000DPS;
                     IMU_Data.G[NOW][YAW  ] = ((int16_t)(rx_buf[6]<<8|rx_buf[5])) / GYRO_LSB_2000DPS;
                     for (int k = 0; k < 3; k++)
                     {
@@ -337,10 +351,11 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr)
                     IMU_Data.G[NOW][PITCH] = KalmanFilter(&IMU_Kalman_Filter[GYR][PITCH],IMU_Data.G[NOW][PITCH],GYR_KF_Q,GYR_KF_R);
                     IMU_Data.G[NOW][ROLL ] = KalmanFilter(&IMU_Kalman_Filter[GYR][ROLL ],IMU_Data.G[NOW][ROLL ],GYR_KF_Q,GYR_KF_R);
                     IMU_Data.G[NOW][YAW  ] = KalmanFilter(&IMU_Kalman_Filter[GYR][YAW  ],IMU_Data.G[NOW][YAW  ],GYR_KF_Q,GYR_KF_R);
+                    /* current_gyro_Euler 改到 IMU_Attitude_Algorithm 设置(按机体系/用户极性,yaw 取负);
+                       此处只更新原始量(deg)与 G_Rad(rad),供四元数/PNG/遥测使用。*/
                     for (int i = 0;i<3;i++)
                     {
                         IMU_Data.G_Rad[NOW][i] = DEG2RAD(IMU_Data.G[NOW][i]);
-                        Surface.current_gyro_Euler[NOW][i] = IMU_Data.G[NOW][i];
                         IMU_Data.G[LAST][i] = IMU_Data.G[NOW][i];
                     }
                     receiveflag++;
@@ -380,7 +395,7 @@ void BMX055_Init_Acc_Gyr(void)
      BMX055_Write( ACC,0x10,0x1F );
      //+-2000.400hz
      BMX055_Write( GYR,0x11,0x00 );
-     BMX055_Write( GYR,0x0F,0x01 );
+     BMX055_Write( GYR,0x0F,0x00 );
      BMX055_Write( GYR,0x10,0x02 );
 
 }

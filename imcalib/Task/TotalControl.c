@@ -23,9 +23,14 @@ void TotalControl(void)
 {
 	if (huart2.gState == HAL_UART_STATE_READY)
 	{
-	Vofa();
+		Vofa();
 	}
 	surface_control_task();
+	if(Guidance_State == Start||Guidance_State == Stable||Guidance_State == Terminal)
+	{
+		Vision_Transmit_Debug();
+		ADC_Voltage_Real = 100;
+	}
 	ADC_Voltage_Real = ADC_GET_REAL_VALUE();
 	// PNG_Guidance(&Vision_Rx_Data,&PNG_Data,&Surface,&IMU_Data);
 
@@ -34,7 +39,32 @@ void TotalControl(void)
 void Vofa(void)
 {
 	Vofa_Send_Data24(
-#if 0
+	
+	Surface.target_angle_Euler[NOW][PITCH],
+	Surface.target_angle_Euler[NOW][ROLL ],
+	Surface.target_angle_Euler[NOW][YAW  ],
+	Surface.current_angle_Euler[NOW][PITCH],
+	Surface.current_angle_Euler[NOW][ROLL ],
+	Surface.current_angle_Euler[NOW][YAW  ],
+	temp[0],
+	temp[1],
+	temp[2],
+	Surface.output_gyro_Euler[NOW][PITCH],
+    Surface.output_gyro_Euler[NOW][ROLL],
+    Surface.output_gyro_Euler[NOW][YAW],
+	Surface.Finally_Angle[NOW][UP_LEFT   ],
+	Surface.Finally_Angle[NOW][UP_RIGHT  ],
+	Surface.Finally_Angle[NOW][DOWN_RIGHT],
+	Surface.Finally_Angle[NOW][DOWN_LEFT   ],
+	Surface.current_gyro_Euler[NOW][PITCH],
+	Surface.current_gyro_Euler[NOW][ROLL ],
+	Surface.current_gyro_Euler[NOW][YAW  ],
+	IMU_Data.A[NOW][X],
+	IMU_Data.A[NOW][Y],
+	IMU_Data.A[NOW][Z],
+	ADC_Voltage_Real,
+	Guidance_State
+	#if 0
 		//====================Dart_Trigger============
 		// Dart_Trigger_Data.Communicate_Flag,
 		// Dart_Trigger_Data.Frame_Head,
@@ -100,7 +130,7 @@ void Vofa(void)
 	// IMU_Data.Q[NOW][1],
 	// IMU_Data.Q[NOW][2],
 	// IMU_Data.Q[NOW][3]000
-#endif
+
 		//============逻辑================
 	// Surface.target_angle_Euler[NOW][PITCH],
 	// Surface.target_angle_Euler[NOW][ROLL ],
@@ -127,31 +157,6 @@ void Vofa(void)
 	// ADC_Voltage_Real,
 	// Guidance_State
 	
-	Surface.target_angle_Euler[NOW][PITCH],
-	Surface.target_angle_Euler[NOW][ROLL ],
-	Surface.target_angle_Euler[NOW][YAW  ],
-	Surface.current_angle_Euler[NOW][PITCH],
-	Surface.current_angle_Euler[NOW][ROLL ],
-	Surface.current_angle_Euler[NOW][YAW  ],
-	temp[0],
-	temp[1],
-	temp[2],
-	Surface.output_gyro_Euler[NOW][PITCH],
-    Surface.output_gyro_Euler[NOW][ROLL],
-    Surface.output_gyro_Euler[NOW][YAW],
-	Surface.Finally_Angle[NOW][UP_LEFT   ],
-	Surface.Finally_Angle[NOW][UP_RIGHT  ],
-	Surface.Finally_Angle[NOW][DOWN_RIGHT],
-	Surface.Finally_Angle[NOW][DOWN_LEFT   ],
-	IMU_Data.G[NOW][PITCH],
-	IMU_Data.G[NOW][ROLL ],
-	IMU_Data.G[NOW][YAW  ],
-	IMU_Data.A[NOW][X],
-	IMU_Data.A[NOW][Y],
-	IMU_Data.A[NOW][Z],
-	ADC_Voltage_Real,
-	Guidance_State
-
 
 	//============逻辑================
 		// Surface.current_angle_Euler[NOW][PITCH],
@@ -170,6 +175,9 @@ void Vofa(void)
 		// Surface.output_angle_Servo[NOW][Wing_right],
 		// Surface.output_angle_Servo[NOW][Vertical_fin],
 		// ADC_Voltage_Real
+		#endif
+
+
 	)
 	;
 }

@@ -45,6 +45,7 @@ dart_2027_guidance_ynzz\button.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\s
 dart_2027_guidance_ynzz\button.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdarg.h
 dart_2027_guidance_ynzz\button.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\string.h
 dart_2027_guidance_ynzz\button.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h
+dart_2027_guidance_ynzz\button.o: ../imcalib/User/common_defs.h
 dart_2027_guidance_ynzz\button.o: ../Core/Inc/main.h
 dart_2027_guidance_ynzz\button.o: ../Core/Inc/tim.h
 dart_2027_guidance_ynzz\button.o: ../imcalib/Tool/Vofa_send.h
