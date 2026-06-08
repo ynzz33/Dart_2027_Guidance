@@ -22,7 +22,7 @@
 /* Mahony 互补滤波:预测(陀螺积分)-校正(加速度拉回重力方向),即"更聪明的输入滤波" */
 #define mahony_MAXOUT   10.00f   /* 修正量限幅,防加速度突变把姿态拉飞 */
 #define mahony_i_maxout  1.00f   /* 积分限幅 */
-#define mahony_Kp        10.0f    /* 加速度校正强度:大→快速消陀螺漂移但易被振动带歪;小→抗扰好但收敛慢 */
+#define mahony_Kp        2.0f    /* 加速度校正强度:大→快速消陀螺漂移但易被振动带歪;小→抗扰好但收敛慢 */
 #define mahony_Ki        0.01f   /* 估计陀螺零偏残差,通常 0.005~0.02 */
 #define mahony_Kd        0.0f    /* 必须为 0:标准 Mahony 只有 PI,D 项会放大噪声 */
 
@@ -80,24 +80,25 @@ enum
     World,
     Body,
 };
+/* BMX055 全部姿态状态。除特别说明外第一维=[NOW,LAST] 历史槽;陀螺量程 ±2000°/s、加速度 ±16g。
+ * 机体系 ENU:X=右/东, Y=前/北(纵轴), Z=上/天。*/
 typedef struct
 {
-    //2000°，+-16g
-    float G[2][3];//gyr
-    float A[2][3];//acc
-    float M[2][3];//mag
-    float G_Rad[2][3];//GYR_Data_Rad
-    float Q[2][4];//四元数定义顺序是W.X.Y.Z
-    float Euler[2][3];
-    float R_matrix_T[3][3];
-    float A_Normed[2][3];
-    float A_theory[2][3];
-    float A_World[2][3];
-    float Velocity[2][2][3];
-    float temp[2][3];
-    float G_Offset[3];
-    float A_Offset[3];
-    uint8_t calib_done;
+    float G[2][3];          /* 陀螺角速度 °/s, 索引[PITCH,ROLL,YAW];已去零偏+标量卡尔曼。注:G[ROLL]=chipGyrX(前/纵轴)、G[PITCH]=chipGyrY(右) */
+    float A[2][3];          /* 加速度 g, 索引[X右,Y前,Z上];去饱和/NaN+标量卡尔曼,静止 A[Z]≈+1 */
+    float M[2][3];          /* 磁力计原始值;MAG 当前不启用(场景磁干扰大) */
+    float G_Rad[2][3];      /* 陀螺角速度 rad/s = DEG2RAD(G);喂四元数积分 / PNG 视线角速度 */
+    float Q[2][4];          /* 姿态四元数,顺序 [w,x,y,z] */
+    float Euler[2][3];      /* 欧拉角 °, 索引[PITCH,ROLL,YAW];PITCH 绕X抬头+, ROLL 绕Y右滚+, YAW 绕Z右偏+ */
+    float R_matrix_T[3][3]; /* 姿态旋转矩阵(机体↔世界);第3列=重力在机体系投影,供 Mahony 校正与 A_World 解算 */
+    float A_Normed[2][3];   /* 归一化加速度(单位向量),Mahony 误差叉乘用 */
+    float A_theory[2][3];   /* 理论重力方向(R_matrix_T 第3列 tx/ty/tz),Mahony 校正基准 */
+    float A_World[2][3];    /* 世界系线加速度(已扣重力);→ 速度积分/PNG(当前未接主环) */
+    float Velocity[2][2][3];/* 速度 [World/Body][NOW/LAST][X/Y/Z];当前未启用(速度卡尔曼注释掉) */
+    float temp[2][3];       /* 暂存(3维加速度卡尔曼用,当前 #if0 禁用) */
+    float G_Offset[3];      /* 陀螺零偏(上电2s静态标定均值),IMU_Data_Read 中扣除 */
+    float A_Offset[3];      /* 加速度零偏(标定均值,Z 已扣 1g);当前未回扣主环 */
+    uint8_t calib_done;     /* 0=标定中(不减偏) 1=标定完成 2=已锁 Stable 姿态角 */
 }
 IMU_DATA_t;
 

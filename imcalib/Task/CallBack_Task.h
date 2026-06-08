@@ -64,34 +64,36 @@ enum
 	Power_ON = GPIO_PIN_SET,
 };
 
+/* 镖头触发板通信(huart1 单线半双工, CRC8-MAXIM)状态与回读 */
 typedef struct
 {
-	uint8_t Communicate_Flag;
-	uint8_t Frame_Head;
-	uint8_t Frame_Cmd;
-	uint8_t Tx_Set_Team_Color;
-	uint8_t Rx_Set_Team_Color;
-	uint8_t Borad_Version;
-	uint8_t Borad_Temp;
-	uint8_t Borad_State_Team;
-	uint8_t Borad_State_Light_ON;
-	uint8_t Borad_State_Voltage;
-	uint8_t Borad_State_Light_Error;
-	uint8_t Frame_Tail;
-	uint32_t Dart_Trigger_Receive_Cnt;
+	uint8_t Communicate_Flag;          /* 通信状态 None/Receive/Send */
+	uint8_t Frame_Head;                /* 帧头 */
+	uint8_t Frame_Cmd;                 /* 命令字 Status_Cheak/Color_Set */
+	uint8_t Tx_Set_Team_Color;         /* 下发的队伍颜色 */
+	uint8_t Rx_Set_Team_Color;         /* 回读的队伍颜色 */
+	uint8_t Borad_Version;             /* 触发板固件版本 */
+	uint8_t Borad_Temp;                /* 板载温度 */
+	uint8_t Borad_State_Team;          /* 当前队伍 */
+	uint8_t Borad_State_Light_ON;      /* 指示灯开 */
+	uint8_t Borad_State_Voltage;       /* 电压状态 */
+	uint8_t Borad_State_Light_Error;   /* 灯故障 */
+	uint8_t Frame_Tail;                /* 帧尾 */
+	uint32_t Dart_Trigger_Receive_Cnt; /* 收帧计数 */
 }Dart_Trigger_Data_t;
 
+/* 视觉(OpenMV, huart3 空闲DMA, 6字节帧)接收缓存。ISR(~20Hz)写,Guidance_Terminal(1kHz)读 */
 typedef struct
 {
-	uint8_t Vision_Head;
-	int16_t x[2];
-	int16_t y[2];
-	float Euler[2][2];  /* 锁存世界系视线角,每帧更新,供 Surface_Control_Task 用 */
-	uint8_t Vision_Tail;
-	uint8_t Vision_recognize_flag;
-	uint8_t Vision_Self_Text_Data;
-	uint8_t Record_State[2];
-	uint32_t Vision_Receive_Cnt;
+	uint8_t Vision_Head;             /* 帧头:0x5A识别成功 / 0x7A丢目标 / 0x9A录制状态 */
+	int16_t x[2];                    /* 视觉原始像素 x [NOW,LAST] */
+	int16_t y[2];                    /* 视觉原始像素 y [NOW,LAST] */	
+	float Euler[2][2];  /* 像素→度 后的视线角 [NOW/LAST][0=pitch,1=yaw];供 Guidance_Terminal 锁存世界系视线目标 */
+	uint8_t Vision_Tail;             /* 帧尾 */
+	uint8_t Vision_recognize_flag;   /* RECOGNIZE_SUCCESS / RECOGNIZE_FAILURE */
+	uint8_t Vision_Self_Text_Data;   /* 视觉自检数据 */
+	uint8_t Record_State[2];         /* 录制状态 [NOW,LAST] */
+	uint32_t Vision_Receive_Cnt;     /* 收帧总计数 */
 	uint32_t Vision_Recog_Cnt;       /* 仅"识别成功"帧递增,纯统计用 */
 	uint8_t  Vision_New_Data_flag;   /* 视觉新有效数据到达置1; Guidance_Terminal 消费后清0,据此判新帧 → 锁存世界系视线目标 */
 } Vision_Rx_Buf_t;

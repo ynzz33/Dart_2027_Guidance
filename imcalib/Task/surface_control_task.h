@@ -26,17 +26,18 @@
 #define  Servo_DR_Channel   TIM_CHANNEL_3   /* htim4 CH3 → PB8 - DOWN_RIGHT  */
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
-//镖体1 蓝色
-// #define  Servo_UL_ZERO      1460
-// #define  Servo_UR_ZERO      1460
-// #define  Servo_DR_ZERO      1300
-// #define  Servo_DL_ZERO      1505
+//镖体1 红色
+// #define  Servo_UL_ZERO      1420
+// #define  Servo_UR_ZERO      1585
+// #define  Servo_DR_ZERO      1535
+// #define  Servo_DL_ZERO      1500
 
-// //镖体2 红色
-#define  Servo_UL_ZERO      1490
-#define  Servo_UR_ZERO      1420
-#define  Servo_DR_ZERO      1540
-#define  Servo_DL_ZERO      1485
+
+// //镖体2 蓝色
+#define  Servo_UL_ZERO      1475
+#define  Servo_UR_ZERO      1405
+#define  Servo_DR_ZERO      1530
+#define  Servo_DL_ZERO      1470
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
  * 左侧两片(UL,DL)取 −1 因左右舵机镜像安装;台架单轴阶跃标定,某片整体反了翻它的号。
@@ -118,27 +119,29 @@ enum
     Self_Text_OK,
     Self_Text_Start,
 };
+/* 控制状态总仓。多数为 [NOW,LAST,LLAST] 历史槽 × [PITCH,ROLL,YAW] 或 4 舵(列序 UL/UR/DR/DL) */
 typedef struct
 {
-    float output_angle_Servo [3][4];
-    float current_angle_Euler[3][3];
-    float target_angle_Euler [3][3];
-    float current_gyro_Euler [3][3];
-    float output_gyro_Euler  [3][3];
-    float Finally_Angle      [3][4];
-    float Stable_Euler_Angle[3];//自稳时的稳定角度，初始为0，后续更新为自检后的角度
-    int16_t Guidance_cnt[4];
-    uint8_t pid_cale_flag;
-    uint8_t Text_Flag;
+    float output_angle_Servo [3][4];  /* 混控输出的 4 舵机械角 °(含 SIGN, ±SERVO_ANGLE_LIMIT 内) */
+    float current_angle_Euler[3][3];  /* 当前欧拉角 °(来自 IMU_Data.Euler) */
+    float target_angle_Euler [3][3];  /* 目标欧拉角 °(状态机/视觉锁存写入) */
+    float current_gyro_Euler [3][3];  /* 当前角速度 °/s(串级内环反馈,yaw 已取负) */
+    float output_gyro_Euler  [3][3];  /* 串级 PID 内环输出 = 送混控的三轴力矩需求 */
+    float Finally_Angle      [3][4];  /* 最终写定时器的 PWM 比较值 µs(各舵 ZERO + 角度映射) */
+    float Stable_Euler_Angle[3];      /* 自稳基准角:自检后锁存,作 Start/Stable/Terminal 的 roll/yaw(及保持时 pitch)目标 */
+    int16_t Guidance_cnt[4];          /* 制导状态机各跳变的去抖计数 */
+    uint8_t pid_cale_flag;            /* 本拍是否跑了 PID(Vofa 观测) */
+    uint8_t Text_Flag;                /* 自检标志(预留) */
 }Surface_t;
 
+/* 上电自检流程(视觉 + 镖头触发板)状态 */
 typedef struct
 {
-    uint8_t Vision_Self_Text_flag;
-    uint8_t Dart_Trigger_Self_Text_flag;
-    uint16_t Vision_Self_Text_flag_cnt;
-    uint16_t Dart_Trigger_Self_Text_flag_cnt;
-    uint8_t Self_Text_Process;
+    uint8_t Vision_Self_Text_flag;            /* 视觉自检:Self_Text_Failure/Success */
+    uint8_t Dart_Trigger_Self_Text_flag;      /* 触发板自检:Failure/Success */
+    uint16_t Vision_Self_Text_flag_cnt;       /* 视觉自检去抖计数 */
+    uint16_t Dart_Trigger_Self_Text_flag_cnt; /* 触发板自检去抖计数 */
+    uint8_t Self_Text_Process;                /* 自检流程进度(Self_Text_Vision/Dart_Trigeer/OK/Start) */
 }Self_Text_t;
 
 extern float Stable_Euler_Angle[3];

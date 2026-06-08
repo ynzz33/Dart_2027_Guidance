@@ -175,61 +175,35 @@ void Wing_Control_FIXED_WING(void)
     // }
 }
 #endif
+//@Author:Liko                     .~---------~.
+//                                /'  | === \  '\
+//                                |'  | |_/ /  '|
+//                                |'  | |\ /   '|
+//                                |'__\_| \_\__'|
+//                                |>----(+)----<|
+//                             _~/|'###########'|\~_
+//                          _~/   |'###########'|   \~_
+//                       _~/      |'###########'|      \~_
+//                    _~/         |'###########'|         \~_
+//                 _~/            |'###########'|            \~_
+//              _~/               |'###########'|               \~_
+//           _~/     '          ' |'###########'| '          '     \~_
+//        _~/           '     '   |'###########'|   '     '           \~_
+//     _~/                 '      |'###########'|      '                 \~_
+//   _/    '            '     '   ||___-|_|-___||   '     '            '    \_
+//  //         '     '          ' ||  /_| |_\  || '          '     '         \\
+// /'             '               || // | | \\ ||               '             '\
+// |'          '     '            ||//  | |  \\||            '     '          '|
+// |'       '           '         |' /~-| |-~\ '|         '           '       '|
+// |'    '                 '     /''   |===|   ''\     '                 '    '|
+// |'  '                      ' / ''           '' \ '                       ' '|
+// |'   ____________________-__/ /''           ''\ \__-____________________   '|
+// \'   |          ||_+_____| /  |==||==| |==||==|  \ |_____+_||          |   '/
+// ^\.._|          '~\V/~~~/  |-----'_ _ _ _ _'-----|  \~~~\V/~'          |_../^
+//      ^~--..__          /       |____|===|____|       \          __..--~^
+//              ^~--...__/^                             ^\__...--~^
 
-// void My_UART_IDLE_IRQHandler(UART_HandleTypeDef *huart) 
-// {
-//     uint32_t DMA_FLAGS;
+/*---- 函数区 ----*/
 
-//     if (__HAL_UART_GET_FLAG(huart, UART_CLEAR_TCF)) 
-//     {
-//         __HAL_UART_CLEAR_FLAG(huart, UART_CLEAR_TCF);
-//         huart->gState = HAL_UART_STATE_READY;
-//         return;
-//     }
-//     if (__HAL_UART_GET_FLAG(huart, UART_F]LAG_PE)) 
-//     {
-//         __HAL_UART_CLEAR_FLAG(huart, UART_FLAG_PE);
-//     }
-//     if (__HAL_UART_GET_FLAG(huart, UART_FLAG_FE)) 
-//     {
-//         __HAL_UART_CLEAR_FLAG(huart, UART_CLEAR_FEF);
-//     }
-//     if (__HAL_UART_GET_FLAG(huart, UART_FLAG_NE)) 
-//     {
-//         __HAL_UART_CLEAR_FLAG(huart, UART_CLEAR_NEF);
-//     }
-//     if (__HAL_UART_GET_FLAG(huart, UART_FLAG_ORE)) 
-//     {
-//         __HAL_UART_CLEAR_OREFLAG(huart);
-//     }
-//     if (__HAL_UART_GET_FLAG(huart, UART_FLAG_IDLE)) 
-//     {
-//         __HAL_UART_CLEAR_IDLEFLAG(huart);
-//         DMA_FLAGS = __HAL_DMA_GET_TC_FLAG_INDEX(huart->hdmarx);
-//         // 失能DMA
-//         __HAL_DMA_DISABLE(huart->hdmarx);
-//         __HAL_DMA_CLEAR_FLAG(huart->hdmarx, DMA_FLAGS);
-
-//         // uint16_t ResivesLen = huart->RxXferSize - (uint16_t)__HAL_DMA_GET_COUNTER(huart->hdmarx);
-
-//         huart->hdmarx->Instance->CNDTR = huart->RxXferSize;
-//         __HAL_DMA_ENABLE(huart->hdmarx);    
-//         if (huart->Instance == USART1)
-//         {
-//             Dart_Trigger_Data.Communicate_Flag = Receive;
-//             Dart_Trigger_Communicate(Dart_Trigger_Data.Communicate_Flag);
-//             Dart_Trigger_Data.Frame_Cmd = NONE;
-//         }
-//         else if (huart->Instance == PC_UART_Instance)
-//         {
-//             HAL_UART_Receive_DMA(&PC_UART_Handle, Rx_Buf, sizeof(Rx_Buf));
-//         }
-//         else if (huart->Instance == Vision_UART_Instance)
-//         {
-//             Vision_Receive();
-//         }
-
-//     }
-// }
 
 

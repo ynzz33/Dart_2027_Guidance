@@ -45,6 +45,7 @@ uint8_t crc8_maxim_with_reflect(uint8_t* data, uint16_t len) {
     crc = bit_reverse(crc);
     return crc;
 }
+/* 解析触发板回包:Status_Cheak 拆出版本/温度/队伍/灯/电压状态位,电压与灯均正常则置自检通过;Color_Set 回读颜色 */
 void Dart_Trigger_Receive(Dart_Trigger_Data_t* Data)
 {
     if (Trigger_Rx_Buf[0] == 0XAA)
@@ -147,8 +148,8 @@ void Vision_Receive(uint8_t* Buf)
     {
         Vision_Rx_Data.x[NOW] = (int16_t)(Buf[1]<<8|Buf[2]);
         Vision_Rx_Data.y[NOW] = -(int16_t)(Buf[3]<<8|Buf[4]);
-        Vision_Rx_Data.Euler[NOW][YAW] = Vision_Rx_Data.y[NOW]/160.0f*72.0f;
-        Vision_Rx_Data.Euler[NOW][PITCH] = Vision_Rx_Data.x[NOW]/120.0f*54.0f;
+        Vision_Rx_Data.Euler[NOW][0] = Vision_Rx_Data.y[NOW]/16.00f*72.0f*2;
+        Vision_Rx_Data.Euler[NOW][1] = Vision_Rx_Data.x[NOW]/12.00f*54.0f*2;
         Vision_Rx_Data.Vision_recognize_flag = RECOGNIZE_SUCCESS;
         Vision_Rx_Data.Vision_Recog_Cnt++;          /* 识别成功帧计数(纯统计) */
         Vision_Rx_Data.Vision_New_Data_flag = 1;    /* 视觉新有效数据到达 → 控制端 Guidance_Terminal 据此锁存世界系视线,消费后清0 */
@@ -189,8 +190,8 @@ void Vision_Transmit_Debug(void)
     uint8_t  i;
 
     val[0]  = IMU_Data.A[NOW][X];
-    val[1]  = IMU_Data.A[NOW][Y];
-    val[2]  = IMU_Data.A[NOW][Z];
+    val[1]  = Vision_Rx_Data.Euler[NOW][1];
+    val[2]  = Guidance_State*10.0f;
     val[3]  = IMU_Data.G[NOW][PITCH];
     val[4]  = IMU_Data.G[NOW][ROLL];
     val[5]  = IMU_Data.G[NOW][YAW];

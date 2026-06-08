@@ -38,7 +38,7 @@ Surface_t Surface;
 Self_Text_t Self_Text;
 uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
 /* === 控制分配(混控)全局 === */
-uint8_t Alloc_Mode = 1;                        /* 默认=交付A三轴限幅(逐级优先级缩放,roll-only 下线性正确);0=旧PitchPriority对照 2=最小能量 */
+uint8_t Alloc_Mode = 0;                        /* 默认=交付A三轴限幅(逐级优先级缩放,roll-only 下线性正确);0=旧PitchPriority对照 2=最小能量 */
 uint8_t Alloc_Prio[3] = { PITCH, YAW, ROLL };  /* 交付A 逐级优先级:轴枚举[0]最高,默认 pitch>yaw>roll;调试器 Watch 在线改 */
 float   servo_lat_scale = 1.0f;                /* Vofa:最低优先轴保留比(横侧 k 泛化),1=未饱和 <1=有轴被挤;此前 extern 无定义,补回 */
 /* 舵效矩阵 B (3x4): τ = B·u, 行序[pitch,roll,yaw], 列序[UL,UR,DR,DL]. 默认理想 X 阵(BBᵀ=4I).
@@ -48,7 +48,7 @@ float   servo_lat_scale = 1.0f;                /* Vofa:最低优先轴保留比(
 float   Alloc_B[3][4] = {
     { +1.0f, +1.0f, +1.0f, +1.0f },            /* pitch (四片同号,X 翼解算见 Servo_Mix_AxisLimit 的 C 阵) */
     { +1.0f, -1.0f, -1.0f, +1.0f },            /* roll  */
-    { -1.0f, +1.0f, -1.0f, +1.0f },            /* yaw   */
+    { +1.0f, -1.0f, +1.0f, -1.0f },            /* yaw   */
 };
 float   alloc_u0[4] = {0}, alloc_u_out[4] = {0};
 float   alloc_alpha = 0.0f, alloc_u0_span = 0.0f, alloc_v_scale = 1.0f, alloc_p_scale = 1.0f;
@@ -130,12 +130,12 @@ void Guidance_Terminal(void)//制导段
         if (v.Vision_recognize_flag == RECOGNIZE_SUCCESS) /* RECOGNIZE_SUCCESS:识别到目标,锁存世界系视线目标,更新目标角 */
         {    /* 全程用临界区快照 v,避免与 UART 视觉中断(~20Hz 写多字段)撕裂读;清 flag 仍打真 struct */
             /* YAW:始终视觉制导,用当时姿态锁存世界系视线 → 误差=锁存−当前 */
-            Surface.target_angle_Euler[NOW][YAW] = v.Euler[NOW][YAW] + Surface.current_angle_Euler[NOW][YAW];
+            Surface.target_angle_Euler[NOW][YAW] = v.Euler[NOW][1] + Surface.current_angle_Euler[NOW][YAW];
 
             /* PITCH:仅俯冲到位(<-10°)才视觉制导(同样锁存);否则不控,目标=当前 */
             if (Surface.current_angle_Euler[NOW][PITCH] < -10.0f)
             {
-                Surface.target_angle_Euler[NOW][PITCH] = v.Euler[NOW][PITCH] + Surface.current_angle_Euler[NOW][PITCH];
+                Surface.target_angle_Euler[NOW][PITCH] = v.Euler[NOW][0] + Surface.current_angle_Euler[NOW][PITCH];
             }
             else
             {
@@ -164,7 +164,7 @@ void Guidance_End(void)
     }
     Wing_Servo_Control_Flag = 0;
     // Total_Power_Control( Power_OFF )//不能太快掉电，不然openmv保存不了视频等等
-    Buzzer_stop();
+    // Buzzer_stop();
 }
 
 
@@ -206,7 +206,7 @@ void get_current_State(void)
             Self_Text.Self_Text_Process = 5; 
         }
     }
-    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][Y] >= 0.80f||IMU_Data.A[NOW][Y] <= -1.0f))
+    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][Y] >= 0.80f||IMU_Data.A[NOW][Y] <= -0.7f))
     {
         if (Surface.Guidance_cnt[0]++>5)
         {
@@ -292,10 +292,10 @@ void Servo_Mix_PitchPriority(float p, float r, float y)
     abs_limit(&p, pitch_limit);                           /* 1) pitch 分量优先*/
 
     float P[4], L[4];                                           /* 2) 拆 pitch 分量 / 横侧分量(逻辑符号阵) */
-    P[UP_LEFT]    = +p;  L[UP_LEFT]    = +r - y;
-    P[UP_RIGHT]   = +p;  L[UP_RIGHT]   = -r + y;
-    P[DOWN_RIGHT] = +p;  L[DOWN_RIGHT] = -r - y;
-    P[DOWN_LEFT]  = +p;  L[DOWN_LEFT]  = +r + y;
+    P[UP_LEFT]    = +p;  L[UP_LEFT]    = +r + y;
+    P[UP_RIGHT]   = +p;  L[UP_RIGHT]   = -r - y;
+    P[DOWN_RIGHT] = +p;  L[DOWN_RIGHT] = -r + y;
+    P[DOWN_LEFT]  = +p;  L[DOWN_LEFT]  = +r - y;
 
     float k = 1.0f;                                             /* 3) 求最大横侧比例 k */
     for (int i = 0; i < 4; i++)
@@ -338,10 +338,10 @@ void Servo_Mix_AxisLimit(float p, float r, float y)
      * 配 SIGN=[−1,+1,+1,−1](左右镜像,见.h)后 pitch 落到舵令 u=[−,+,+,−]=真俯仰、与 roll/yaw 正交解耦。
      * 轴间配对结构由本阵的列决定(SIGN 只修整片装反);同步:Alloc_B pitch 行 / Servo_Mix_PitchPriority 的 P[]。*/
     static const float C[4][3] = {                  /* 列序 P/R/Y */
-        { +1.0f, +1.0f, -1.0f },                    /* UP_LEFT    */
-        { +1.0f, -1.0f, +1.0f },                    /* UP_RIGHT   */
-        { +1.0f, -1.0f, -1.0f },                    /* DOWN_RIGHT */
-        { +1.0f, +1.0f, +1.0f },                    /* DOWN_LEFT  */
+        { +1.0f, +1.0f, +1.0f },                    /* UP_LEFT    */
+        { +1.0f, -1.0f, -1.0f },                    /* UP_RIGHT   */
+        { +1.0f, -1.0f, +1.0f },                    /* DOWN_RIGHT */
+        { +1.0f, +1.0f, -1.0f },                    /* DOWN_LEFT  */
     };
 
     /* 2) Alloc_Prio 合法性校验:必须是 {0,1,2} 的排列,否则退回默认 {PITCH,YAW,ROLL} */
@@ -598,12 +598,14 @@ void surface_control_task(void)
             p_body = Surface.output_gyro_Euler[NOW][PITCH], 
             y_body = Surface.output_gyro_Euler[NOW][YAW],
             r_body = Surface.output_gyro_Euler[NOW][ROLL];
+        // if (Guidance_State==Terminal)
+        // {
+        //     Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
+        //                            Surface.output_gyro_Euler[NOW][YAW],
+        //                            &p_body, &y_body);
+        // }
 
-            Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
-                                   Surface.output_gyro_Euler[NOW][YAW],
-                                   &p_body, &y_body);
-
-            // p_body = 0.0f; 
+            p_body = 0.0f; 
             // y_body = 0.0f;
             // r_body = 0.0f;
 
