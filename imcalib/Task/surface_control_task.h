@@ -34,7 +34,7 @@
 
 
 // //镖体2 蓝色
-#define  Servo_UL_ZERO      1475
+#define  Servo_UL_ZERO      1440
 #define  Servo_UR_ZERO      1405
 #define  Servo_DR_ZERO      1530
 #define  Servo_DL_ZERO      1470
@@ -55,7 +55,7 @@
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
 #define  AXIS_LIMIT_PITCH   40.0f   /* 交付A:三轴各自独立限幅(度),可调 */
 #define  AXIS_LIMIT_ROLL    40.0f
-#define  AXIS_LIMIT_YAW     60.0f
+#define  AXIS_LIMIT_YAW     80.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
 #define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
 

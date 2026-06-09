@@ -26,10 +26,10 @@ void TotalControl(void)
 		Vofa();
 	}
 	surface_control_task();
-	if(Guidance_State == Start||Guidance_State == Stable||Guidance_State == Terminal)
+	if(huart3.gState == HAL_UART_STATE_READY&&(Guidance_State == Start||Guidance_State == Stable||Guidance_State == Terminal))
 	{
 		Vision_Transmit_Debug();
-		ADC_Voltage_Real = 100;
+		// ADC_Voltage_Real = 100;
 	}
 	ADC_Voltage_Real = ADC_GET_REAL_VALUE();
 	// PNG_Guidance(&Vision_Rx_Data,&PNG_Data,&Surface,&IMU_Data);
@@ -61,7 +61,7 @@ void Vofa(void)
 	Surface.current_gyro_Euler[NOW][YAW  ],
 	IMU_Data.A[NOW][X],
 	IMU_Data.A[NOW][Y],
-	IMU_Data.A[NOW][Z],
+	acc_trust_obs,
 	ADC_Voltage_Real,
 	Guidance_State
 	#if 0

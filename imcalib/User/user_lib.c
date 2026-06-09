@@ -175,6 +175,35 @@ void Wing_Control_FIXED_WING(void)
     // }
 }
 #endif
+    // if(DART_TYPE == FIXED_WING    )//飞翼
+    // {
+    //     /*东北天坐标系前*/
+    //     /*这部分，伯努利原理去想，流速快气压小，其他被舵面撞击所以流速减小，也就是舵面往哪里转，就会有一个反方向的力*/
+    //     /*pitch的话，因为上面pid计算出来的是差值，也就是会向目标方向转，所以直接进行*/
+    //     if (Guidance_State==Stable||Guidance_State==Terminal)
+    //     {
+    //                 Surface.output_angle_Servo[NOW][Vertical_fin] =  +Surface.output_gyro_Euler[NOW][YAW];
+    //         // if (Surface.current_angle_Euler[NOW][PITCH]<=-5)
+    //         //     {
+    //                 Surface.output_angle_Servo[NOW][Wing_left]    =(-Surface.output_gyro_Euler[NOW][ROLL]*0.6f + Surface.output_gyro_Euler[NOW][PITCH]*0.0f);
+    //                 Surface.output_angle_Servo[NOW][Wing_right]   =(+Surface.output_gyro_Euler[NOW][ROLL]*0.6f + Surface.output_gyro_Euler[NOW][PITCH]*0.0f);
+    //             // }
+    //     }
+    //     Low_Pass_Filter(Surface.output_angle_Servo[NOW][Wing_left]    ,Surface.output_angle_Servo[LAST][Wing_left]    ,0.7);
+    //     Low_Pass_Filter(Surface.output_angle_Servo[NOW][Wing_right]   ,Surface.output_angle_Servo[LAST][Wing_right]   ,0.7);
+    //     Low_Pass_Filter(Surface.output_angle_Servo[NOW][Vertical_fin] ,Surface.output_angle_Servo[LAST][Vertical_fin] ,0.7);
+
+
+    //     abs_limit(&Surface.output_angle_Servo[NOW][Wing_left]    ,60);
+    //     abs_limit(&Surface.output_angle_Servo[NOW][Wing_right]   ,60);
+    //     abs_limit(&Surface.output_angle_Servo[NOW][Vertical_fin] ,60);
+    //     if (Guidance_State == Start)
+    //     {
+    //         Surface.output_angle_Servo[NOW][Wing_left]    = Surface.target_angle_Euler[NOW][PITCH];
+    //         Surface.output_angle_Servo[NOW][Wing_right]   = Surface.target_angle_Euler[NOW][ROLL];
+    //         Surface.output_angle_Servo[NOW][Vertical_fin] = Surface.target_angle_Euler[NOW][YAW];
+    //     }
+    // }
 //@Author:Liko                     .~---------~.
 //                                /'  | === \  '\
 //                                |'  | |_/ /  '|

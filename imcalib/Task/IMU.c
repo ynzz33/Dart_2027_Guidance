@@ -16,6 +16,7 @@
 u8 Current_Sensor,Current_Use_Flag,receiveflag = 0;
 IMU_DATA_t IMU_Data = {0};
 uint32_t IMU_Cnt = 0,control_cnt = 0;
+float acc_trust_obs = 1.0f;   /* Vofa 观测:Mahony 加速度校正权重,1=全信任 / 0=纯陀螺coast */
 void IMU_Attitude_Algorithm(void)
 {
 #if 0 /*对加速度的一阶三维卡尔曼滤波*/
@@ -98,10 +99,29 @@ void IMU_Attitude_Algorithm(void)
         ay_normed=a_raw_y/acc_norm;
         az_normed=a_raw_z/acc_norm;
     }
-    /*计算误差*/
-        mahony_temp[X] = pid_calc(&mahony_pid[X],az_normed*ty-ay_normed*tz,0,dT);
-        mahony_temp[Y] = pid_calc(&mahony_pid[Y],ax_normed*tz-az_normed*tx,0,dT);
-        mahony_temp[Z] = pid_calc(&mahony_pid[Z],ay_normed*tx-ax_normed*ty,0,dT);
+    /* === 加速度可信度门控(核心修复) ===
+     * acc_norm 以 g 为单位、静止≈1.0。偏离 1g 越多→越可能掺入线加速度(发射推力/气动减速/冲击),
+     * 此时加速度方向不是重力,用它做 Mahony 校正会把姿态拉飞且回不来 → 按偏离程度线性降权。*/
+    float acc_dev = fabsf(acc_norm - 1.0f);
+    float acc_trust;
+    if      (acc_dev <= ACC_TRUST_FULL_DEV) acc_trust = 1.0f;
+    else if (acc_dev >= ACC_TRUST_ZERO_DEV) acc_trust = 0.0f;
+    else    acc_trust = (ACC_TRUST_ZERO_DEV - acc_dev) / (ACC_TRUST_ZERO_DEV - ACC_TRUST_FULL_DEV);
+    /* 方案B:发射后整个飞行段无"干净重力相"(推力→气动减速→冲击),气动减速幅度有时≈1g却方向朝后
+     * 会骗过幅度门控;故状态机一旦判出已发射(Start→Stable 用 A_Normed[Y]≥0.8),全程硬置0、纯靠
+     * (已去零偏的)陀螺 coast。Guidance_State/枚举见 surface_control_task.h(IMU.c 已 include)。*/
+    if (Guidance_State == Stable || Guidance_State == Terminal || Guidance_State == End)
+        acc_trust = 0.0f;
+    acc_trust_obs = acc_trust;   /* 丢 Vofa 看门控:静止≈1,发射那一拍应立刻掉到 0 并保持到落地 */
+    /* 计算误差(误差先乘可信度:trust=0 时 err=0 → 比例项=0 且 pid 积分停止累加=冻结零偏估计不被污染,
+     * 同时 pid 内 iout 保留发射前学到的好零偏值继续补偿陀螺,正是 coast 想要的)*/
+        mahony_temp[X] = pid_calc(&mahony_pid[X], acc_trust*(az_normed*ty - ay_normed*tz), 0, dT);
+        mahony_temp[Y] = pid_calc(&mahony_pid[Y], acc_trust*(ax_normed*tz - az_normed*tx), 0, dT);
+        mahony_temp[Z] = pid_calc(&mahony_pid[Z], acc_trust*(ay_normed*tx - ax_normed*ty), 0, dT);
+        
+        // mahony_temp[X] = pid_calc(&mahony_pid[X], az_normed*ty - ay_normed*tz, 0, dT);
+        // mahony_temp[Y] = pid_calc(&mahony_pid[Y], ax_normed*tz - az_normed*tx, 0, dT);
+        // mahony_temp[Z] = pid_calc(&mahony_pid[Z], ay_normed*tx - ax_normed*ty, 0, dT);
     gx += mahony_temp[X];
     gy += mahony_temp[Y];
     gz += mahony_temp[Z];

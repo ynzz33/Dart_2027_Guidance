@@ -26,6 +26,12 @@
 #define mahony_Ki        0.01f   /* 估计陀螺零偏残差,通常 0.005~0.02 */
 #define mahony_Kd        0.0f    /* 必须为 0:标准 Mahony 只有 PI,D 项会放大噪声 */
 
+/* === 加速度可信度门控:高g/机动(发射推力/气动减速/冲击)期间加速度计测的是比力而非重力,
+ * 用它做 Mahony 校正会把姿态拽歪且事后回不来;按 |a| 偏离 1g 的程度线性降低校正权重,偏离大时
+ * 纯靠(已去零偏的)陀螺积分 coast。另叠状态机硬门控(发射后全程不信),见 IMU.c IMU_Attitude_Algorithm。*/
+#define ACC_TRUST_FULL_DEV  0.10f   /* ||a|-1g| <= 此值:完全信任加速度(权重=1) */
+#define ACC_TRUST_ZERO_DEV  0.50f   /* ||a|-1g| >= 此值:完全不信任(权重=0,纯陀螺) */
+
 #define GYR_KF_Q 1.0f
 #define GYR_KF_R 1000.0f
 #define ACC_KF_Q 1.0f
@@ -112,4 +118,5 @@ void IMU_Data_Read(void);
 void IMU_Attitude_Algorithm(void);
 void ALL_CS_Free(void);
 extern uint32_t IMU_Cnt,control_cnt;
+extern float acc_trust_obs;   /* Vofa 可观测:Mahony 加速度校正权重(1=全信任 / 0=纯陀螺coast) */
 #endif //IMU_H

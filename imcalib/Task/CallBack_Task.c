@@ -189,8 +189,8 @@ void Vision_Transmit_Debug(void)
     uint8_t *src;
     uint8_t  i;
 
-    val[0]  = IMU_Data.A[NOW][X];
-    val[1]  = Vision_Rx_Data.Euler[NOW][1];
+    val[0]  = Vision_Rx_Data.Vision_Recog_Cnt;
+    val[1]  = Surface.output_gyro_Euler[NOW][YAW];
     val[2]  = Guidance_State*10.0f;
     val[3]  = IMU_Data.G[NOW][PITCH];
     val[4]  = IMU_Data.G[NOW][ROLL];
