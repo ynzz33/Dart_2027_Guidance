@@ -3,7 +3,7 @@
 > 项目进度的单一入口。详细技术方案见文末「[详细方案文档](#详细方案文档)」。
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
-> 最后更新：2026-06-08（X 翼 pitch 解算几何对齐：pitch 列改四片同号、落真俯仰模态；pitch/yaw 通道已放开。前次：清理 TODO / 坐标系 + roll 经 Vofa 确认）
+> 最后更新：2026-06-10（制导段抖动修复：D 项改对测量微分消微分冲击 kick + 视觉目标斜坡平滑视觉 50ms 阶跃。前次：X 翼 pitch 解算几何对齐）
 
 ## 项目简介
 
@@ -118,7 +118,15 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **解算（现行正确做法）**：X 翼 4 片成 X(45°，从尾看 UL135/UR45/DR315/DL225)，每片偏转产生切向力，对三轴力矩贡献 **pitch∝cosθ=[UL−,UR+,DR+,DL−]、yaw∝sinθ=[+,+,−,−]、roll=常数[+,+,+,+]**（三模态两两正交，第 4 模态 `[+,−,+,−]` 隔片交替=零空间纯阻力）。逻辑阵配物理 `SIGN=[−1,+1,+1,−1]`（左右镜像安装）后，pitch 指令落到舵令 `u=[−,+,+,−]`=真俯仰、与 roll/yaw 正交解耦。
 - **三处把 pitch 列对齐为 `[+1,+1,+1,+1]`（四片同号）**：[surface_control_task.c](imcalib/Task/surface_control_task.c) `Servo_Mix_AxisLimit` 的 C 阵 / `Alloc_B` pitch 行 / `Servo_Mix_PitchPriority` 的 `P[]`。SIGN 不动（每片三轴共享、只修整片装反，轴间配对由逻辑阵列决定）；`Alloc_B` 零空间相应为 `n=[4,4,−4,−4]∝[1,1,−1,−1]`。
 - **待台架**：`Alloc_Mode=1` 纯 pitch 阶跃应见明确抬/低头、掉速小；抬头方向那 bit 台架定（现 `[+1,+1,+1,+1]` 反了则整体取负）。pitch/yaw 调用点清零行已注释 → 三轴放开（旧"pitch 掐死"描述已过时）。
-- *(背景：原 pitch 列 `[+1,+1,−1,−1]` 经 SIGN 落零空间→只减速不产生俯仰；先前以 BBᵀ=4I "证明解耦"仅算法对自身假设 B 自洽、非物理正确，以本条几何为准。)*
+- *(背景：原 pitch 列 `[+1,+1,−1,−1]` 经 SIGN 落零空间→只减速不产生俯仰；先前以 BBᵀ=4I “证明解耦”仅算法对自身假设 B 自洽、非物理正确，以本条几何为准。)*
+
+### 制导段抖动修复：D 项对测量微分 + 视觉目标斜坡（2026-06-10，输入端/源头）
+- **症状**：目标附近抖动，**主要在末制导(视觉介入)段**；纯陀螺自稳段不明显。想给小 D 加阻尼反而抖得更严重。
+- **根因 = 微分冲击（derivative kick）**：[pid.c](imcalib/Tool/pid.c) `pid_calc` 的 D 原对**误差** `e=set−get` 求导。纯陀螺段目标恒定→`de/dt=−d(角度)/dt` 纯阻尼正常；末制导段目标每 50ms 被视觉新帧阶跃刷新（[surface_control_task.c](imcalib/Task/surface_control_task.c) `Guidance_Terminal`）→新帧那拍 `dout=d·Δset/dt=d·Δ·1000` 脉冲尖刺、20Hz 周期激励→抖；Δ 再小也炸(d=0.005、Δ=0.5° 仍出 2.5 脉冲)。纯陀螺段无 setpoint 阶跃故不抖——与症状吻合。
+- **方案1（根治，[pid.c](imcalib/Tool/pid.c)）**：D 改对**测量(反馈)微分** `dout=−d·(get[NOW]−get[LAST])/dt`，只对反馈量求导、不对目标求导→目标阶跃不再进 D；反馈是物理连续量、D 只对真实运动求导=纯阻尼。D 不经死区软化(死区内 P 不拉、保留 D 阻尼压残余运动)。零延迟、非低通——PLC 默认做法，原 Phase4.1 计划的 D 项低通因此暂不需要。
+- **方案3（治视觉低帧率源，[surface_control_task.c](imcalib/Task/surface_control_task.c) / [.h](imcalib/Task/surface_control_task.h)）**：在 **setpoint 端**(非反馈环、不引相位滞后)给视觉锁存目标加**速率限制斜坡**。新增全局 `vision_los_final[3]`(世界系视线终点，Vofa 可观测)、静态 `Target_Slew(cur,target,max_step,wrap)`(YAW 差值经 `Angle_Wrap_180` 走最短弧)；`Guidance_Terminal` 重写为「视觉新帧只更新终点 `vision_los_final` + 每 tick `target` 朝终点斜坡逼近 `VISION_TARGET_SLEW_DPS·dT`」。帧间终点不变、斜坡到达后 `target≡终点`，与原「锁存+航位推算」等价，仅消去切换瞬间阶跃；FAILURE 终点+目标都对齐当前(斜坡 d=0=原就地保持)。
+- **参数**：`VISION_TARGET_SLEW_DPS`=150°/s(=0.15°/tick) 初值，台架可调——大→更跟手(接近阶跃、削 kick 弱)、小→更平滑(滞后增大，过小会跟不上视线角速度致脱靶)。
+- **未编译**(Keil/MDK 工程需在 IDE 里编)。两项独立叠加、互不冲突，均合「输入端/源头解决、不在反馈环加低通」偏好。
 
 ---
 
@@ -147,6 +155,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **内环角速度 pitch/roll 轴配对（方案B，2026-06-07）**：**roll 自稳已正常**（git「roll 调稳了很多」）——方案B 源头+四元数同步对调生效，roll 能阻尼自旋、不再渐进发散，yaw 不变、PNG 行为不变。pitch/yaw 通道已放开（清零行已注释），pitch 解算几何已对齐（见时间线 2026-06-08 条）。
 
 ### ⏳ 待 Vofa 台架验证
+- **D 项对测量微分 / 视觉目标斜坡（2026-06-10）**：① 末制导段重新给 D 一个小阻尼值，应**不再**出现 20Hz 抖动（原微分冲击已消）；纯陀螺自稳段 D 阻尼行为正常。② Vofa 拉 `vision_los_final[YAW]` 与 `Surface.target_angle_Euler[NOW][YAW]`：终点应为帧间台阶(仅新帧阶跃)，目标应**平滑斜坡**跟随终点、无 50ms 台阶；视线角速度大时若目标跟不上则调大 `VISION_TARGET_SLEW_DPS`。③ 丢目标(FAILURE) 目标=当前、误差≈0 不打舵。
 - **角度环绕（2026-06-07）**：roll/yaw 目标设在接近 ±180° 处、令当前姿态跨边界，输出不应出现 ~360° 假误差导致的反向猛打；±0 附近常规自稳行为不变（wrap 不触发）。
 - **视线锁存（方向A）**：末制导对静止/缓动目标，镖体应单调转向并稳定指向、不再同线首振；Vofa 拉 `Surface.target_angle_Euler[NOW][YAW]` 应为帧间水平台阶（保持不变）、仅识别成功新帧到达瞬间阶跃更新；丢目标(FAILURE) 每 tick 回中、重新捕获到 SUCCESS 帧立即重锁。
 - ✅ **视觉单位核验（方向C，已确认）**：视觉发的是**像素**，已在 `Vision_Receive` 接收时转成度（`Euler[YAW]=y/160*72`、`Euler[PITCH]=x/120*54`），`Guidance_Terminal` 锁存即为度、量纲一致，无需再 ×FOV。
@@ -155,7 +164,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 
 ### 🔜 下一步（待 Vofa 验证后）
 - **串级内外环增益拉开**：目前外环 P=0.7 > 内环 P=0.2，与「内环>外环」偏好相反，需重标。
-- **输出加速率限制**（rate limit，非环内低通）。
+- **输出加速率限制**（输出端 rate limit，非环内低通）。注：**setpoint 端**速率限制已于 2026-06-10 对视觉目标做了（方案3 视觉目标斜坡）；此处指对最终舵量/力矩输出再加 rate limit，位置不同、可独立。
 - 🚫 **前馈 FFC 暂不做**（2026-06-08 决定）：实际效果不大、且不好验证是否有效，先不用前馈。代码已是关闭态（[pid.c](imcalib/Tool/pid.c) `Euler_pid_Cale` 里 `+=` 调用已注释、`num1/num2=0`），结构保留备用，需要时再启用。
 
 ### 💤 后续（暂缓，有需求再做）

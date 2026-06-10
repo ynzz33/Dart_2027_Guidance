@@ -32,11 +32,11 @@ void pid_init(void)
 // //镖体1
     PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,80,4,0.20f,0.00f,0.00f,0.3f,0.7f);
     PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,80,4,0.30f,0.00f,0.00f,0.3f,0.3f);
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,150,4,0.90f,0.00f,0.0000f,0.3f,0.3f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,150,4,0.95f,0.00f,0.0000f,0.3f,0.3f);
 
     PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,80,4,0.10f,0.00f,0.00f,0.3f,0.7f);
-    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,60,4,0.20f,0.00f,0.00f,0.3f,0.3f);
-    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,40,10,0.10f,0.00f,0.000f,0.3f,0.3f);
+    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,60,4,0.10f,0.00f,0.00f,0.3f,0.3f);
+    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,40,10,0.23f,0.00f,0.000f,0.3f,0.3f);
 // //镖体2
     // PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,80,4,0.1f,0.00f,0.0f,0.3f,0.7f);
     // PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,40,4,0.2f,0.00f,0.0f,0.3f,0.7f);
@@ -48,10 +48,10 @@ void pid_init(void)
      
     surface_control_pid[Angle][PITCH].deadband  = 5.0f;
     surface_control_pid[Angle][ROLL].deadband   = 5.0f;
-    surface_control_pid[Angle][YAW].deadband    = 5.0f;
+    surface_control_pid[Angle][YAW].deadband    = 2.0f;
     surface_control_pid[Gyro][PITCH].deadband   = 5.0f;
     surface_control_pid[Gyro][ROLL].deadband    = 5.0f;//3.0
-    surface_control_pid[Gyro][YAW].deadband     = 5.0f;
+    surface_control_pid[Gyro][YAW].deadband     = 2.0f;
 
     /* 角度外环 roll/yaw 是 atan2 周期角,误差需环绕到(-180,180];pitch 是 asin∈[-90,90] 不需要。
      * 内环(Gyro)是角速度、不是周期角,保持 0。*/
@@ -133,14 +133,19 @@ float pid_calc(pid_t* pid, float get, float set , float delta_time)
     {
         pid->pout  = pid->p * e_now;
         pid->iout += pid->i * e_now*delta_time;
-        if (pid->d == 0.0f)
+        /* D 项对"测量(反馈)"微分,而非对"误差"微分:误差 e=set−get,对 e 微分时 set 的阶跃
+         * (视觉~20Hz 锁存、目标每 50ms 跳一次)会被 ÷dt(=1e-3) 放大成巨大脉冲(微分冲击 derivative kick),
+         * 正是"制导段一加 D 就抖、纯陀螺自稳段不抖"的根因。改为只对 get 微分(姿态/角速度是物理连续量、
+         * 不会瞬跳),D 只对真实运动求导=纯阻尼;符号取负(de/dt 中的 −d(get)/dt 项)。
+         * 不经死区软化:死区内 P 不拉、保留 D 阻尼压住残余运动(目标附近"只阻尼不硬推"更稳)。零额外延迟、非低通。*/
+        if (pid->d == 0.0f || delta_time < 1e-6f)
         {
             pid->dout = 0.0f;
         }
         else
         {
-            pid->dout = pid->d * (e_now - e_last)/delta_time;
-            if (delta_time < 1e-6f) pid->dout = 0.0f;
+            pid->dout = -pid->d * (pid->get[NOW] - pid->get[LAST]) / delta_time;
+            // pid->dout = pid->d * (e_now - e_last)/delta_time;
         }
 
         abs_limit(&(pid->iout), pid->IntegralLimit);

@@ -147,7 +147,7 @@ End ◄──(A_Normed[Y]≥0.9 且 A[Y]≥1.5，连续5；冲击检测)── T
 - **死区软化** `Deadband_Soften`：误差落入死区连续归零（C0 连续，无硬切断尖刺）。
 - **角度环绕** `Angle_Wrap_180`：仅 ROLL/YAW **外环**开（周期角防 ±180 假跳变）。
 - **前馈 FFC**：结构在（`xFeedForward` 已内嵌、空指针 bug 已修），但 `Euler_pid_Cale` 里调用被注释 + `num1/num2=0` → **当前不生效**。**2026-06-08 决定暂不启用前馈**（效果不大、不易验证是否有效），代码保留备用。
-- **无 D 项低通**（计划 Phase4.1 未落地）；符合"不在反馈环加低通"偏好。
+- **D 项对测量微分**（derivative on measurement，2026-06-10）：`pid_calc` 的 D = `−d·(get[NOW]−get[LAST])/dt`，只对反馈量求导、不对误差求导 → 目标阶跃(视觉~20Hz 锁存)不再进 D，消除微分冲击 kick（「制导段一加 D 就抖、纯陀螺自稳段不抖」的根因，见 §13）；D 不经死区软化，死区内仍提供阻尼。零延迟、非低通，合"不在反馈环加低通"偏好。原计划 Phase4.1 的 D 项低通因此暂不需要。
 - `max_err` 字段全为 0 → 该保护从不触发（依赖 `MaxOutput` 限幅）。
 
 ---
@@ -187,7 +187,7 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[+1,+1,+1,+1]`**、
 - 视觉帧：`0x5A..0xA5`=识别成功（x,y 像素），`0x7A..0xA7`=丢目标，`0x9A..0xA9`=录制状态。
 - **像素→度转换在 `Vision_Receive` 内做**：`Euler[YAW]=y/160*72`、`Euler[PITCH]=x/120*54`（x→PITCH、y→YAW）。✅ **已确认**：视觉发的是**像素**、接收时即转成度，轴映射正确，下游 `Guidance_Terminal` 锁存按度用、量纲一致（无需再 ×FOV）。
 - `Vision_New_Data_flag`：ISR(~20Hz)产生、`Guidance_Terminal`(1kHz)消费后清 0（生产者-消费者）。
-- **视线锁存（方向A）**：新帧到达瞬间 `target=vision_euler+current`（世界系视线锁存），帧间保持不变 → 外环误差=锁存−当前，机体一转误差即减，避免 50ms 盲转。读侧已用临界区快照 `v`（2026-06-07 修复）。
+- **视线锁存（方向A）+ 目标斜坡（2026-06-10）**：新帧到达瞬间把世界系视线锁存到 `vision_los_final=vision_euler+current`（终点，帧间不变）；`target` 每 tick 经 `Target_Slew` 朝终点**斜坡逼近**（`VISION_TARGET_SLEW_DPS`=150°/s，setpoint 端速率限制）→ 把 20Hz 视觉的 50ms 目标阶跃摊平，消除对外环 P / D 的周期性台阶冲击。帧间终点不变、斜坡到达后 `target≡终点` → 外环误差=终点−当前，机体一转误差即减，与原航位推算等价（仅消去切换瞬间阶跃）。读侧用临界区快照 `v`；丢目标(FAILURE)终点+目标都对齐当前(斜坡 d=0，就地保持)。
 - **PNG 比例导引**：`PNG_Guidance` 在 `TotalControl` 里被注释，**未接主环**；且 `Velocity[Body]` 从未算 → `V_c` 恒被钳到 `Vc_min`。
 
 ---
@@ -201,6 +201,7 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[+1,+1,+1,+1]`**、
 | `Guidance_State` | surface_control_task.c | 制导状态机当前态 |
 | `Alloc_Mode` / `Alloc_Prio[3]` / `Alloc_B[3][4]` | surface_control_task.c | 分配器档位 / 优先级 / 舵效阵 |
 | `Vision_Rx_Data` | CallBack_Task.c | 视觉接收（ISR 写、控制读，含 New_Data_flag） |
+| `vision_los_final[3]` | surface_control_task.c | 末制导世界系视线终点（视觉新帧锁存，`target` 斜坡逼近它；Vofa 可观测） |
 | `surface_control_pid[2][3]` / `mahony_pid[3]` | pid.c | PID 实例 |
 | `temp[3]` | pid.c | 外环→内环中转（Vofa 观测） |
 | `DART_TYPE` | surface_control_task.c | `VECTOR_NOZZLE`(X翼,激活) / `FIXED_WING`(飞翼,#if0 不编译) |
@@ -227,6 +228,14 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[+1,+1,+1,+1]`**、
 **2026-06-08 文档维护**：清理 TODO——**加速度标定**（用户确认现状正常）、**IMU SPI 阻塞读超时**（不处理）移出已知问题；**前馈 FFC** 决定暂不启用（效果不大 / 不易验证，代码保留关闭态）；**坐标系统一 + roll 自稳**经 Vofa 确认正常（详见 [PROGRESS.md](PROGRESS.md) 「已 Vofa 确认」）。
 
 **2026-06-08 X 翼 pitch 解算几何对齐**：pitch 逻辑列对齐为四片同号 `[+1,+1,+1,+1]`（`Servo_Mix_AxisLimit` 的 C 阵 / `Alloc_B` / `Servo_Mix_PitchPriority` 三处），使 pitch 指令落到真俯仰模态、与 roll/yaw 正交解耦（X 翼几何见 §8）；SIGN 不动。pitch/yaw 调用点清零行已注释 → 三轴放开。
+
+## 13. 2026-06-10 制导段抖动修复（D 项对测量微分 + 视觉目标斜坡）
+
+- **症状**：目标附近抖动，主要在**末制导(视觉介入)段**；纯陀螺自稳段不明显。想给小 D 加阻尼反而抖得更厉害。
+- **根因 = 微分冲击（derivative kick）**：[pid.c](imcalib/Tool/pid.c) 的 D 原本对**误差** `e=set−get` 求导。纯陀螺段目标恒定(`Stable_Euler_Angle`)，`de/dt=−d(角度)/dt` 是纯阻尼；末制导段目标每 50ms 被视觉新帧阶跃刷新([surface_control_task.c](imcalib/Task/surface_control_task.c) `Guidance_Terminal`)，那一拍 `dout=d·Δ/dt=d·Δ·1000` 是脉冲尖刺、20Hz 周期激励 → 抖；Δ 越小 d 也救不回(d=0.005、Δ=0.5° 仍出 2.5 脉冲)。
+- **方案1（根治，pid.c）**：D 改对**测量微分** `−d·(get[NOW]−get[LAST])/dt`，只对反馈量求导 → 目标阶跃不再进 D、纯阻尼；不经死区软化、死区内仍阻尼；零延迟非低通。
+- **方案3（视觉源，surface_control_task .h/.c）**：setpoint 端给锁存目标加**斜坡**(速率限制)。新增 `vision_los_final[3]`(世界系视线终点)、`Target_Slew`(差值含 YAW 角度环绕)；`Guidance_Terminal` 改为「视觉帧更新终点 + 每 tick `target` 斜坡逼近终点」，把 50ms 阶跃摊平。宏 `VISION_TARGET_SLEW_DPS`=150°/s 可台架调(大→跟手、小→平滑滞后)。与原航位推算等价、仅消阶跃。
+- **未编译**(Keil 工程，需在 MDK 里编)。两项均合"输入端/源头解决、不在反馈环加低通"偏好。
 
 ---
 *维护约定：本文与 PROGRESS.md / memory `control-tuning-progress` 三方同步；改代码后更新对应小节。*

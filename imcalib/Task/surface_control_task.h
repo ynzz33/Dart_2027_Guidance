@@ -37,7 +37,7 @@
 #define  Servo_UL_ZERO      1440
 #define  Servo_UR_ZERO      1405
 #define  Servo_DR_ZERO      1530
-#define  Servo_DL_ZERO      1470
+#define  Servo_DL_ZERO      1420
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
  * 左侧两片(UL,DL)取 −1 因左右舵机镜像安装;台架单轴阶跃标定,某片整体反了翻它的号。
@@ -57,13 +57,19 @@
 #define  AXIS_LIMIT_ROLL    40.0f
 #define  AXIS_LIMIT_YAW     80.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
-#define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
+#define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还 原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
 
 /* === 世界系 pitch/yaw 解算(roll 反旋) ===
  * 喂 PID 的 ZYX 欧拉 pitch/yaw 是世界系参考,PID 输出即世界系 pitch/yaw 力矩需求;
  * 但 X 翼舵面产生机体系力矩。机身横滚 Δ 后把该需求反旋到机体系再送混控(见 .c)。
  * SIGN: 横滚正向/舵面朝向的总符号,台架单轴阶跃验证后可翻 ±1。*/
 #define  ROLL_WORLD_COMP_SIGN  (+1.0f)
+
+/* === 末制导视觉目标斜坡(方案3:setpoint 端速率限制) ===
+ * 视觉~20Hz,锁存目标每 50ms 阶跃刷新一次;直接喂阶跃目标会周期性冲击外环 P(及对误差微分时的 D)。
+ * 在目标端(非反馈环,不引入 P/I 相位滞后)把阶跃摊成斜坡:每 tick 目标朝锁存终点最多走 VISION_TARGET_SLEW_DPS·dT 度。
+ * 调大→更跟手(接近阶跃)、调小→更平滑但跟踪滞后增大;台架按抖动/跟踪权衡。*/
+#define  VISION_TARGET_SLEW_DPS   5000.0f
 
  enum
 {
@@ -156,10 +162,13 @@ extern float   Alloc_B[3][4];                  /* 舵效矩阵 τ=B·u,行[p,r,y
 extern float   alloc_u0[4], alloc_u_out[4];    /* Vofa:分配解(投影/降级后,×SIGN前) / 最终写舵值(×SIGN限幅后) */
 extern float   alloc_alpha, alloc_u0_span, alloc_v_scale, alloc_p_scale; /* Vofa:零空间投影α / u0极差 / 降级横侧缩放比 / pitch缩放比 */
 extern uint8_t alloc_infeasible, alloc_singular_flag;     /* Vofa:不可达降级(0可达/1缩横侧/2连pitch也缩) / 求逆奇异退回 */
+extern float vision_los_final[3];   /* Vofa:末制导锁存的世界系视线终点(目标斜坡逼近它),帧间不变、仅新帧阶跃更新 */
 void surface_control_task(void);
 void Roll_Derotate_PitchYaw(float Pw, float Yw, float *Pb, float *Yb);
 void Servo_Mix_AxisLimit(float p, float r, float y);
 void Servo_Mix_MinEnergy(float p, float r, float y);
+void Wing_Control(void);
+void Wing_Control_VECTOR_NOZZLE(void);
 
 
 #endif //SURFACE_CONTROL_TSAK_H

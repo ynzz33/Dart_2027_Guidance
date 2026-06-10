@@ -53,6 +53,7 @@ float   Alloc_B[3][4] = {
 float   alloc_u0[4] = {0}, alloc_u_out[4] = {0};
 float   alloc_alpha = 0.0f, alloc_u0_span = 0.0f, alloc_v_scale = 1.0f, alloc_p_scale = 1.0f;
 uint8_t alloc_infeasible = 0, alloc_singular_flag = 0;
+float   vision_los_final[3],vision_los_current[3];   /* 末制导世界系视线终点:视觉新帧锁存,target 每 tick 斜坡逼近(方案3) */
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
 
@@ -84,6 +85,28 @@ void Data_Updata(void)
     Servo_Updata();
 }
 
+void Wing_Control(void)
+{
+    if (Wing_Servo_Control_Flag == 1)
+    {      
+        if(Guidance_State == Self_Text_State)
+        {
+            Surface.output_angle_Servo[NOW][UP_LEFT]    = 30;
+            Surface.output_angle_Servo[NOW][UP_RIGHT]   = 30;
+            Surface.output_angle_Servo[NOW][DOWN_LEFT]  = 30;
+            Surface.output_angle_Servo[NOW][DOWN_RIGHT] = 30;
+        }
+        else if(Guidance_State == Start)
+        {
+            Surface.output_angle_Servo[NOW][UP_LEFT]    = 0;
+            Surface.output_angle_Servo[NOW][UP_RIGHT]   = 0;
+            Surface.output_angle_Servo[NOW][DOWN_LEFT]  = 0;
+            Surface.output_angle_Servo[NOW][DOWN_RIGHT] = 0; 
+        }
+        Wing_Control_VECTOR_NOZZLE();
+    }
+}
+
 void Guidance_Start(void)//自检后的判断
 {
     static uint16_t cnt = 0 ;
@@ -113,46 +136,65 @@ void Guidance_Stable(void)//自稳
             Vision_Transmit(Vision_Cmd_Work);
         }
 }
+/* 目标斜坡逼近(速率限制):把 cur 朝 target 每拍最多移动 max_step,把视觉阶跃摊成斜坡(方案3)。
+ * wrap=1:差值按角度环绕到最短弧(YAW 是 atan2 周期角);wrap=0:普通(PITCH 是 asin 不环绕)。*/
+static float Target_Slew(float cur, float target, float max_step, uint8_t wrap)
+{
+    float d = target - cur;
+    if (wrap) d = Angle_Wrap_180(d);
+    if (d >  max_step) d =  max_step;
+    if (d < -max_step) d = -max_step;
+    return cur + d;
+}
+
 void Guidance_Terminal(void)//制导段
 {
     /* ROLL 始终自稳(与视觉新数据无关),每 tick 刷新 */
     Surface.target_angle_Euler[NOW][ROLL] = Surface.Stable_Euler_Angle[ROLL];
-
+    vision_los_current[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+    vision_los_current[YAW]   = Surface.current_angle_Euler[NOW][YAW];
     /* 视线目标锁存(方向A):视觉~20Hz、控制1kHz。只在"视觉新数据到达"(Vision_New_Data_flag==1)那一刻,用当时
-     * 姿态把视线锁存到世界系 los_world=v+current 并写入目标;帧间(flag==0)不进此块,目标靠 target_angle_Euler[NOW]
-     * 保持上次锁存值不变(Euler_Updata 只移位 LAST/LLAST、不动 NOW) → 外环误差=los_world−current,机体一转误差即减,
-     * 无每 tick 重算导致的盲转/符号翻转。新数据处理结束后置回0,等下一帧视觉数据中断里再置1。*/
+     * 姿态把视线锁存到世界系 los=v+current,写入斜坡终点 vision_los_final(不再直接阶跃写 target);帧间(flag==0)
+     * 终点保持不变 → 终点−current 仍随机体转动实时变化(航位推算)。新数据处理结束后置回0,等下一帧再置1。*/
     if (Vision_Rx_Data.Vision_New_Data_flag == 1)
     {
         taskENTER_CRITICAL();
         Vision_Rx_Buf_t v = Vision_Rx_Data;
         taskEXIT_CRITICAL();
-        if (v.Vision_recognize_flag == RECOGNIZE_SUCCESS) /* RECOGNIZE_SUCCESS:识别到目标,锁存世界系视线目标,更新目标角 */
-        {    /* 全程用临界区快照 v,避免与 UART 视觉中断(~20Hz 写多字段)撕裂读;清 flag 仍打真 struct */
-            /* YAW:始终视觉制导,用当时姿态锁存世界系视线 → 误差=锁存−当前 */
-            Surface.target_angle_Euler[NOW][YAW] = v.Euler[NOW][1] + Surface.current_angle_Euler[NOW][YAW];
+        if (v.Vision_recognize_flag == RECOGNIZE_SUCCESS) /* 识别到目标:锁存世界系视线终点(全程用快照 v,避免与视觉中断撕裂读) */
+        {
+            /* YAW:始终视觉制导,锁存世界系视线终点 */
+            vision_los_final[YAW] = v.Euler[NOW][1] + Surface.current_angle_Euler[NOW][YAW];
 
-            /* PITCH:仅俯冲到位(<-10°)才视觉制导(同样锁存);否则不控,目标=当前 */
+            /* PITCH:仅俯冲到位(<-10°)才视觉制导;否则不控,终点=当前 */
             if (Surface.current_angle_Euler[NOW][PITCH] < -10.0f)
-            {
-                Surface.target_angle_Euler[NOW][PITCH] = v.Euler[NOW][0] + Surface.current_angle_Euler[NOW][PITCH];
-            }
+                vision_los_final[PITCH] = v.Euler[NOW][0] + Surface.current_angle_Euler[NOW][PITCH];
             else
-            {
-                Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-            }
+                vision_los_final[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         }
-        Vision_Rx_Data.Vision_New_Data_flag = 0;   /* 新数据处理完毕,置回0,等下一帧视觉新数据再置1 */
+        Vision_Rx_Data.Vision_New_Data_flag = 0;   /* 新数据处理完毕,置回0 */
     }
-    if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE) /* RECOGNIZE_FAILURE:丢目标,保持当前姿态,请求视觉继续工作 */
+    if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE) /* 丢目标:就地保持,终点与目标都对齐当前(斜坡 d=0,即原零误差语义) */
     {
         // Vision_Transmit(Vision_Cmd_Work);
+        vision_los_final[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+        vision_los_final[YAW]   = Surface.current_angle_Euler[NOW][YAW];
+        vision_los_current[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+        vision_los_current[YAW]   = Surface.current_angle_Euler[NOW][YAW];
         Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
     }
-        // Surface.target_angle_Euler[NOW][PITCH] = Surface.Stable_Euler_Angle[PITCH];
-        // Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
-        // Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
+
+    /* 方案3:setpoint 端速率限制——每 tick 目标朝锁存终点斜坡逼近,把视觉 50ms 阶跃摊平,
+     * 消除目标台阶对外环 P(及对误差微分时的 D)的周期性冲击;非反馈环低通,不引入 P/I 相位滞后。
+     * 帧间终点不变、斜坡到达后 target≡终点,与原"锁存+航位推算"等价,仅消去切换瞬间的阶跃。*/
+    //先将目标置为当前值，然后将新的目标值存在vision_los_final中以斜坡方式逼近最终目标值，
+    Surface.target_angle_Euler[NOW][YAW] =
+        Target_Slew(vision_los_current[YAW], vision_los_final[YAW], VISION_TARGET_SLEW_DPS * dT, 0);
+    Surface.target_angle_Euler[NOW][PITCH] =
+        Target_Slew(vision_los_current[PITCH], vision_los_final[PITCH], VISION_TARGET_SLEW_DPS * dT, 0);
+    // Surface.target_angle_Euler[NOW][YAW] = vision_los_final[YAW];
+    // Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[PITCH];
 }
 void Guidance_End(void)
 {
@@ -215,7 +257,7 @@ void get_current_State(void)
             Surface.Guidance_cnt[0] = 0;
         }
     }
-    else if (Guidance_State == Stable && IMU_Data.Euler[NOW][PITCH]<=0.0f)
+    else if (Guidance_State == Stable && IMU_Data.Euler[NOW][PITCH]<=5.0f)
     {
         if(Surface.Guidance_cnt[1]++>5)
         {
@@ -609,20 +651,6 @@ void surface_control_task(void)
             // y_body = 0.0f;
             // r_body = 0.0f;
 
-            // if(Guidance_State==Terminal&&(IMU_Data.Euler[NOW][PITCH]<-15.0f&&fabs(Vision_Rx_Data.Euler[NOW][1])<=15.0))
-            // {
-            //     // p_body*=0.85f;
-            //     // y_body*=0.75f;
-            //     surface_control_pid[Angle][YAW].p = 0.2f;
-            // }
-            // if(Guidance_State==Stable||(Guidance_State==Terminal&&IMU_Data.Euler[NOW][PITCH]>-10.0f))
-            // {
-            //     p_body = 0;
-            // }
-            // if(Guidance_State==Terminal) 
-            // {
-            //     r_body = 0.0f;
-            // }
 
             /* 三轴统一接 PID 内环输出(roll 绕纵轴不反旋,直接用);按 Alloc_Mode 分派分配器。
              * 注:上面 p_body*0.85/y_body*1.05 是旧分配的经验微调,Mode2 精确分配下会破坏最优,
@@ -640,31 +668,6 @@ void surface_control_task(void)
     if (Guidance_State == End || Guidance_State == PROCESS_OK)
     {
         for (int i = 0; i < 4; i++) Surface.output_angle_Servo[NOW][i] = 0;
-    }
-    if (Wing_Servo_Control_Flag == 1)
-    {      
-        if(Guidance_State == Self_Text_State)
-        {
-            Surface.output_angle_Servo[NOW][UP_LEFT]    = 30;
-            Surface.output_angle_Servo[NOW][UP_RIGHT]   = 30;
-            Surface.output_angle_Servo[NOW][DOWN_LEFT]  = 30;
-            Surface.output_angle_Servo[NOW][DOWN_RIGHT] = 30;
-        }
-        else if(Guidance_State == Start)
-        {
-            Surface.output_angle_Servo[NOW][UP_LEFT]    = 0;
-            Surface.output_angle_Servo[NOW][UP_RIGHT]   = 0;
-            Surface.output_angle_Servo[NOW][DOWN_LEFT]  = 0;
-            Surface.output_angle_Servo[NOW][DOWN_RIGHT] = 0; 
-        }
-        if(DART_TYPE == VECTOR_NOZZLE   )//x翼
-        {
-            Wing_Control_VECTOR_NOZZLE();
-        }
-        else if(DART_TYPE == FIXED_WING    )//飞翼
-        {
-            // Wing_Control_FIXED_WING();
-        }
     }
     Data_Updata();
     if (Self_Text.Self_Text_Process == Self_Text_Dart_Trigeer&&Self_Text.Dart_Trigger_Self_Text_flag == Self_Text_Failure && Self_Text.Vision_Self_Text_flag == Self_Text_Success)
