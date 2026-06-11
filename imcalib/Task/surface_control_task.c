@@ -117,7 +117,7 @@ void Guidance_Start(void)//自检后的判断
           cnt = 0 ;
           IMU_Data.calib_done = 2;
           Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
-          Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL];
+          Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
           Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
       }
     }
@@ -622,8 +622,9 @@ void surface_control_task(void)
         if (Guidance_State==Stable)
         {
             y_body = 0.0f;
+            // p_body = 0.0f; 
         }  
-        if (Guidance_State==Terminal&&Surface.current_angle_Euler[NOW][PITCH]>-15.0f)
+        if (Guidance_State==Terminal&&Surface.current_angle_Euler[NOW][PITCH]>-20.0f)
         {
             p_body = 0.0f; 
         }      

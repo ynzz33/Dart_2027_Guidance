@@ -27,17 +27,17 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-#define  Servo_UL_ZERO      1420
-#define  Servo_UR_ZERO      1420
-#define  Servo_DR_ZERO      1565
-#define  Servo_DL_ZERO      1580
+// #define  Servo_UL_ZERO      1420
+// #define  Servo_UR_ZERO      1420
+// #define  Servo_DR_ZERO      1565
+// #define  Servo_DL_ZERO      1580
 
-
+ 
 // //镖体2 蓝色
-// #define  Servo_UL_ZERO      1400
-// #define  Servo_UR_ZERO      1480
-// #define  Servo_DR_ZERO      1515
-// #define  Servo_DL_ZERO      1610
+#define  Servo_UL_ZERO      1500
+#define  Servo_UR_ZERO      1500
+#define  Servo_DR_ZERO      1535
+#define  Servo_DL_ZERO      1495 
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
  * 左侧两片(UL,DL)取 −1 因左右舵机镜像安装;台架单轴阶跃标定,某片整体反了翻它的号。
