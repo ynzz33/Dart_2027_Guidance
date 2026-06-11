@@ -147,9 +147,9 @@ void Vision_Receive(uint8_t* Buf)
     if (Buf[0]==0x5A&&Buf[5]==0xA5)
     {
         Vision_Rx_Data.x[NOW] = (int16_t)(Buf[1]<<8|Buf[2]);
-        Vision_Rx_Data.y[NOW] = -(int16_t)(Buf[3]<<8|Buf[4]);
-        Vision_Rx_Data.Euler[NOW][0] = -Vision_Rx_Data.y[NOW]/16.00f*72.0f*2;
-        Vision_Rx_Data.Euler[NOW][1] = Vision_Rx_Data.x[NOW]/12.00f*54.0f*2;
+        Vision_Rx_Data.y[NOW] = (int16_t)(Buf[3]<<8|Buf[4]);
+        Vision_Rx_Data.Euler[NOW][0] = Vision_Rx_Data.y[NOW]/16.00f*72.0f;
+        Vision_Rx_Data.Euler[NOW][1] = Vision_Rx_Data.x[NOW]/12.00f*54.0f;
         Vision_Rx_Data.Vision_recognize_flag = RECOGNIZE_SUCCESS;
         Vision_Rx_Data.Vision_Recog_Cnt++;          /* 识别成功帧计数(纯统计) */
         Vision_Rx_Data.Vision_New_Data_flag = 1;    /* 视觉新有效数据到达 → 控制端 Guidance_Terminal 据此锁存世界系视线,消费后清0 */
@@ -189,8 +189,8 @@ void Vision_Transmit_Debug(void)
     uint8_t *src;
     uint8_t  i;
 
-    val[0]  = Vision_Rx_Data.Vision_Recog_Cnt;
-    val[1]  = Surface.output_gyro_Euler[NOW][YAW];
+    val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Vision_Rx_Data.y[NOW];
+    val[1]  = Surface.output_gyro_Euler[NOW][YAW]*1000.0f+ADC_Voltage_Real;
     val[2]  = Guidance_State*1000.0f+Vision_Rx_Data.Euler[NOW][1];
     val[3]  = IMU_Data.G[NOW][PITCH];
     val[4]  = IMU_Data.G[NOW][ROLL];

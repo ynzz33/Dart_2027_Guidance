@@ -160,7 +160,6 @@ void SelfTestTask(void const * argument)
         Self_Text_Task();
     }
 	  Buzzer_play_task(&Buzzer_message);
-    Wing_Control();
     osDelay(100);
   }
   /* USER CODE END SelfTestTask */

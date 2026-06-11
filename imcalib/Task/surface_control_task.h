@@ -27,17 +27,17 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-// #define  Servo_UL_ZERO      1420
-// #define  Servo_UR_ZERO      1585
-// #define  Servo_DR_ZERO      1535
-// #define  Servo_DL_ZERO      1500
+#define  Servo_UL_ZERO      1420
+#define  Servo_UR_ZERO      1420
+#define  Servo_DR_ZERO      1565
+#define  Servo_DL_ZERO      1580
 
 
 // //镖体2 蓝色
-#define  Servo_UL_ZERO      1440
-#define  Servo_UR_ZERO      1405
-#define  Servo_DR_ZERO      1530
-#define  Servo_DL_ZERO      1420
+// #define  Servo_UL_ZERO      1400
+// #define  Servo_UR_ZERO      1480
+// #define  Servo_DR_ZERO      1515
+// #define  Servo_DL_ZERO      1610
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
  * 左侧两片(UL,DL)取 −1 因左右舵机镜像安装;台架单轴阶跃标定,某片整体反了翻它的号。
@@ -53,8 +53,8 @@
 /* === 控制分配(混控)参数 ===
  * Alloc_Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
-#define  AXIS_LIMIT_PITCH   40.0f   /* 交付A:三轴各自独立限幅(度),可调 */
-#define  AXIS_LIMIT_ROLL    40.0f
+#define  AXIS_LIMIT_PITCH   20.0f   /* 交付A:三轴各自独立限幅(度),可调 */
+#define  AXIS_LIMIT_ROLL    20.0f
 #define  AXIS_LIMIT_YAW     80.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
 #define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还 原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
@@ -69,7 +69,7 @@
  * 视觉~20Hz,锁存目标每 50ms 阶跃刷新一次;直接喂阶跃目标会周期性冲击外环 P(及对误差微分时的 D)。
  * 在目标端(非反馈环,不引入 P/I 相位滞后)把阶跃摊成斜坡:每 tick 目标朝锁存终点最多走 VISION_TARGET_SLEW_DPS·dT 度。
  * 调大→更跟手(接近阶跃)、调小→更平滑但跟踪滞后增大;台架按抖动/跟踪权衡。*/
-#define  VISION_TARGET_SLEW_DPS   5000.0f
+#define  VISION_TARGET_SLEW_DPS   10000.0f
 
  enum
 {

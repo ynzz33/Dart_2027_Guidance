@@ -96,6 +96,41 @@ void Self_Text_Task(void)
 }
 
 
+#if 0 //DART_TYPE == VECTOR_NOZZLE
+/* Pitch 优先最小能量控制分配:
+ * pitch 全额保留,roll/yaw 等比缩到舵机余量内 → 调 roll/yaw 不污染 pitch。
+ * 写入 Surface.output_angle_Servo[NOW][0..3](已含 SIGN,已在 ±SERVO_ANGLE_LIMIT 内)。*/
+void Servo_Mix_PitchPriority(float p, float r, float y)
+{
+    float pitch_limit = SERVO_ANGLE_LIMIT-45;                   //pitch优先，但也有限幅
+    abs_limit(&p, pitch_limit);                           /* 1) pitch 分量优先*/
+
+    float P[4], L[4];                                           /* 2) 拆 pitch 分量 / 横侧分量(逻辑符号阵) */
+    P[UP_LEFT]    = +p;  L[UP_LEFT]    = +r + y;
+    P[UP_RIGHT]   = +p;  L[UP_RIGHT]   = -r - y;
+    P[DOWN_RIGHT] = +p;  L[DOWN_RIGHT] = -r + y;
+    P[DOWN_LEFT]  = +p;  L[DOWN_LEFT]  = +r - y;
+
+    float k = 1.0f;                                             /* 3) 求最大横侧比例 k */
+    for (int i = 0; i < 4; i++)
+    {
+        float aL = (L[i] < 0.0f) ? -L[i] : L[i];                // 绝对值
+        if (aL < 1e-6f) continue;                               /* 该片无横侧分量,不构成约束 */
+        float sgnL = (L[i] < 0.0f) ? -1.0f : 1.0f;              //拿到原来的符号以便复原
+        float ki = (SERVO_ANGLE_LIMIT - sgnL * P[i]) / aL;      //(限幅−pitch分量)/横侧分量 = 该片可容许的最大横侧比例(已修正:原为反写的 aL/(LIMIT−P))
+        if (ki < k) k = ki;                                     //取最严约束:在比例内按原样,超出按比例缩放,保证在限幅内
+    }
+
+    if (k < 0.0f) k = 0.0f;
+    if (k > 1.0f) k = 1.0f;                                     /* 上钳:未饱和时横侧全额保留、绝不放大(原缺此钳致 |r|>limit 时输出超限) */
+
+    float SGN[4];                                               /* 4) 最终的合成 + 物理方向 SIGN 写入 */
+    SGN[UP_LEFT]   = SIGN_UL;  SGN[UP_RIGHT]   = SIGN_UR;
+    SGN[DOWN_LEFT] = SIGN_DL;  SGN[DOWN_RIGHT] = SIGN_DR;
+    for (int i = 0; i < 4; i++)
+        Surface.output_angle_Servo[NOW][i] = SGN[i] * (P[i] + k * L[i]);
+}
+#endif
 
 #if 0 // DART_TYPE == FIXED_WING  (飞翼路径保留作参考,当前主程序只走 X 翼,故不编译)
 void Wing_left_Control(float data)

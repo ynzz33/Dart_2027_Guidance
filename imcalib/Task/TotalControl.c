@@ -61,7 +61,7 @@ void Vofa(void)
 	Surface.current_gyro_Euler[NOW][YAW  ],
 	IMU_Data.A[NOW][X],
 	IMU_Data.A[NOW][Y],
-	acc_trust_obs,
+	(Vision_Rx_Data.Vision_Receive_Cnt%10)*1000+Vision_Rx_Data.y[NOW],
 	ADC_Voltage_Real,
 	Guidance_State
 	#if 0
