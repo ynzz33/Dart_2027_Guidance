@@ -27,10 +27,10 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-// #define  Servo_UL_ZERO      1420
+// #define  Servo_UL_ZERO      1440
 // #define  Servo_UR_ZERO      1420
-// #define  Servo_DR_ZERO      1565
-// #define  Servo_DL_ZERO      1580
+// #define  Servo_DR_ZERO      1550
+// #define  Servo_DL_ZERO      1565 
 
  
 // //镖体2 蓝色
@@ -53,7 +53,7 @@
 /* === 控制分配(混控)参数 ===
  * Alloc_Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
-#define  AXIS_LIMIT_PITCH   20.0f   /* 交付A:三轴各自独立限幅(度),可调 */
+#define  AXIS_LIMIT_PITCH   30.0f   /* 交付A:三轴各自独立限幅(度),可调 */
 #define  AXIS_LIMIT_ROLL    20.0f
 #define  AXIS_LIMIT_YAW     80.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
@@ -70,6 +70,21 @@
  * 在目标端(非反馈环,不引入 P/I 相位滞后)把阶跃摊成斜坡:每 tick 目标朝锁存终点最多走 VISION_TARGET_SLEW_DPS·dT 度。
  * 调大→更跟手(接近阶跃)、调小→更平滑但跟踪滞后增大;台架按抖动/跟踪权衡。*/
 #define  VISION_TARGET_SLEW_DPS   10000.0f
+
+/* === 末制导俯仰能量管理:随接近度放开的最陡俯冲下限 θ_floor(见 surface_control_task.c Pitch_Dive_Floor) ===
+ * 远离目标只许浅俯冲(保能量/射程),接近才放开到期望入射俯冲角;入射角=速度方向(γ)=撞击姿态(正向撞击)。
+ * 角度均为机体俯仰°(俯冲为负,更负=更陡);全部待台架实测微调。*/
+#define  PITCH_INCIDENT_DEG        (-27.0f)  /* 期望入射俯冲角(=速度方向),待实测 -25~-30 */
+#define  PITCH_DIVE_LIMIT_FAR_DEG  (-8.0f)   /* 远处(s=0)允许的最陡俯冲:越浅越保射程 */
+#define  AOA_MARGIN_DEG            (10.0f)   /* 机体俯仰最多比速度方向γ再低这么多(防大负迎角掉升力损能) */
+#define  GAMMA_FAR_DEG             (-5.0f)   /* 距离/面积都缺失时按γ自调度的起点(≈刚看到引导灯的俯仰) */
+/* 接近度 s 分段合成(面积+距离一起用):远段用距离(标定准、连续),近段用面积(blob大、近场更可靠);
+ * dist_cm 决定走哪段,两段在切换点 s=DIVE_SCHED_SWITCH 衔接。dist/area 来自视觉 0x5B 包。全部待台架实测。*/
+#define  DIST_ACQUIRE_CM         (800.0f)   /* 远段起点:刚识别引导灯(s=0)的目标距离cm */
+#define  DIST_NEAR_CM            (150.0f)   /* 远/近段切换距离(s=DIVE_SCHED_SWITCH);≤此距离改用面积调度 */
+#define  AREA_NEAR               (800.0f)   /* 近段起点面积(≈DIST_NEAR_CM处的blob像素,s=DIVE_SCHED_SWITCH) */
+#define  AREA_IMPACT            (4000.0f)   /* 近段终点:接近撞击(s=1)的blob像素 */
+#define  DIVE_SCHED_SWITCH        (0.6f)    /* 远/近段衔接处的接近度s:距离管 0→此值,面积管 此值→1 */
 
  enum
 {
@@ -163,6 +178,8 @@ extern float   alloc_u0[4], alloc_u_out[4];    /* Vofa:分配解(投影/降级�
 extern float   alloc_alpha, alloc_u0_span, alloc_v_scale, alloc_p_scale; /* Vofa:零空间投影α / u0极差 / 降级横侧缩放比 / pitch缩放比 */
 extern uint8_t alloc_infeasible, alloc_singular_flag;     /* Vofa:不可达降级(0可达/1缩横侧/2连pitch也缩) / 求逆奇异退回 */
 extern float vision_los_final[3];   /* Vofa:末制导锁存的世界系视线终点(目标斜坡逼近它),帧间不变、仅新帧阶跃更新 */
+extern float pitch_dive_floor;      /* Vofa:末制导俯仰俯冲下限θ_floor°(随接近度放开) */
+extern float closeness_s;           /* Vofa:接近度s∈[0,1](像素面积调度,缺失时按γ) */
 void surface_control_task(void);
 void Roll_Derotate_PitchYaw(float Pw, float Yw, float *Pb, float *Yb);
 void Servo_Mix_AxisLimit(float p, float r, float y);

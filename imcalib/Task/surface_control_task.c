@@ -54,6 +54,7 @@ float   alloc_u0[4] = {0}, alloc_u_out[4] = {0};
 float   alloc_alpha = 0.0f, alloc_u0_span = 0.0f, alloc_v_scale = 1.0f, alloc_p_scale = 1.0f;
 uint8_t alloc_infeasible = 0, alloc_singular_flag = 0;
 float   vision_los_final[3],vision_los_current[3];   /* 末制导世界系视线终点:视觉新帧锁存,target 每 tick 斜坡逼近(方案3) */
+float   pitch_dive_floor = 0.0f, closeness_s = 0.0f; /* Vofa:末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1] */
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
 
@@ -143,6 +144,35 @@ static float Target_Slew(float cur, float target, float max_step, uint8_t wrap)
     return cur + err;
 }
 
+/* === 末制导俯仰能量管理:随接近度放开的最陡俯冲下限 θ_floor ===
+ * 钳"机体俯仰目标 ≥ θ_floor"=不许比 θ_floor 更陡。两条"≥"下限取较不陡(较大)者:
+ *  ① 调度限幅 L_sched:接近度 s∈[0,1] 从远(s=0,浅滑翔保射程)线性放开到近(s=1,期望入射角)。
+ *     s 分段合成(面积+距离一起用,数据来自视觉 0x5B 包):远段用距离 dist_cm(标定准、连续,s:0→DIVE_SCHED_SWITCH),
+ *     近段用面积 area(blob 大、近场更可靠,s:DIVE_SCHED_SWITCH→1),dist_cm 决定走哪段;两包都无(dist_cm=0)
+ *     退化按弹道角 γ 自调度(γ 随重力变陡→逐步放开)。
+ *  ② 迎角限幅:θ ≥ γ−AOA_MARGIN,即鼻子不许指到比速度方向(γ)再低 AOA_MARGIN 以上——大负迎角
+ *     →掉升力→因重力掉高度损能,正是"过早陡俯冲损耗能量"的物理根因;此条防距离/面积被骗时仍守住。
+ * 终端 γ≈θ≈入射角时迎角 θ−γ→0=正向撞击。Vofa 观测 closeness_s / pitch_dive_floor。*/
+static float Pitch_Dive_Floor(uint16_t dist_cm, uint16_t area)
+{
+    float s_dist, s_area, s;
+    if (dist_cm == 0)                              /* 无 0x5B 距离/面积包 → 退化按弹道角 γ 自调度 */
+        // s = (gamma_pitch_deg - GAMMA_FAR_DEG) / (PITCH_INCIDENT_DEG - GAMMA_FAR_DEG);
+        s = 0.0f;   /* 直接退化到最保守的远段限幅,不放开 γ 自调度了(实测 γ 不够准),待实测再改回按 γ 调度 */
+    else if ((float)dist_cm > DIST_NEAR_CM)        /* 远段:距离调度,s 由远(s=0)线性升到切换点 */
+        s = DIVE_SCHED_SWITCH * (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
+    else                                           /* 近段:面积调度,s 由切换点升到近(s=1) */
+        s = DIVE_SCHED_SWITCH + (1.0f - DIVE_SCHED_SWITCH) * ((float)area - AREA_NEAR) / (AREA_IMPACT - AREA_NEAR);
+    if (s < 0.0f) s = 0.0f;
+    if (s > 1.0f) s = 1.0f;
+    closeness_s = s;
+
+    float L_sched = PITCH_DIVE_LIMIT_FAR_DEG + s * (PITCH_INCIDENT_DEG - PITCH_DIVE_LIMIT_FAR_DEG);
+    float L_aoa   = gamma_pitch_deg - AOA_MARGIN_DEG;
+    float dive_floor = (L_sched > L_aoa) ? L_sched : L_aoa;   /* 两个"≥"下限取较不陡(较大)者 */
+    pitch_dive_floor = dive_floor;
+    return dive_floor;
+}
 void Guidance_Terminal(void)//制导段
 {
     /* ROLL 始终自稳(与视觉新数据无关),每 tick 刷新 */
@@ -192,11 +222,20 @@ void Guidance_Terminal(void)//制导段
     // }
     //镖体2是25
     Surface.target_angle_Euler[NOW][YAW] =
-        Target_Slew(vision_los_current[YAW], vision_los_final[YAW], fabs(vision_los_final[YAW]-vision_los_current[YAW]/25), 0);
+        Target_Slew(vision_los_current[YAW], vision_los_final[YAW], fabs(vision_los_final[YAW]-vision_los_current[YAW])/15, 0);
     Surface.target_angle_Euler[NOW][PITCH] =
-        Target_Slew(vision_los_current[PITCH], vision_los_final[PITCH], fabs(vision_los_final[PITCH]-vision_los_current[PITCH]/25), 0);
+        Target_Slew(vision_los_current[PITCH], vision_los_final[PITCH], fabs(vision_los_final[PITCH]-vision_los_current[PITCH])/25, 0);
     // Surface.target_angle_Euler[NOW][YAW] = vision_los_final[YAW];
     // Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[PITCH];
+
+    /* 俯仰俯冲限幅(能量管理):仅识别成功(主动视觉制导)时钳俯仰目标 ≥ θ_floor——远处禁陡俯冲保射程、
+     * 接近放开到期望入射角;丢目标(FAILURE)走上面"持当前"分支、不钳,行为不变。yaw 不钳(无重力问题)。*/
+    if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+    {
+        float dive_floor = Pitch_Dive_Floor(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
+        if (Surface.target_angle_Euler[NOW][PITCH] < dive_floor)
+            Surface.target_angle_Euler[NOW][PITCH] = dive_floor;
+    }
 }
 void Guidance_End(void)
 {
@@ -269,6 +308,7 @@ void get_current_State(void)
         {
             Guidance_State = Terminal;
             Surface.Guidance_cnt[1] = 0;
+            Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
     else if (Guidance_State == Terminal &&IMU_Data.A_Normed[NOW][Y] >= 0.90f&& IMU_Data.A[NOW][Y]>= 1.50f)
@@ -615,19 +655,21 @@ void surface_control_task(void)
             r_body = Surface.output_gyro_Euler[NOW][ROLL];
         if (Guidance_State==Terminal)
         {
-            Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
-                                   Surface.output_gyro_Euler[NOW][YAW],
-                                   &p_body, &y_body);
+            // Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
+            //                        Surface.output_gyro_Euler[NOW][YAW],
+            //                        &p_body, &y_body);
         }
         if (Guidance_State==Stable)
         {
             y_body = 0.0f;
-            // p_body = 0.0f; 
-        }  
-        if (Guidance_State==Terminal&&Surface.current_angle_Euler[NOW][PITCH]>-20.0f)
-        {
-            p_body = 0.0f; 
-        }      
+            p_body = 0.0f;
+        }
+        /* 旧:末制导浅俯仰段(pitch>-20°)硬掐 pitch。现改由 Guidance_Terminal 的 θ_floor 俯冲限幅承担
+         * "不许过早陡俯冲",pitch 全程受控——主动维持浅滑翔(正迎角产生升力)比被动鼻先下沉更省能/延射程。*/
+        // if (Guidance_State==Terminal&&Surface.current_angle_Euler[NOW][PITCH]>-20.0f)
+        // {
+        //     p_body = 0.0f;
+        // }
 
 
             // p_body = 0.0f; 

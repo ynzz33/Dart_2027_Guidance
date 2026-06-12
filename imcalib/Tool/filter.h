@@ -77,6 +77,7 @@ float Low_Pass_Filter(float now_data,float last_data,float k);
 void kalman_filter3_init(kalman_filter3_t *F, kalman_filter3_init_t *I);
 void Kalman_Vel_Init(void);
 void Kalman_Vel_Calc(float acc_x, float acc_y,float acc_z);
+void Kalman_Vel_Set(float vx, float vy, float vz);   /* 俯冲入段锚定世界速度初值(见 filter.c) */
 float *kalman_filter3_calc(kalman_filter3_t *F, float signal1, float signal2, float signal3);
 float *kalman_filter3_imu_calc(kalman_filter3_t *F, float acc_x, float acc_y, float acc_z, float gyr_x, float gyr_y, float gyr_z);
 #endif

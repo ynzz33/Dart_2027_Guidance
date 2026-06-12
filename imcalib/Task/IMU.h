@@ -53,6 +53,10 @@
 #define GYR_SIGN_Y  (+1.0f)   /* 绕机体Y(前): + 应 = 右滚(右手) */
 #define GYR_SIGN_Z  (-1.0f)   /* 绕机体Z(上): + 应 = 左偏(右手);上报 yaw 右+ = −此值 */
 
+/* 俯冲入段锚定世界速度用的标称滑翔速度(m/s),待台架实测。
+ * 只决定弹道角 γ 的演化速率(γ̇≈−g·cosγ/V),不决定初始 γ(初始 γ 只由姿态前向方向定),故粗略即可。*/
+#define V_NOM_MS    15.0f
+
 enum
 {
     ACC = 0,
@@ -119,4 +123,6 @@ void IMU_Attitude_Algorithm(void);
 void ALL_CS_Free(void);
 extern uint32_t IMU_Cnt,control_cnt;
 extern float acc_trust_obs;   /* Vofa 可观测:Mahony 加速度校正权重(1=全信任 / 0=纯陀螺coast) */
+extern float gamma_pitch_deg;     /* 弹道角(速度方向俯仰角)°,Vofa 可观测;末制导俯冲限幅用 */
+extern uint8_t Vel_Reanchor_Flag; /* 俯冲入段置1,IMU 下一拍用姿态前向×V_NOM 锚定世界速度后清0 */
 #endif //IMU_H

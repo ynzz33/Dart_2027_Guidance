@@ -3,7 +3,7 @@
 > 项目进度的单一入口。详细技术方案见文末「[详细方案文档](#详细方案文档)」。
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
-> 最后更新：2026-06-10（制导段抖动修复：D 项改对测量微分消微分冲击 kick + 视觉目标斜坡平滑视觉 50ms 阶跃。前次：X 翼 pitch 解算几何对齐）
+> 最后更新：2026-06-12（末制导俯仰能量管理：速度预测完善得弹道角 γ + 随接近度放开的俯冲限幅 θ_floor + 视觉新增 0x5B 距离/面积包。前次：制导段抖动修复 D 项对测量微分 + 视觉目标斜坡）
 
 ## 项目简介
 
@@ -128,6 +128,15 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **参数**：`VISION_TARGET_SLEW_DPS`=150°/s(=0.15°/tick) 初值，台架可调——大→更跟手(接近阶跃、削 kick 弱)、小→更平滑(滞后增大，过小会跟不上视线角速度致脱靶)。
 - **未编译**(Keil/MDK 工程需在 IDE 里编)。两项独立叠加、互不冲突，均合「输入端/源头解决、不在反馈环加低通」偏好。
 
+### 末制导俯仰能量管理 + 速度预测完善（2026-06-12）
+- **问题**:末制导俯仰为纯追尾(鼻先指向视线 LOS)。识别到引导灯(机体俯仰≈-5°才看得到)时,俯仰与期望入射俯冲角(=速度方向=撞击姿态、正向撞击、≈-25~-30°)误差大;直接打到位→机体俯仰远比速度方向陡→大负迎角掉升力→重力往下掉损能→滑翔距离不够→打不稳。
+- **三决策(用户定)**:① 距离调度=视觉回传(像素面积+距离**一起用**);② 速度预测**作入射角参考(锁定初速)**;③ 俯仰控制权=**设俯冲上限(改动最小)**:俯仰仍跟 LOS,叠加随接近度放开的最陡俯冲限幅。
+- **A 速度预测完善（[filter.c](imcalib/Tool/filter.c) / [IMU.c](imcalib/Task/IMU.c)）**:修 `Kalman_Vel_Calc` 输出索引 bug(速度=状态0=`res[0]`,原误取 `res[1]`=加速度);新增 `Kalman_Vel_Set` 入段锚定接口;IMU 取消注释速度积分/机体速度;俯冲入段(`Stable→Terminal` 置 `Vel_Reanchor_Flag`)用「姿态前向(R_matrix_T 第1行)×标称速度 `V_NOM_MS`」锚定世界速度 → 弹道角 `gamma_pitch_deg=atan2(Vz,√(Vx²+Vy²))` 起始≈机体俯仰、随重力演化。纯积分无 ZUPT 会漂、终端段短+锚定可接受;`V_NOM` 只影响 γ 演化速率不影响初始 γ。
+- **B 俯冲限幅（[surface_control_task.c](imcalib/Task/surface_control_task.c)）**:新增 `Pitch_Dive_Floor`,`θ_floor=max(L_sched, γ−AOA_MARGIN_DEG)`。L_sched 按接近度 s∈[0,1] 从 `PITCH_DIVE_LIMIT_FAR_DEG`(-8°)线性放开到 `PITCH_INCIDENT_DEG`(-27°)。`Guidance_Terminal` 末**仅识别成功**时钳俯仰目标≥θ_floor(丢目标保持原"持当前");调用点去掉旧 `pitch>-20→p_body=0` 硬掐(改由 θ_floor 承担,pitch 全程受控浅滑翔更省能)。迎角项 γ−AOA_MARGIN 防距离/面积被骗时仍守住(大负迎角=损能根因);终端 γ≈θ→迎角 0=正向撞击。
+- **接近度 s 分段合成(面积+距离一起用)**:远段用距离 `dist_cm`(标定准、连续,s:0→`DIVE_SCHED_SWITCH`),近段用面积 `area`(blob 大、近场更可靠,s:`DIVE_SCHED_SWITCH`→1),`dist_cm` 决定走哪段;两者都无(dist_cm=0)退化按 γ 自调度。
+- **C 视觉协议（[CallBack_Task.c](imcalib/Task/CallBack_Task.c) / .h）**:新增**独立 6 字节包** `0x5B + dist_hi + dist_lo + area_hi + area_lo + 0xA6`(dist/area 均 uint16 大端),**不动** 0x5A 识别包(仍 6 字节 x,y)。`Vision_Rx_Buf_t` 加 `dist_cm/area`;`Vision_Receive` 加 0x5B 分支(只更新 dist/area,不置 recognize/New_Data);缓冲仍 6 字节、`Size==6`。OpenMV 端 `send_distance(dist_cm,area)`(`dist_cm=DIST_K/sqrt(px)`)已配套。
+- **未编译**(Keil/MDK)。Vofa/调试器 Watch 观测 `gamma_pitch_deg` / `pitch_dive_floor` / `closeness_s` / `Vision_Rx_Data.dist_cm/area`。新增宏(全待台架实测):`PITCH_INCIDENT_DEG/PITCH_DIVE_LIMIT_FAR_DEG/AOA_MARGIN_DEG/GAMMA_FAR_DEG/DIST_ACQUIRE_CM/DIST_NEAR_CM/AREA_NEAR/AREA_IMPACT/DIVE_SCHED_SWITCH`(surface_control_task.h)、`V_NOM_MS`(IMU.h)。
+
 ---
 
 ### 全量代码审计 + 大问题修复（2026-06-07）
@@ -155,6 +164,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **内环角速度 pitch/roll 轴配对（方案B，2026-06-07）**：**roll 自稳已正常**（git「roll 调稳了很多」）——方案B 源头+四元数同步对调生效，roll 能阻尼自旋、不再渐进发散，yaw 不变、PNG 行为不变。pitch/yaw 通道已放开（清零行已注释），pitch 解算几何已对齐（见时间线 2026-06-08 条）。
 
 ### ⏳ 待 Vofa 台架验证
+- **末制导俯仰能量管理 + 速度预测（2026-06-12）**：① γ 对不对——静置 `gamma_pitch_deg`≈0;手持鼻先下压 γ 应变负且≈机体俯仰;纯横滚不应大改 γ。② 限幅起作用——`closeness_s` 随距离变小(远段)/面积变大(近段)从 0→1,`pitch_dive_floor` 从≈-8 平滑放开到≈-27;给一个很低的视觉 LOS,俯仰目标应被钳在 θ_floor 不下探。③ 正向撞击——末段 `gamma_pitch_deg` 与 `current_angle_Euler[PITCH]` 收敛(迎角→0)。④ 协议——`Vision_Rx_Data.dist_cm/area` 在 0x5B 包到达时更新且随远近变化;0x5A/0x7A/0x9A 仍正常、不串包。⑤ 标定宏 `DIST_ACQUIRE_CM/DIST_NEAR_CM/AREA_NEAR/AREA_IMPACT/V_NOM_MS` 打靶实测;远/近段在切换点 s=`DIVE_SCHED_SWITCH` 应平滑衔接(若有台阶调 `AREA_NEAR`↔`DIST_NEAR_CM` 对应)。⑥ 回归:roll/yaw 自稳与既有视觉视线锁定不变。
 - **D 项对测量微分 / 视觉目标斜坡（2026-06-10）**：① 末制导段重新给 D 一个小阻尼值，应**不再**出现 20Hz 抖动（原微分冲击已消）；纯陀螺自稳段 D 阻尼行为正常。② Vofa 拉 `vision_los_final[YAW]` 与 `Surface.target_angle_Euler[NOW][YAW]`：终点应为帧间台阶(仅新帧阶跃)，目标应**平滑斜坡**跟随终点、无 50ms 台阶；视线角速度大时若目标跟不上则调大 `VISION_TARGET_SLEW_DPS`。③ 丢目标(FAILURE) 目标=当前、误差≈0 不打舵。
 - **角度环绕（2026-06-07）**：roll/yaw 目标设在接近 ±180° 处、令当前姿态跨边界，输出不应出现 ~360° 假误差导致的反向猛打；±0 附近常规自稳行为不变（wrap 不触发）。
 - **视线锁存（方向A）**：末制导对静止/缓动目标，镖体应单调转向并稳定指向、不再同线首振；Vofa 拉 `Surface.target_angle_Euler[NOW][YAW]` 应为帧间水平台阶（保持不变）、仅识别成功新帧到达瞬间阶跃更新；丢目标(FAILURE) 每 tick 回中、重新捕获到 SUCCESS 帧立即重锁。

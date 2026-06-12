@@ -85,9 +85,11 @@ typedef struct
 /* 视觉(OpenMV, huart3 空闲DMA, 6字节帧)接收缓存。ISR(~20Hz)写,Guidance_Terminal(1kHz)读 */
 typedef struct
 {
-	uint8_t Vision_Head;             /* 帧头:0x5A识别成功 / 0x7A丢目标 / 0x9A录制状态 */
+	uint8_t Vision_Head;             /* 帧头:0x5A识别成功 / 0x5B距离+面积 / 0x7A丢目标 / 0x9A录制状态 */
 	int16_t x[2];                    /* 视觉原始像素 x [NOW,LAST] */
-	int16_t y[2];                    /* 视觉原始像素 y [NOW,LAST] */	
+	int16_t y[2];                    /* 视觉原始像素 y [NOW,LAST] */
+	uint16_t dist_cm;                /* 目标距离 cm(0x5B 包,视觉端 DIST_K/sqrt(blob像素));越小=越近,末制导俯冲调度的剩余距离代理 */
+	uint16_t area;                   /* 当前目标 blob 像素面积(0x5B 包,辅助/观测,不直接进调度) */
 	float Euler[2][2];  /* 像素→度 后的视线角 [NOW/LAST][0=pitch,1=yaw];供 Guidance_Terminal 锁存世界系视线目标 */
 	uint8_t Vision_Tail;             /* 帧尾 */
 	uint8_t Vision_recognize_flag;   /* RECOGNIZE_SUCCESS / RECOGNIZE_FAILURE */

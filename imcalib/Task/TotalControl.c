@@ -46,9 +46,12 @@ void Vofa(void)
 	Surface.current_angle_Euler[NOW][PITCH],
 	Surface.current_angle_Euler[NOW][ROLL ],
 	Surface.current_angle_Euler[NOW][YAW  ],
-	temp[0],
-	temp[1],
-	temp[2],
+	// temp[0],
+	// temp[1],
+	// temp[2],
+	IMU_Data.Velocity[World][NOW][X],
+	IMU_Data.Velocity[World][NOW][Y],
+	IMU_Data.Velocity[World][NOW][Z],
 	Surface.output_gyro_Euler[NOW][PITCH],
     Surface.output_gyro_Euler[NOW][ROLL],
     Surface.output_gyro_Euler[NOW][YAW],
@@ -63,7 +66,7 @@ void Vofa(void)
 	IMU_Data.A[NOW][Y],
 	(Vision_Rx_Data.Vision_Receive_Cnt%10)*1000+Vision_Rx_Data.y[NOW],
 	ADC_Voltage_Real,
-	Guidance_State
+	Guidance_State*10000+Vision_Rx_Data.dist_cm
 	#if 0
 		//====================Dart_Trigger============
 		// Dart_Trigger_Data.Communicate_Flag,

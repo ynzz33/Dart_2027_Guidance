@@ -17,6 +17,8 @@ u8 Current_Sensor,Current_Use_Flag,receiveflag = 0;
 IMU_DATA_t IMU_Data = {0};
 uint32_t IMU_Cnt = 0,control_cnt = 0;
 float acc_trust_obs = 1.0f;   /* Vofa 观测:Mahony 加速度校正权重,1=全信任 / 0=纯陀螺coast */
+float   gamma_pitch_deg = 0.0f;   /* 弹道角(速度方向俯仰角)°:俯冲 Vz<0→γ<0,与 PITCH 同号;末制导俯冲限幅+Vofa 用 */
+uint8_t Vel_Reanchor_Flag = 0;    /* 俯冲入段置1:本拍 IMU 用"姿态前向×V_NOM"锚定世界速度后清0(见下) */
 void IMU_Attitude_Algorithm(void)
 {
 #if 0 /*对加速度的一阶三维卡尔曼滤波*/
@@ -148,17 +150,37 @@ void IMU_Attitude_Algorithm(void)
         // IMU_Data.A_World[NOW] [i] = KalmanFilter( &ACC_WORLD_Kalman_Filter[i],IMU_Data.A_World[NOW][i],0.1f,5.0f );
     }
     /*世界速度*/
-    // Kalman_Vel_Calc(IMU_Data.A_World[NOW][X],IMU_Data.A_World[NOW][Y],IMU_Data.A_World[NOW][Z]);
-    // /*机体速度*/
-    // IMU_Data.Velocity[Body][NOW][X] = IMU_Data.R_matrix_T[0][0] * IMU_Data.Velocity[World][NOW][X] +
-    //                                   IMU_Data.R_matrix_T[0][1] * IMU_Data.Velocity[World][NOW][Y] +
-    //                                   IMU_Data.R_matrix_T[0][2] * IMU_Data.Velocity[World][NOW][Z];
-    // IMU_Data.Velocity[Body][NOW][Y] = IMU_Data.R_matrix_T[1][0] * IMU_Data.Velocity[World][NOW][X] +
-    //                                   IMU_Data.R_matrix_T[1][1] * IMU_Data.Velocity[World][NOW][Y] +
-    //                                   IMU_Data.R_matrix_T[1][2] * IMU_Data.Velocity[World][NOW][Z];
-    // IMU_Data.Velocity[Body][NOW][Z] = IMU_Data.R_matrix_T[2][0] * IMU_Data.Velocity[World][NOW][X] +
-    //                                   IMU_Data.R_matrix_T[2][1] * IMU_Data.Velocity[World][NOW][Y] +
-    //                                   IMU_Data.R_matrix_T[2][2] * IMU_Data.Velocity[World][NOW][Z];
+    /* 俯冲入段锚定:用姿态把"机体前向(纵轴 Y=机体[0,1,0])"映射到世界系=R_matrix_T 第1行
+     * (因 world_vec[i]=Σ_k R_matrix_T[k][i]·body_vec[k]),乘标称速度 V_NOM_MS 作世界速度初值。
+     * 这样 γ 起始≈机体俯仰(纯俯仰 φ 时 world_fwd=(0,cosφ,sinφ)→atan2(sinφ,cosφ)=φ)、随后由 A_World 积分演化。
+     * 与速度积分同任务同拍 R_matrix_T,无跨任务竞争。V_NOM 只影响 γ 演化速率、不影响初始 γ。*/
+    if (Vel_Reanchor_Flag)
+    {
+        float fwd_x = IMU_Data.R_matrix_T[1][0];
+        float fwd_y = IMU_Data.R_matrix_T[1][1];
+        float fwd_z = IMU_Data.R_matrix_T[1][2];
+        Kalman_Vel_Set(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
+        Vel_Reanchor_Flag = 0;
+    }
+    Kalman_Vel_Calc(IMU_Data.A_World[NOW][X],IMU_Data.A_World[NOW][Y],IMU_Data.A_World[NOW][Z]);
+    /*机体速度*/
+    IMU_Data.Velocity[Body][NOW][X] = IMU_Data.R_matrix_T[0][0] * IMU_Data.Velocity[World][NOW][X] +
+                                      IMU_Data.R_matrix_T[0][1] * IMU_Data.Velocity[World][NOW][Y] +
+                                      IMU_Data.R_matrix_T[0][2] * IMU_Data.Velocity[World][NOW][Z];
+    IMU_Data.Velocity[Body][NOW][Y] = IMU_Data.R_matrix_T[1][0] * IMU_Data.Velocity[World][NOW][X] +
+                                      IMU_Data.R_matrix_T[1][1] * IMU_Data.Velocity[World][NOW][Y] +
+                                      IMU_Data.R_matrix_T[1][2] * IMU_Data.Velocity[World][NOW][Z];
+    IMU_Data.Velocity[Body][NOW][Z] = IMU_Data.R_matrix_T[2][0] * IMU_Data.Velocity[World][NOW][X] +
+                                      IMU_Data.R_matrix_T[2][1] * IMU_Data.Velocity[World][NOW][Y] +
+                                      IMU_Data.R_matrix_T[2][2] * IMU_Data.Velocity[World][NOW][Z];
+    /* 弹道角 γ=速度方向俯仰角=atan2(竖直速度 Vz, 水平速度幅值)。水平幅值 √(Vx²+Vy²) 与 yaw 漂移无关,
+     * 故无磁力计也成立;俯冲 Vz<0→γ<0,与机体 PITCH 同号约定,可与 current_angle_Euler[PITCH] 直接比较(迎角)。*/
+    // {
+        float vx = IMU_Data.Velocity[World][NOW][X];
+        float vy = IMU_Data.Velocity[World][NOW][Y];
+        float vz = IMU_Data.Velocity[World][NOW][Z];
+        gamma_pitch_deg = RAD2DEG(atan2f(vz, sqrtf(vx*vx + vy*vy)));
+    // }
 
 #endif
 

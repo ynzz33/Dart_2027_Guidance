@@ -184,11 +184,13 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[+1,+1,+1,+1]`**、
 | huart2 | USART2 | PC / Vofa | DMA（调试+遥测） |
 | huart3 | USART3 | 视觉 OpenMV | DMA 空闲事件，6 字节帧 |
 
-- 视觉帧：`0x5A..0xA5`=识别成功（x,y 像素），`0x7A..0xA7`=丢目标，`0x9A..0xA9`=录制状态。
+- 视觉帧（均 6 字节）：`0x5A..0xA5`=识别成功（x,y 像素），`0x5B..0xA6`=距离+面积（dist_cm,area 均 uint16 大端，2026-06-12 新增，独立于识别包），`0x7A..0xA7`=丢目标，`0x9A..0xA9`=录制状态。`0x5B` 包只更新 `Vision_Rx_Data.dist_cm/area`、不置 recognize/New_Data；OpenMV `send_distance(dist_cm=DIST_K/sqrt(px), area)` 配套。
 - **像素→度转换在 `Vision_Receive` 内做**：`Euler[YAW]=y/160*72`、`Euler[PITCH]=x/120*54`（x→PITCH、y→YAW）。✅ **已确认**：视觉发的是**像素**、接收时即转成度，轴映射正确，下游 `Guidance_Terminal` 锁存按度用、量纲一致（无需再 ×FOV）。
 - `Vision_New_Data_flag`：ISR(~20Hz)产生、`Guidance_Terminal`(1kHz)消费后清 0（生产者-消费者）。
 - **视线锁存（方向A）+ 目标斜坡（2026-06-10）**：新帧到达瞬间把世界系视线锁存到 `vision_los_final=vision_euler+current`（终点，帧间不变）；`target` 每 tick 经 `Target_Slew` 朝终点**斜坡逼近**（`VISION_TARGET_SLEW_DPS`=150°/s，setpoint 端速率限制）→ 把 20Hz 视觉的 50ms 目标阶跃摊平，消除对外环 P / D 的周期性台阶冲击。帧间终点不变、斜坡到达后 `target≡终点` → 外环误差=终点−当前，机体一转误差即减，与原航位推算等价（仅消去切换瞬间阶跃）。读侧用临界区快照 `v`；丢目标(FAILURE)终点+目标都对齐当前(斜坡 d=0，就地保持)。
-- **PNG 比例导引**：`PNG_Guidance` 在 `TotalControl` 里被注释，**未接主环**；且 `Velocity[Body]` 从未算 → `V_c` 恒被钳到 `Vc_min`。
+- **末制导俯仰能量管理（2026-06-12）**：俯仰仍跟视觉 LOS，但 `Guidance_Terminal` 末叠加随接近度放开的最陡俯冲限幅 `θ_floor=max(L_sched(s), γ−AOA_MARGIN)`（仅识别成功时钳）。接近度 s 分段：远段用 `dist_cm`、近段用 `area`（0x5B 包），缺则按弹道角 γ 自调度。`γ=gamma_pitch_deg` 由速度预测算（见下）。调用点旧 `pitch>-20→p_body=0` 已撤、pitch 全程受控。物理：远处禁陡俯冲保射程、接近放开到入射角(-27°)、终端 γ≈θ→迎角0=正向撞击。
+- **速度预测（2026-06-12 启用）**：`Kalman_Vel_Calc` 接入 `IMU_Attitude_Algorithm`（积分 `A_World` 得世界速度），俯冲入段(`Stable→Terminal`)用「姿态前向×`V_NOM_MS`」`Kalman_Vel_Set` 锚定初速 → `gamma_pitch_deg=atan2(Vz,√(Vx²+Vy²))`=速度方向俯仰角。修了 `Kalman_Vel_Calc` 输出索引 bug(速度=`res[0]`)。纯积分无 ZUPT、终端段短可接受。
+- **PNG 比例导引**：`PNG_Guidance` 在 `TotalControl` 里被注释，**未接主环**；`Velocity[Body]` 现已随速度预测算出（但 PNG 仍未接）。
 
 ---
 
@@ -202,6 +204,8 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[+1,+1,+1,+1]`**、
 | `Alloc_Mode` / `Alloc_Prio[3]` / `Alloc_B[3][4]` | surface_control_task.c | 分配器档位 / 优先级 / 舵效阵 |
 | `Vision_Rx_Data` | CallBack_Task.c | 视觉接收（ISR 写、控制读，含 New_Data_flag） |
 | `vision_los_final[3]` | surface_control_task.c | 末制导世界系视线终点（视觉新帧锁存，`target` 斜坡逼近它；Vofa 可观测） |
+| `gamma_pitch_deg` / `Vel_Reanchor_Flag` | IMU.c | 弹道角(速度方向俯仰角)° / 俯冲入段锚定世界速度请求位（2026-06-12） |
+| `pitch_dive_floor` / `closeness_s` | surface_control_task.c | 末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1]（Vofa 可观测，2026-06-12） |
 | `surface_control_pid[2][3]` / `mahony_pid[3]` | pid.c | PID 实例 |
 | `temp[3]` | pid.c | 外环→内环中转（Vofa 观测） |
 | `DART_TYPE` | surface_control_task.c | `VECTOR_NOZZLE`(X翼,激活) / `FIXED_WING`(飞翼,#if0 不编译) |
@@ -212,7 +216,7 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[+1,+1,+1,+1]`**、
 
 - **IMU/Control 同 Idle 优先级无同步** → 控制可能用上一拍姿态。
 - **GYR_KF_R=1000（有意）**：用户实测 R=30 欠滤波（滤不动），关键是 Q:R 比例；与早期文档"30"不同，以代码为准。
-- 失效/未启用：MAG、PNG 主环、FFC、速度卡尔曼、3D IMU 卡尔曼(`#if 0`)、`Kalman_Vel_Calc`。
+- 失效/未启用：MAG、PNG 主环、FFC、3D IMU 卡尔曼(`#if 0`)。（速度卡尔曼 `Kalman_Vel_Calc` 已于 2026-06-12 启用，供末制导弹道角 γ；见 §9。）
 - 死代码/卫生：`FIXED_WING` 整段 `#if 0`；`PWM_Init` 启了若干未配置/无 GPIO 通道（实际用的 4 路正常）；`Button.c` `Press_Long_Cnt!=0`（数组地址恒真，实际不触发越界）；`filter.c` 注释 GBK 乱码。
 
 ## 12. 2026-06-07 本次审计已修复

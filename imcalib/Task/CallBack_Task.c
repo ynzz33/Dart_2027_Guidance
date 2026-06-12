@@ -144,7 +144,7 @@ void Vision_Receive(uint8_t* Buf)
 {
     Vision_Rx_Data.Vision_Head = Buf[0];
     Vision_Rx_Data.Vision_Tail = Buf[5];
-    if (Buf[0]==0x5A&&Buf[5]==0xA5)
+    if (Buf[0]==0x5A&&Buf[5]==0xA5)            /* 识别成功(6字节):像素 x,y */
     {
         Vision_Rx_Data.x[NOW] = (int16_t)(Buf[1]<<8|Buf[2]);
         Vision_Rx_Data.y[NOW] = (int16_t)(Buf[3]<<8|Buf[4]);
@@ -158,6 +158,11 @@ void Vision_Receive(uint8_t* Buf)
         {
             Buzzer_play_song(song_ni);
         }
+    }
+    else if(Buf[0]==0x5B&&Buf[5]==0xA6)        /* 距离+面积扩展包(6字节,独立于识别包):dist_cm/area 均 uint16 大端 */
+    {
+        Vision_Rx_Data.dist_cm = (uint16_t)(Buf[1]<<8|Buf[2]);   /* 目标距离 cm(视觉端 DIST_K/sqrt(blob像素)) → 末制导俯冲调度的剩余距离代理 */
+        Vision_Rx_Data.area    = (uint16_t)(Buf[3]<<8|Buf[4]);   /* 当前目标 blob 像素数(辅助/观测,不直接进调度) */
     }
     else if(Buf[0]==0x7A&&Buf[5]==0xA7)
     {
@@ -189,12 +194,12 @@ void Vision_Transmit_Debug(void)
     uint8_t *src;
     uint8_t  i;
 
-    val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Vision_Rx_Data.y[NOW];
-    val[1]  = Surface.output_gyro_Euler[NOW][YAW]*1000.0f+ADC_Voltage_Real;
-    val[2]  = Guidance_State*1000.0f+Vision_Rx_Data.Euler[NOW][1];
-    val[3]  = IMU_Data.G[NOW][PITCH];
-    val[4]  = IMU_Data.G[NOW][ROLL];
-    val[5]  = IMU_Data.G[NOW][YAW];
+    val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State;
+    val[1]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
+    val[2]  = Vision_Rx_Data.y[NOW]*1000.0f;
+    val[3]  = Surface.output_gyro_Euler[NOW][PITCH];
+    val[4]  = Surface.output_gyro_Euler[NOW][ROLL];
+    val[5]  = Surface.output_gyro_Euler[NOW][YAW];
     val[6]  = Surface.current_angle_Euler[NOW][PITCH];
     val[7]  = Surface.current_angle_Euler[NOW][ROLL];
     val[8]  = Surface.current_angle_Euler[NOW][YAW];
@@ -272,8 +277,8 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
         }
         else if (Size == 6)
         {
-            //正常包: 帧头+帧尾合法才解析,错位/错包自动丢弃
-            uint8_t h = Vision_Rx_Buf[0], t = Vision_Rx_Buf[5];
+            //正常包(全为6字节):识别0x5A / 距离面积0x5B / 丢目标0x7A / 录制0x9A,
+            //Vision_Receive 内按 帧头Buf[0]+帧尾Buf[5] 校验,错位/错包自动丢弃
             Vision_Receive(Vision_Rx_Buf);
         }
         Vision_Rx_Data.Vision_Receive_Cnt++;
