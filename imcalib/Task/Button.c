@@ -61,7 +61,7 @@ void Short_Press_Process(void)
                         // Vision_Transmit(Vision_Cmd_Work);
                         // Vision_Transmit( Vision_Cmd_Record_Start );
                         // ==================阵营切换-红==============
-                        // Dart_Trriger_Color_Set(Team_RED);
+                        Dart_Trriger_Color_Set(Team_RED);
 
                 }break;
                 case 2:
@@ -70,7 +70,7 @@ void Short_Press_Process(void)
                         // Vision_Transmit(Vision_Cmd_Record_Stop);
                         // Guidance_State = End;
                         // ==================阵营切换-蓝==============
-                        // Dart_Trriger_Color_Set(Team_Blue);
+                        Dart_Trriger_Color_Set(Team_Blue);
 
                 }break;
                 case 3:
@@ -81,7 +81,7 @@ void Short_Press_Process(void)
                 case 4:
                 {
                         // ==================放歌==============
-                        // Buzzer_play_song(song_ni);
+                        Total_Power_Control(Power_OFF);
                 }break;
                 case 8:
                 {

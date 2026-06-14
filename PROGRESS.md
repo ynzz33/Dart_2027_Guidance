@@ -3,7 +3,7 @@
 > 项目进度的单一入口。详细技术方案见文末「[详细方案文档](#详细方案文档)」。
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
-> 最后更新：2026-06-12（末制导俯仰能量管理：速度预测完善得弹道角 γ + 随接近度放开的俯冲限幅 θ_floor + 视觉新增 0x5B 距离/面积包。前次：制导段抖动修复 D 项对测量微分 + 视觉目标斜坡）
+> 最后更新：2026-06-14（末制导比例化逼近替固定斜坡 + PN 视线率超前补偿。前次：2026-06-13 速度预测/弹道角 γ 单位量纲修复；2026-06-12 末制导俯仰能量管理）
 
 ## 项目简介
 
@@ -137,6 +137,21 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **C 视觉协议（[CallBack_Task.c](imcalib/Task/CallBack_Task.c) / .h）**:新增**独立 6 字节包** `0x5B + dist_hi + dist_lo + area_hi + area_lo + 0xA6`(dist/area 均 uint16 大端),**不动** 0x5A 识别包(仍 6 字节 x,y)。`Vision_Rx_Buf_t` 加 `dist_cm/area`;`Vision_Receive` 加 0x5B 分支(只更新 dist/area,不置 recognize/New_Data);缓冲仍 6 字节、`Size==6`。OpenMV 端 `send_distance(dist_cm,area)`(`dist_cm=DIST_K/sqrt(px)`)已配套。
 - **未编译**(Keil/MDK)。Vofa/调试器 Watch 观测 `gamma_pitch_deg` / `pitch_dive_floor` / `closeness_s` / `Vision_Rx_Data.dist_cm/area`。新增宏(全待台架实测):`PITCH_INCIDENT_DEG/PITCH_DIVE_LIMIT_FAR_DEG/AOA_MARGIN_DEG/GAMMA_FAR_DEG/DIST_ACQUIRE_CM/DIST_NEAR_CM/AREA_NEAR/AREA_IMPACT/DIVE_SCHED_SWITCH`(surface_control_task.h)、`V_NOM_MS`(IMU.h)。
 
+### 速度预测/弹道角 γ 单位量纲修复（2026-06-13）
+- **症状**:实测 `gamma_pitch_deg` 不准、速度预测失效,末制导只能靠视觉钳位（[surface_control_task.c](imcalib/Task/surface_control_task.c) `Pitch_Dive_Floor` 的 `dist_cm==0` 分支已临时降级 `s=0.0f`、注释"实测 γ 不够准"）。
+- **根因 = A_World 去重力量纲不一致**:[IMU.c](imcalib/Task/IMU.c) 原 `a_no_gravity = a_raw − gravity·R_col3`,而 `a_raw` 单位是 **g**（静止‖a‖≈1、`ACC_LSB_16G=1/2048`、Mahony `acc_dev=|‖a‖−1|` 门控也以 1g 为基准）、`gravity=GRAVITY_MS2=9.80665` 是 **m/s²**——g 减 m/s²（静止水平误出 1−9.8=−8.8）→ A_World/速度积分/γ 全错。**2026-06-07 审计即记"A_World量纲g与m/s²混减"**,当时 PNG 未接主环遂留待;2026-06-12 启用速度预测把 A_World 拉进 γ 末制导路径却没跟着修 → γ 不准。
+- **修复（[IMU.c](imcalib/Task/IMU.c)）**:改 `a_no_gravity = gravity·(a_raw − R_col3)`(先 ×GRAVITY_MS2 把 `a_raw` 转 m/s²、再扣机体系重力投影 `gravity·R_col3`),静止线加速度=0(速度不漂)、量纲与 `V_NOM_MS`(m/s)及积分 `v+=dT·a` 一致;`a_raw_x/y/z` 局部量本身不动 → Mahony 仍按 g 单位归一化、`acc_dev` 门控不受影响(外科手术式)。
+- **未编译**(Keil/MDK 需 IDE 编)。**待 Vofa 验证**:静置 `gamma_pitch_deg`≈0(原应漂)、鼻先下压 γ 变负且≈机体俯仰、纯横滚不大改 γ;验准后可把 `Pitch_Dive_Floor` `dist_cm==0` 分支改回按 γ 自调度([surface_control_task.c](imcalib/Task/surface_control_task.c) line 161)、`L_aoa=γ−AOA_MARGIN` 重新可信。
+- **残余漂移源(次要、终端段短可接受)**:加速度零偏 `A_Offset` 标定了但未回扣主环([IMU.h](imcalib/Task/IMU.h) 注释)、发射后 `acc_trust=0` 纯陀螺 coast 致姿态/A_World 方向漂——若验后仍明显漂再议回扣 `A_Offset` / 加 ZUPT。
+
+### 末制导比例化逼近（替固定斜坡）+ PN 视线率超前补偿（2026-06-14，setpoint 端）
+- **动机**：06-10 的视觉目标斜坡用**固定速率** `VISION_TARGET_SLEW_DPS·dT`——远近误差一个速率，用户实测**太固定**（误差大跟不上、误差小又过冲），改为**比例化逼近**。
+- **比例化逼近（[surface_control_task.c](imcalib/Task/surface_control_task.c) `Guidance_Terminal`）**：每 tick 把斜坡起点 `vision_los_current[]` 重置为当前姿态，`Target_Slew` 的 `max_step` 从固定值改为 `|终点−当前|/N`（YAW N=15、PITCH N=25）。净效果＝**目标 = 当前姿态 + LOS误差/N**，即把视线误差分 N 段逐拍弥补：误差大走得快、误差小走得慢、自然收敛，不再固定速率过冲/欠跟。旧宏 `VISION_TARGET_SLEW_DPS` 废弃（[.h:68-73](imcalib/Task/surface_control_task.h#L68-L73) 注释保留说明）。
+- **PN 视线率超前补偿（[.c](imcalib/Task/surface_control_task.c) / [.h:90-98](imcalib/Task/surface_control_task.h#L90-L98)）**：锁存的世界系视线终点帧间差分得惯性视线率 λ̇（`vision_los_rate[]`，纯视觉、不依赖会漂的 IMU 积分速度），**仅识别成功**时 `target += PN_LEAD_K·λ̇`（YAW 全程、PITCH 仅俯冲到位 <-8° 后）——驱动 λ̇→0＝碰撞航线，既提前命中又给外环超前相位压猎振。`LOS_RATE_LIMIT_DPS=30`°/s 限幅防丢帧/视觉跳变爆冲；丢目标清 λ̇、复位首帧标志（重捕不吃陈旧 λ̇）。配套常值配平迎角前馈 `AOA_TRIM_DEG`（默认 0=关；本工程 γ 取姿态前向≡θ、θ−γ≡0 无迎角信息时退化用）。
+- **参数（[.h](imcalib/Task/surface_control_task.h)，全待台架/试飞实测）**：`PN_LEAD_K=0.05`（先小增益验方向再加大，过大易被视觉噪声激励）、`LOS_RATE_LIMIT_DPS=30`、`AOA_TRIM_DEG=0`；比例分段数 N=15(YAW)/25(PITCH) 写在 .c 调用点。
+- **遗留留痕（未动代码，记录待清）**：λ̇ 差分含裸魔数 `/9.5f`（[.c:218-219](imcalib/Task/surface_control_task.c#L218-L219)，经验压噪、含义未注明）；`Target_Slew` 上方注释 [.c:244-247](imcalib/Task/surface_control_task.c#L244-L247) 仍按旧"恒速率斜坡"描述、**已过时**；pitch 门控 `pitch_control_limit_deg=-8°`（[.c:186](imcalib/Task/surface_control_task.c#L186)）与 [.c:205](imcalib/Task/surface_control_task.c#L205) 注释"<-10°"对不上。
+- **未编译**(Keil/MDK)。**待 Vofa/试飞验证**：① 比例化——误差大快速逼近不过冲、误差小平滑收敛不抖，调 N 看跟手/平滑权衡；② PN——`vision_los_rate` 随视线转动有值、丢帧/丢目标归零不爆冲，小 `PN_LEAD_K` 先验超前方向（应提前于纯追尾命中）再加大；③ 回归：丢目标(FAILURE)/未俯冲到位仍就地保持（目标=当前）。
+
 ---
 
 ### 全量代码审计 + 大问题修复（2026-06-07）
@@ -164,8 +179,9 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **内环角速度 pitch/roll 轴配对（方案B，2026-06-07）**：**roll 自稳已正常**（git「roll 调稳了很多」）——方案B 源头+四元数同步对调生效，roll 能阻尼自旋、不再渐进发散，yaw 不变、PNG 行为不变。pitch/yaw 通道已放开（清零行已注释），pitch 解算几何已对齐（见时间线 2026-06-08 条）。
 
 ### ⏳ 待 Vofa 台架验证
+- **末制导比例化逼近 + PN 视线率超前补偿（2026-06-14）**：① 比例化逼近——Vofa 拉 `vision_los_final[NOW]`（终点，仅新帧阶跃）与 `Surface.target_angle_Euler[NOW]`（目标），目标应＝当前姿态+LOS误差/N、误差大快速逼近不过冲、误差小平滑收敛不抖；调 N（YAW 15 / PITCH 25，写在 .c 调用点）看跟手/平滑权衡。② PN——`vision_los_rate[YAW/PITCH]` 随视线转动有值、丢帧/丢目标归零不爆冲、被 `LOS_RATE_LIMIT_DPS` 限住；`PN_LEAD_K` 先小增益验超前方向对（命中应提前于纯追尾）再加大，`AOA_TRIM_DEG` 默认 0 暂不引入。③ 回归——丢目标(FAILURE)/pitch 未俯冲到位(≥-8°) 仍就地保持（目标=当前、不打舵）。
 - **末制导俯仰能量管理 + 速度预测（2026-06-12）**：① γ 对不对——静置 `gamma_pitch_deg`≈0;手持鼻先下压 γ 应变负且≈机体俯仰;纯横滚不应大改 γ。② 限幅起作用——`closeness_s` 随距离变小(远段)/面积变大(近段)从 0→1,`pitch_dive_floor` 从≈-8 平滑放开到≈-27;给一个很低的视觉 LOS,俯仰目标应被钳在 θ_floor 不下探。③ 正向撞击——末段 `gamma_pitch_deg` 与 `current_angle_Euler[PITCH]` 收敛(迎角→0)。④ 协议——`Vision_Rx_Data.dist_cm/area` 在 0x5B 包到达时更新且随远近变化;0x5A/0x7A/0x9A 仍正常、不串包。⑤ 标定宏 `DIST_ACQUIRE_CM/DIST_NEAR_CM/AREA_NEAR/AREA_IMPACT/V_NOM_MS` 打靶实测;远/近段在切换点 s=`DIVE_SCHED_SWITCH` 应平滑衔接(若有台阶调 `AREA_NEAR`↔`DIST_NEAR_CM` 对应)。⑥ 回归:roll/yaw 自稳与既有视觉视线锁定不变。
-- **D 项对测量微分 / 视觉目标斜坡（2026-06-10）**：① 末制导段重新给 D 一个小阻尼值，应**不再**出现 20Hz 抖动（原微分冲击已消）；纯陀螺自稳段 D 阻尼行为正常。② Vofa 拉 `vision_los_final[YAW]` 与 `Surface.target_angle_Euler[NOW][YAW]`：终点应为帧间台阶(仅新帧阶跃)，目标应**平滑斜坡**跟随终点、无 50ms 台阶；视线角速度大时若目标跟不上则调大 `VISION_TARGET_SLEW_DPS`。③ 丢目标(FAILURE) 目标=当前、误差≈0 不打舵。
+- **D 项对测量微分 / ~~视觉目标斜坡~~（2026-06-10）**：① 末制导段重新给 D 一个小阻尼值，应**不再**出现 20Hz 抖动（原微分冲击已消）；纯陀螺自稳段 D 阻尼行为正常。② ~~视觉目标斜坡~~ **已被 2026-06-14 比例化逼近替代**（`VISION_TARGET_SLEW_DPS` 废弃），验证改看上面 06-14 条。③ 丢目标(FAILURE) 目标=当前、误差≈0 不打舵。
 - **角度环绕（2026-06-07）**：roll/yaw 目标设在接近 ±180° 处、令当前姿态跨边界，输出不应出现 ~360° 假误差导致的反向猛打；±0 附近常规自稳行为不变（wrap 不触发）。
 - **视线锁存（方向A）**：末制导对静止/缓动目标，镖体应单调转向并稳定指向、不再同线首振；Vofa 拉 `Surface.target_angle_Euler[NOW][YAW]` 应为帧间水平台阶（保持不变）、仅识别成功新帧到达瞬间阶跃更新；丢目标(FAILURE) 每 tick 回中、重新捕获到 SUCCESS 帧立即重锁。
 - ✅ **视觉单位核验（方向C，已确认）**：视觉发的是**像素**，已在 `Vision_Receive` 接收时转成度（`Euler[YAW]=y/160*72`、`Euler[PITCH]=x/120*54`），`Guidance_Terminal` 锁存即为度、量纲一致，无需再 ×FOV。

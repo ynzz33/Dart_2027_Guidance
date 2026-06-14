@@ -34,10 +34,10 @@
 
  
 // //镖体2 蓝色
-#define  Servo_UL_ZERO      1500
-#define  Servo_UR_ZERO      1500
-#define  Servo_DR_ZERO      1535
-#define  Servo_DL_ZERO      1495 
+#define  Servo_UL_ZERO      1660
+#define  Servo_UR_ZERO      1505
+#define  Servo_DR_ZERO      1510
+#define  Servo_DL_ZERO      1500 
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
  * 左侧两片(UL,DL)取 −1 因左右舵机镜像安装;台架单轴阶跃标定,某片整体反了翻它的号。
@@ -53,9 +53,9 @@
 /* === 控制分配(混控)参数 ===
  * Alloc_Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
-#define  AXIS_LIMIT_PITCH   30.0f   /* 交付A:三轴各自独立限幅(度),可调 */
-#define  AXIS_LIMIT_ROLL    20.0f
-#define  AXIS_LIMIT_YAW     80.0f
+#define  AXIS_LIMIT_PITCH   20.0f   /* 交付A:三轴各自独立限幅(度),可调 */
+#define  AXIS_LIMIT_ROLL    40.0f
+#define  AXIS_LIMIT_YAW     60.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
 #define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还 原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
 
@@ -65,11 +65,12 @@
  * SIGN: 横滚正向/舵面朝向的总符号,台架单轴阶跃验证后可翻 ±1。*/
 #define  ROLL_WORLD_COMP_SIGN  (+1.0f)
 
-/* === 末制导视觉目标斜坡(方案3:setpoint 端速率限制) ===
- * 视觉~20Hz,锁存目标每 50ms 阶跃刷新一次;直接喂阶跃目标会周期性冲击外环 P(及对误差微分时的 D)。
- * 在目标端(非反馈环,不引入 P/I 相位滞后)把阶跃摊成斜坡:每 tick 目标朝锁存终点最多走 VISION_TARGET_SLEW_DPS·dT 度。
- * 调大→更跟手(接近阶跃)、调小→更平滑但跟踪滞后增大;台架按抖动/跟踪权衡。*/
-#define  VISION_TARGET_SLEW_DPS   10000.0f
+// 这里用不到了，直接用误差/多少去做，也就是将误差分为多少段去逐渐弥补
+// /* === 末制导视觉目标斜坡(方案3:setpoint 端速率限制) ===
+//  * 视觉~20Hz,锁存目标每 50ms 阶跃刷新一次;直接喂阶跃目标会周期性冲击外环 P(及对误差微分时的 D)。
+//  * 在目标端(非反馈环,不引入 P/I 相位滞后)把阶跃摊成斜坡:每 tick 目标朝锁存终点最多走 VISION_TARGET_SLEW_DPS·dT 度。
+//  * 调大→更跟手(接近阶跃)、调小→更平滑但跟踪滞后增大;台架按抖动/跟踪权衡。*/
+// #define  VISION_TARGET_SLEW_DPS   10000.0f
 
 /* === 末制导俯仰能量管理:随接近度放开的最陡俯冲下限 θ_floor(见 surface_control_task.c Pitch_Dive_Floor) ===
  * 远离目标只许浅俯冲(保能量/射程),接近才放开到期望入射俯冲角;入射角=速度方向(γ)=撞击姿态(正向撞击)。
@@ -85,6 +86,16 @@
 #define  AREA_NEAR               (800.0f)   /* 近段起点面积(≈DIST_NEAR_CM处的blob像素,s=DIVE_SCHED_SWITCH) */
 #define  AREA_IMPACT            (4000.0f)   /* 近段终点:接近撞击(s=1)的blob像素 */
 #define  DIVE_SCHED_SWITCH        (0.6f)    /* 远/近段衔接处的接近度s:距离管 0→此值,面积管 此值→1 */
+
+/* === 末制导混合导引:视线率PN超前 + 配平迎角前馈(均不依赖会漂的IMU积分速度) ===
+ * PN:目标角按"世界系惯性视线率λ̇"超前——λ̇由锁存视线帧间差分得(纯视觉),驱动λ̇→0=碰撞航线,
+ *    既提前瞄准命中、又给外环超前相位压制猎振;λ̇限幅防丢帧/视觉跳变爆冲。
+ * 迎角前馈:理论应加迎角 θ−γ,但本工程 γ 取姿态前向≡Euler[PITCH]→θ−γ≡0 不含迎角信息,
+ *    无气动配平数据,退化为常值 AOA_TRIM_DEG(机体俯仰比视线高这么多,使速度方向落在视线上)。
+ * 全部待台架/试飞实测调:先 PN_LEAD_K 小增益验证方向与稳定性、再逐步加大;AOA_TRIM 有数据再给。*/
+#define  PN_LEAD_K          (0.05f)    /* 视线率超前系数(s):target += K·λ̇;↑更超前/更抗滞后,过大易被视觉噪声激励 */
+#define  LOS_RATE_LIMIT_DPS (30.0f)   /* 视线率λ̇限幅(°/s):丢帧/视觉跳变时防 PN 项爆冲 */
+#define  AOA_TRIM_DEG       (0.0f)    /* 常值配平迎角前馈(°,默认0=关):正=机头比视线高,使速度方向对准灯;有试飞数据再标定 */
 
  enum
 {
@@ -150,7 +161,7 @@ typedef struct
     float output_gyro_Euler  [3][3];  /* 串级 PID 内环输出 = 送混控的三轴力矩需求 */
     float Finally_Angle      [3][4];  /* 最终写定时器的 PWM 比较值 µs(各舵 ZERO + 角度映射) */
     float Stable_Euler_Angle[3];      /* 自稳基准角:自检后锁存,作 Start/Stable/Terminal 的 roll/yaw(及保持时 pitch)目标 */
-    int16_t Guidance_cnt[4];          /* 制导状态机各跳变的去抖计数 */
+    int16_t Guidance_cnt[5];          /* 制导状态机各跳变的去抖计数 */
     uint8_t pid_cale_flag;            /* 本拍是否跑了 PID(Vofa 观测) */
     uint8_t Text_Flag;                /* 自检标志(预留) */
 }Surface_t;
@@ -177,7 +188,8 @@ extern float   Alloc_B[3][4];                  /* 舵效矩阵 τ=B·u,行[p,r,y
 extern float   alloc_u0[4], alloc_u_out[4];    /* Vofa:分配解(投影/降级后,×SIGN前) / 最终写舵值(×SIGN限幅后) */
 extern float   alloc_alpha, alloc_u0_span, alloc_v_scale, alloc_p_scale; /* Vofa:零空间投影α / u0极差 / 降级横侧缩放比 / pitch缩放比 */
 extern uint8_t alloc_infeasible, alloc_singular_flag;     /* Vofa:不可达降级(0可达/1缩横侧/2连pitch也缩) / 求逆奇异退回 */
-extern float vision_los_final[3];   /* Vofa:末制导锁存的世界系视线终点(目标斜坡逼近它),帧间不变、仅新帧阶跃更新 */
+extern float vision_los_final[2][3];   /* Vofa:末制导锁存的世界系视线终点(目标斜坡逼近它),帧间不变、仅新帧阶跃更新 */
+extern float vision_los_rate[3];    /* Vofa:世界系惯性视线率λ̇(°/s,PN用),视觉帧间差分、丢帧保持/丢目标清0 */
 extern float pitch_dive_floor;      /* Vofa:末制导俯仰俯冲下限θ_floor°(随接近度放开) */
 extern float closeness_s;           /* Vofa:接近度s∈[0,1](像素面积调度,缺失时按γ) */
 void surface_control_task(void);

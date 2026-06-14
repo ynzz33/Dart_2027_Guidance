@@ -57,6 +57,16 @@
  * 只决定弹道角 γ 的演化速率(γ̇≈−g·cosγ/V),不决定初始 γ(初始 γ 只由姿态前向方向定),故粗略即可。*/
 #define V_NOM_MS    15.0f
 
+/* === ZUPT 零速更新 + 地面零偏对准:纯积分速度无外部速度观测,任何加速度零偏/姿态残差都被无限积分→漂
+ * (实测"漂移远大于真实运动"即此)。发射前(状态机 Self_Text/Start、地面静止)用零速观测把速度钉回0
+ * (ZUPT=融合、非低通),并把"静止残差 a_raw−R_col3"慢速喂给机体系零偏 A_Offset 在线对准(不依赖标定姿态水平);
+ * 发射后冻结零偏、停 ZUPT(防匀速飞行 ‖a‖≈1g 被误判静止而错误归零),靠对准好的零偏 + V_NOM 锚定撑过短俯冲段。*/
+#define ZUPT_ACC_DEV_G   0.08f   /* 静止判据:加速度模长偏离 1g 的容差(g),超出视为运动。0.05→0.08:未在线对准时
+                                  * ‖a‖含零偏/安装倾角可达≈1.05g,旧 0.05 卡死→静止永远判不出、ZUPT 不触发、零偏不对准 */
+#define ZUPT_GYR_DPS     3.0f    /* 静止判据:角速度模长阈值(°/s),超出视为运动 */
+#define ZUPT_HOLD_CNT    100     /* 连续满足判据多少拍(=ms@1kHz)才确认静止,防抖 */
+#define ACC_BIAS_LPF_K   0.002f  /* 静止期零偏在线 refine 的 LPF 系数(时间常数≈1/K ms);初值=标定 A_Offset */
+
 enum
 {
     ACC = 0,
@@ -123,6 +133,8 @@ void IMU_Attitude_Algorithm(void);
 void ALL_CS_Free(void);
 extern uint32_t IMU_Cnt,control_cnt;
 extern float acc_trust_obs;   /* Vofa 可观测:Mahony 加速度校正权重(1=全信任 / 0=纯陀螺coast) */
-extern float gamma_pitch_deg;     /* 弹道角(速度方向俯仰角)°,Vofa 可观测;末制导俯冲限幅用 */
+extern float gamma_pitch_deg;     /* 弹道角(速度积分版)°。速度链路 #if 0 后不再更新,消费端改用 gamma_pitch_fwd_deg */
+extern float gamma_pitch_fwd_deg; /* 弹道角γ姿态前向估计°(不漂):取代会漂的速度版,末制导俯冲限幅/Vofa 用 */
 extern uint8_t Vel_Reanchor_Flag; /* 俯冲入段置1,IMU 下一拍用姿态前向×V_NOM 锚定世界速度后清0 */
+extern uint8_t imu_is_static;     /* Vofa 可观测:1=发射前判定静止、正在 ZUPT 归零速度+对准零偏,0=运动 */
 #endif //IMU_H

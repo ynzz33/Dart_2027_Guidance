@@ -37,9 +37,12 @@ uint8_t Guidance_State;
 Surface_t Surface;
 Self_Text_t Self_Text;
 uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
+
+float pitch_control_limit_deg = -20.0f;//开始放开pitch控制的角度限制
+
 /* === 控制分配(混控)全局 === */
 uint8_t Alloc_Mode = 1;                        /* 默认=交付A三轴限幅(逐级优先级缩放,roll-only 下线性正确);0=旧PitchPriority对照 2=最小能量 */
-uint8_t Alloc_Prio[3] = { PITCH, YAW, ROLL };  /* 交付A 逐级优先级:轴枚举[0]最高,默认 pitch>yaw>roll;调试器 Watch 在线改 */
+uint8_t Alloc_Prio[3] = { YAW,  PITCH,  ROLL };  /* 交付A 逐级优先级:轴枚举[0]最高,默认 pitch>yaw>roll;调试器 Watch 在线改 */
 float   servo_lat_scale = 1.0f;                /* Vofa:最低优先轴保留比(横侧 k 泛化),1=未饱和 <1=有轴被挤;此前 extern 无定义,补回 */
 /* 舵效矩阵 B (3x4): τ = B·u, 行序[pitch,roll,yaw], 列序[UL,UR,DR,DL]. 默认理想 X 阵(BBᵀ=4I).
  * 台架辨识替换法:固定其余三舵=0,给第 j 舵单位阶跃 Δu_j(如+20°),读三轴力矩响应(可用 output_gyro_Euler
@@ -53,7 +56,10 @@ float   Alloc_B[3][4] = {
 float   alloc_u0[4] = {0}, alloc_u_out[4] = {0};
 float   alloc_alpha = 0.0f, alloc_u0_span = 0.0f, alloc_v_scale = 1.0f, alloc_p_scale = 1.0f;
 uint8_t alloc_infeasible = 0, alloc_singular_flag = 0;
-float   vision_los_final[3],vision_los_current[3];   /* 末制导世界系视线终点:视觉新帧锁存,target 每 tick 斜坡逼近(方案3) */
+
+
+float   vision_los_final[2][3],vision_los_current[3];   /* 末制导世界系视线终点:视觉新帧锁存,target 每 tick 斜坡逼近(方案3) */
+float   vision_los_rate[3] = {0};                    /* 末制导世界系惯性视线率λ̇(°/s):视觉帧间差分,PN超前用;丢帧保持/丢目标清0 */
 float   pitch_dive_floor = 0.0f, closeness_s = 0.0f; /* Vofa:末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1] */
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
@@ -97,7 +103,7 @@ void Wing_Control(void)
             Surface.output_angle_Servo[NOW][DOWN_LEFT]  = 30;
             Surface.output_angle_Servo[NOW][DOWN_RIGHT] = 30;
         }
-        else if(Guidance_State == Start)
+        else if(Guidance_State == Start&&IMU_Data.calib_done==1)
         {
             Surface.output_angle_Servo[NOW][UP_LEFT]    = 0;
             Surface.output_angle_Servo[NOW][UP_RIGHT]   = 0;
@@ -110,24 +116,20 @@ void Wing_Control(void)
 
 void Guidance_Start(void)//自检后的判断
 {
+            // Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+            // Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
+            // Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
+}
+void Guidance_Stable(void)//自稳
+{
     static uint16_t cnt = 0 ;
     if(IMU_Data.calib_done==1)
     {
-      if(cnt++>=1000)
-      {
-          cnt = 0 ;
           IMU_Data.calib_done = 2;
           Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
           Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
           Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
-      }
     }
-            Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-            Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
-            Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
-}
-void Guidance_Stable(void)//自稳
-{
         Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
         Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
@@ -168,13 +170,17 @@ static float Pitch_Dive_Floor(uint16_t dist_cm, uint16_t area)
     closeness_s = s;
 
     float L_sched = PITCH_DIVE_LIMIT_FAR_DEG + s * (PITCH_INCIDENT_DEG - PITCH_DIVE_LIMIT_FAR_DEG);
-    float L_aoa   = gamma_pitch_deg - AOA_MARGIN_DEG;
+    float L_aoa   = gamma_pitch_fwd_deg - AOA_MARGIN_DEG;
     float dive_floor = (L_sched > L_aoa) ? L_sched : L_aoa;   /* 两个"≥"下限取较不陡(较大)者 */
     pitch_dive_floor = dive_floor;
     return dive_floor;
 }
 void Guidance_Terminal(void)//制导段
 {
+    /* PN 视线率状态(函数级静态,帧间保持):上帧世界系视线终点 / 自上帧起累计的控制拍数 / 首帧标志 */
+    static uint16_t vis_dt_cnt    = 0;
+    static uint8_t  los_rate_init = 0;
+    vis_dt_cnt++;
     /* ROLL 始终自稳(与视觉新数据无关),每 tick 刷新 */
     Surface.target_angle_Euler[NOW][ROLL] = Surface.Stable_Euler_Angle[ROLL];
     vision_los_current[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
@@ -190,25 +196,45 @@ void Guidance_Terminal(void)//制导段
         if (v.Vision_recognize_flag == RECOGNIZE_SUCCESS) /* 识别到目标:锁存世界系视线终点(全程用快照 v,避免与视觉中断撕裂读) */
         {
             /* YAW:始终视觉制导,锁存世界系视线终点 */
-            vision_los_final[YAW] = v.Euler[NOW][1] + Surface.current_angle_Euler[NOW][YAW];
+            vision_los_final[NOW][YAW] = v.Euler[NOW][1] + Surface.current_angle_Euler[NOW][YAW];
 
             /* PITCH:仅俯冲到位(<-10°)才视觉制导;否则不控,终点=当前 */
-            if (Surface.current_angle_Euler[NOW][PITCH] < -10.0f)
-                vision_los_final[PITCH] = v.Euler[NOW][0] + Surface.current_angle_Euler[NOW][PITCH];
+            if (Surface.current_angle_Euler[NOW][PITCH] < pitch_control_limit_deg)
+                vision_los_final[NOW][PITCH] = v.Euler[NOW][0] + Surface.current_angle_Euler[NOW][PITCH];
             else
-                vision_los_final[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+                vision_los_final[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+
+            /* 惯性视线率 λ̇(PN用):本帧世界系视线终点 − 上帧,÷帧间实际时长(自上帧累计控制拍×周期)。世界系锁存
+             * 已含弹体转动补偿,纯视觉、不依赖会漂的IMU速度。首帧无前值则λ̇=0;丢帧时Δt随拍数增大→λ̇自然减小不爆冲;
+             * 再 LOS_RATE_LIMIT 限幅兜底。YAW 周期角先环绕到最短弧。λ̇ 帧间保持,供下方每 tick 取用。*/
+            if (los_rate_init)
+            {
+                float dt_vis = (float)vis_dt_cnt * (CTRL_PERIOD_MS * 0.001f);
+                if (dt_vis < 1e-3f) dt_vis = 1e-3f;
+                vision_los_rate[YAW]   =                (vision_los_final[LAST][YAW]   - vision_los_final[NOW][YAW])/9.5f   / dt_vis;
+                vision_los_rate[PITCH] =                (vision_los_final[LAST][PITCH] - vision_los_final[NOW][PITCH])/9.5f / dt_vis;
+                abs_limit(&vision_los_rate[YAW],   LOS_RATE_LIMIT_DPS);
+                abs_limit(&vision_los_rate[PITCH], LOS_RATE_LIMIT_DPS);
+            }
+            vision_los_final[LAST][YAW]   = vision_los_final[NOW][YAW];
+            vision_los_final[LAST][PITCH] = vision_los_final[NOW][PITCH];
+            los_rate_init   = 1;
+            vis_dt_cnt      = 0;
         }
         Vision_Rx_Data.Vision_New_Data_flag = 0;   /* 新数据处理完毕,置回0 */
     }
     if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE) /* 丢目标:就地保持,终点与目标都对齐当前(斜坡 d=0,即原零误差语义) */
     {
         // Vision_Transmit(Vision_Cmd_Work);
-        vision_los_final[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-        vision_los_final[YAW]   = Surface.current_angle_Euler[NOW][YAW];
+        vision_los_final[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+        vision_los_final[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
         vision_los_current[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         vision_los_current[YAW]   = Surface.current_angle_Euler[NOW][YAW];
         Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
+        vision_los_rate[PITCH] = 0.0f;   /* 丢目标:清视线率、复位首帧标志,重捕后不吃陈旧λ̇ */
+        vision_los_rate[YAW]   = 0.0f;
+        los_rate_init = 0;
     }
 
     /* 方案3:setpoint 端速率限制——每 tick 目标朝锁存终点斜坡逼近,把视觉 50ms 阶跃摊平,
@@ -222,16 +248,24 @@ void Guidance_Terminal(void)//制导段
     // }
     //镖体2是25
     Surface.target_angle_Euler[NOW][YAW] =
-        Target_Slew(vision_los_current[YAW], vision_los_final[YAW], fabs(vision_los_final[YAW]-vision_los_current[YAW])/15, 0);
+        Target_Slew(vision_los_current[YAW], vision_los_final[NOW][YAW], fabs(vision_los_final[NOW][YAW]-vision_los_current[YAW])/25, 0);
     Surface.target_angle_Euler[NOW][PITCH] =
-        Target_Slew(vision_los_current[PITCH], vision_los_final[PITCH], fabs(vision_los_final[PITCH]-vision_los_current[PITCH])/25, 0);
-    // Surface.target_angle_Euler[NOW][YAW] = vision_los_final[YAW];
-    // Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[PITCH];
+        Target_Slew(vision_los_current[PITCH], vision_los_final[NOW][PITCH], fabs(vision_los_final[NOW][PITCH]-vision_los_current[PITCH])/25, 0);
+    // Surface.target_angle_Euler[NOW][YAW] = vision_los_final[NOW][YAW];
+    // Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
 
     /* 俯仰俯冲限幅(能量管理):仅识别成功(主动视觉制导)时钳俯仰目标 ≥ θ_floor——远处禁陡俯冲保射程、
      * 接近放开到期望入射角;丢目标(FAILURE)走上面"持当前"分支、不钳,行为不变。yaw 不钳(无重力问题)。*/
     if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
     {
+        /* 混合导引超前(纯视觉、不依赖会漂的IMU速度):①PN——目标按惯性视线率λ̇超前,把"视线率打到0=碰撞航线",
+         * 既提前瞄准命中、又给外环超前相位压制猎振;②迎角前馈——本应加 θ−γ,但 γ(姿态前向)≡θ→该项恒0,
+         * 无气动数据下退化为常值配平迎角 AOA_TRIM_DEG(正=机头比视线高,使速度方向落在视线上;默认0=关)。
+         * yaw 侧滑≈0,只加 PN、不加迎角项。叠加在斜坡目标之上,受 λ̇ 限幅与常值约束,不会突跳。*/
+        // Surface.target_angle_Euler[NOW][YAW]   += PN_LEAD_K * vision_los_rate[YAW]; 
+        // if (Surface.current_angle_Euler[NOW][PITCH] < pitch_control_limit_deg)   /* 与上方 pitch 锁存条件一致:仅俯冲到位后主动制导 pitch */
+        //     Surface.target_angle_Euler[NOW][PITCH] += PN_LEAD_K * vision_los_rate[PITCH] + AOA_TRIM_DEG;
+
         float dive_floor = Pitch_Dive_Floor(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
         if (Surface.target_angle_Euler[NOW][PITCH] < dive_floor)
             Surface.target_angle_Euler[NOW][PITCH] = dive_floor;
@@ -240,7 +274,7 @@ void Guidance_Terminal(void)//制导段
 void Guidance_End(void)
 {
     // Dart_Trigger_Power_Control( Power_OFF );
-    if (Surface.Guidance_cnt[3]++>500)
+    if (Surface.Guidance_cnt[3]++>100)
     {
         Vision_Transmit(Vision_Cmd_Record_Stop);
         Guidance_State = PROCESS_OK;
@@ -248,6 +282,13 @@ void Guidance_End(void)
     }
     Wing_Servo_Control_Flag = 0;
     // Total_Power_Control( Power_OFF )//不能太快掉电，不然openmv保存不了视频等等
+}
+void Guidance_Process_OK(void)
+{
+    if (Surface.Guidance_cnt[4]++>500)
+    {
+		Total_Power_Control(Power_OFF);
+    }
 }
 
 
@@ -277,6 +318,10 @@ void get_current_Target(void)
             {
                 Guidance_End();
             }break;
+            case PROCESS_OK:
+            {
+                Guidance_Process_OK();
+            }break;
         }
 }
 void get_current_State(void)
@@ -290,7 +335,7 @@ void get_current_State(void)
             Self_Text.Self_Text_Process = 5; 
         }
     }
-    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][Y] >= 0.80f||IMU_Data.A[NOW][Y] <= -0.7f))
+    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][Y] >= 0.80f||IMU_Data.A[NOW][Y] <= -0.65f))
     {
         
         Vision_Transmit( Vision_Cmd_Work );
@@ -311,7 +356,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&IMU_Data.A_Normed[NOW][Y] >= 0.90f&& IMU_Data.A[NOW][Y]>= 1.50f)
+    else if (Guidance_State == Terminal &&IMU_Data.A_Normed[NOW][Y] >= 0.80f&& IMU_Data.A[NOW][Y]>=  1.0f)
     {
         Vision_Transmit( Vision_Cmd_Work ); 
         if(Surface.Guidance_cnt[2]++>5)
@@ -664,19 +709,6 @@ void surface_control_task(void)
             y_body = 0.0f;
             p_body = 0.0f;
         }
-        /* 旧:末制导浅俯仰段(pitch>-20°)硬掐 pitch。现改由 Guidance_Terminal 的 θ_floor 俯冲限幅承担
-         * "不许过早陡俯冲",pitch 全程受控——主动维持浅滑翔(正迎角产生升力)比被动鼻先下沉更省能/延射程。*/
-        // if (Guidance_State==Terminal&&Surface.current_angle_Euler[NOW][PITCH]>-20.0f)
-        // {
-        //     p_body = 0.0f;
-        // }
-
-
-            // p_body = 0.0f; 
-            // y_body = 0.0f;
-            // r_body = 0.0f;
-
-
             /* 三轴统一接 PID 内环输出(roll 绕纵轴不反旋,直接用);按 Alloc_Mode 分派分配器。
              * 注:上面 p_body*0.85/y_body*1.05 是旧分配的经验微调,Mode2 精确分配下会破坏最优,
              * B 台架辨识后应把这两个系数设 1,由 B 承担全部相对标定。*/

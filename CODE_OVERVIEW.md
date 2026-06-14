@@ -187,9 +187,11 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[+1,+1,+1,+1]`**、
 - 视觉帧（均 6 字节）：`0x5A..0xA5`=识别成功（x,y 像素），`0x5B..0xA6`=距离+面积（dist_cm,area 均 uint16 大端，2026-06-12 新增，独立于识别包），`0x7A..0xA7`=丢目标，`0x9A..0xA9`=录制状态。`0x5B` 包只更新 `Vision_Rx_Data.dist_cm/area`、不置 recognize/New_Data；OpenMV `send_distance(dist_cm=DIST_K/sqrt(px), area)` 配套。
 - **像素→度转换在 `Vision_Receive` 内做**：`Euler[YAW]=y/160*72`、`Euler[PITCH]=x/120*54`（x→PITCH、y→YAW）。✅ **已确认**：视觉发的是**像素**、接收时即转成度，轴映射正确，下游 `Guidance_Terminal` 锁存按度用、量纲一致（无需再 ×FOV）。
 - `Vision_New_Data_flag`：ISR(~20Hz)产生、`Guidance_Terminal`(1kHz)消费后清 0（生产者-消费者）。
-- **视线锁存（方向A）+ 目标斜坡（2026-06-10）**：新帧到达瞬间把世界系视线锁存到 `vision_los_final=vision_euler+current`（终点，帧间不变）；`target` 每 tick 经 `Target_Slew` 朝终点**斜坡逼近**（`VISION_TARGET_SLEW_DPS`=150°/s，setpoint 端速率限制）→ 把 20Hz 视觉的 50ms 目标阶跃摊平，消除对外环 P / D 的周期性台阶冲击。帧间终点不变、斜坡到达后 `target≡终点` → 外环误差=终点−当前，机体一转误差即减，与原航位推算等价（仅消去切换瞬间阶跃）。读侧用临界区快照 `v`；丢目标(FAILURE)终点+目标都对齐当前(斜坡 d=0，就地保持)。
+- **视线锁存（方向A）+ 比例化逼近（2026-06-14）**：新帧到达瞬间把世界系视线锁存到 `vision_los_final=vision_euler+current`（终点，帧间不变）；每 tick 把斜坡起点 `vision_los_current` 重置为当前姿态、`Target_Slew` 的 `max_step=|终点−当前|/N`（YAW N=15、PITCH N=25）→ **目标 = 当前姿态 + LOS误差/N**，把视线误差分 N 段逐拍弥补（误差大走得快、小走得慢，自然收敛），既摊平 20Hz 视觉的 50ms 阶跃又不引相位滞后。读侧用临界区快照 `v`；丢目标(FAILURE)终点+目标都对齐当前(就地保持)。*(替代 2026-06-10 的固定速率斜坡 `VISION_TARGET_SLEW_DPS`——固定速率远近一个速度、误差大跟不上误差小过冲，已废弃。)*
+- **PN 视线率超前补偿（2026-06-14）**：锁存的世界系视线终点帧间差分得惯性视线率 λ̇（`vision_los_rate[]`，纯视觉、不依赖会漂的 IMU 积分速度），**仅识别成功**时 `target += PN_LEAD_K·λ̇`（YAW 全程、PITCH 仅俯冲到位 <-8° 后）→ 驱动 λ̇→0＝碰撞航线，提前命中且给外环超前相位压猎振。`LOS_RATE_LIMIT_DPS`=30°/s 限幅防丢帧/视觉跳变爆冲；丢目标清 λ̇、复位首帧标志（重捕不吃陈旧 λ̇）。`PN_LEAD_K`=0.05（先小增益验方向）、`AOA_TRIM_DEG`=0（常值配平迎角前馈，默认关）。
 - **末制导俯仰能量管理（2026-06-12）**：俯仰仍跟视觉 LOS，但 `Guidance_Terminal` 末叠加随接近度放开的最陡俯冲限幅 `θ_floor=max(L_sched(s), γ−AOA_MARGIN)`（仅识别成功时钳）。接近度 s 分段：远段用 `dist_cm`、近段用 `area`（0x5B 包），缺则按弹道角 γ 自调度。`γ=gamma_pitch_deg` 由速度预测算（见下）。调用点旧 `pitch>-20→p_body=0` 已撤、pitch 全程受控。物理：远处禁陡俯冲保射程、接近放开到入射角(-27°)、终端 γ≈θ→迎角0=正向撞击。
 - **速度预测（2026-06-12 启用）**：`Kalman_Vel_Calc` 接入 `IMU_Attitude_Algorithm`（积分 `A_World` 得世界速度），俯冲入段(`Stable→Terminal`)用「姿态前向×`V_NOM_MS`」`Kalman_Vel_Set` 锚定初速 → `gamma_pitch_deg=atan2(Vz,√(Vx²+Vy²))`=速度方向俯仰角。修了 `Kalman_Vel_Calc` 输出索引 bug(速度=`res[0]`)。纯积分无 ZUPT、终端段短可接受。
+- **速度/γ 单位量纲修复（2026-06-13）**：`A_World` 去重力原写 `a_raw − gravity·R_col3`，`a_raw` 单位是 **g**(静止≈1)、`gravity=GRAVITY_MS2` 是 **m/s²**，量纲不一致(静止误出 ≈−8.8)使 `A_World`/速度/`gamma_pitch_deg` 全错——即"实测 γ 不准"的根因(2026-06-07 审计已记此项、当时 PNG 未接主环遂留待)。改为 `gravity·(a_raw − R_col3)`(先把 `a_raw`×g 转 m/s² 再扣重力)，静止线加速度=0、量纲与 `V_NOM_MS` 一致；`a_raw_x/y/z` 本身不动→不影响 Mahony 的 g 单位归一化/门控。残余漂移源(次要、待台架核验)：加速度零偏 `A_Offset` 未回扣、发射后纯陀螺 coast 姿态漂。
 - **PNG 比例导引**：`PNG_Guidance` 在 `TotalControl` 里被注释，**未接主环**；`Velocity[Body]` 现已随速度预测算出（但 PNG 仍未接）。
 
 ---
@@ -203,7 +205,7 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[+1,+1,+1,+1]`**、
 | `Guidance_State` | surface_control_task.c | 制导状态机当前态 |
 | `Alloc_Mode` / `Alloc_Prio[3]` / `Alloc_B[3][4]` | surface_control_task.c | 分配器档位 / 优先级 / 舵效阵 |
 | `Vision_Rx_Data` | CallBack_Task.c | 视觉接收（ISR 写、控制读，含 New_Data_flag） |
-| `vision_los_final[3]` | surface_control_task.c | 末制导世界系视线终点（视觉新帧锁存，`target` 斜坡逼近它；Vofa 可观测） |
+| `vision_los_final[3]` / `vision_los_rate[3]` | surface_control_task.c | 末制导世界系视线终点（视觉新帧锁存，`target`=当前+LOS误差/N 比例逼近）/ 惯性视线率 λ̇（终点帧间差分，PN 超前补偿用，纯视觉）；均 Vofa 可观测 |
 | `gamma_pitch_deg` / `Vel_Reanchor_Flag` | IMU.c | 弹道角(速度方向俯仰角)° / 俯冲入段锚定世界速度请求位（2026-06-12） |
 | `pitch_dive_floor` / `closeness_s` | surface_control_task.c | 末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1]（Vofa 可观测，2026-06-12） |
 | `surface_control_pid[2][3]` / `mahony_pid[3]` | pid.c | PID 实例 |
@@ -238,7 +240,7 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[+1,+1,+1,+1]`**、
 - **症状**：目标附近抖动，主要在**末制导(视觉介入)段**；纯陀螺自稳段不明显。想给小 D 加阻尼反而抖得更厉害。
 - **根因 = 微分冲击（derivative kick）**：[pid.c](imcalib/Tool/pid.c) 的 D 原本对**误差** `e=set−get` 求导。纯陀螺段目标恒定(`Stable_Euler_Angle`)，`de/dt=−d(角度)/dt` 是纯阻尼；末制导段目标每 50ms 被视觉新帧阶跃刷新([surface_control_task.c](imcalib/Task/surface_control_task.c) `Guidance_Terminal`)，那一拍 `dout=d·Δ/dt=d·Δ·1000` 是脉冲尖刺、20Hz 周期激励 → 抖；Δ 越小 d 也救不回(d=0.005、Δ=0.5° 仍出 2.5 脉冲)。
 - **方案1（根治，pid.c）**：D 改对**测量微分** `−d·(get[NOW]−get[LAST])/dt`，只对反馈量求导 → 目标阶跃不再进 D、纯阻尼；不经死区软化、死区内仍阻尼；零延迟非低通。
-- **方案3（视觉源，surface_control_task .h/.c）**：setpoint 端给锁存目标加**斜坡**(速率限制)。新增 `vision_los_final[3]`(世界系视线终点)、`Target_Slew`(差值含 YAW 角度环绕)；`Guidance_Terminal` 改为「视觉帧更新终点 + 每 tick `target` 斜坡逼近终点」，把 50ms 阶跃摊平。宏 `VISION_TARGET_SLEW_DPS`=150°/s 可台架调(大→跟手、小→平滑滞后)。与原航位推算等价、仅消阶跃。
+- **方案3（视觉源，surface_control_task .h/.c）**：setpoint 端给锁存目标加**斜坡**(速率限制)。新增 `vision_los_final[3]`(世界系视线终点)、`Target_Slew`(差值含 YAW 角度环绕)；`Guidance_Terminal` 改为「视觉帧更新终点 + 每 tick `target` 斜坡逼近终点」，把 50ms 阶跃摊平。宏 `VISION_TARGET_SLEW_DPS`=150°/s 可台架调(大→跟手、小→平滑滞后)。与原航位推算等价、仅消阶跃。*(2026-06-14：固定速率斜坡已升级为「比例化逼近」+ PN 视线率超前补偿，`VISION_TARGET_SLEW_DPS` 废弃，见 §9。)*
 - **未编译**(Keil 工程，需在 MDK 里编)。两项均合"输入端/源头解决、不在反馈环加低通"偏好。
 
 ---
