@@ -2,7 +2,7 @@
 *** @File           : surface_control_task.c
 *** @Description    : None
 *** @Attention      : None
-*** @Author         : Lmy
+*** @Author         : ynzz33
 *** @Date           : 2025/3/2
 *** @版权归属:
 ***                  ██╗███╗   ███╗ ██████╗ █████╗
@@ -18,6 +18,7 @@
 #include "buzzer.h"
 #include "CallBack_Task.h"
 #include "pid.h"
+#include "adrc.h"           /* ADRC自抗扰控制器 */
 #include "cmsis_os.h"
 #include "FreeRTOS.h"
 #include "IMU.h"
@@ -38,7 +39,10 @@ Surface_t Surface;
 Self_Text_t Self_Text;
 uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
 
-float pitch_control_limit_deg = -20.0f;//开始放开pitch控制的角度限制
+float pitch_control_limit_deg = -20.0f;//开始放开pitch控制的角度限制 
+
+/* ADRC控制选择：0=使用原PID, 1=使用ADRC(全部通道), 2=仅Yaw用ADRC(调试用) */
+uint8_t adrc_mode = 0;
 
 /* === 控制分配(混控)全局 === */
 uint8_t Alloc_Mode = 1;                        /* 默认=交付A三轴限幅(逐级优先级缩放,roll-only 下线性正确);0=旧PitchPriority对照 2=最小能量 */
@@ -122,14 +126,6 @@ void Guidance_Start(void)//自检后的判断
 }
 void Guidance_Stable(void)//自稳
 {
-    static uint16_t cnt = 0 ;
-    if(IMU_Data.calib_done==1)
-    {
-          IMU_Data.calib_done = 2;
-          Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
-          Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
-          Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
-    }
         Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
         Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
@@ -262,9 +258,9 @@ void Guidance_Terminal(void)//制导段
          * 既提前瞄准命中、又给外环超前相位压制猎振;②迎角前馈——本应加 θ−γ,但 γ(姿态前向)≡θ→该项恒0,
          * 无气动数据下退化为常值配平迎角 AOA_TRIM_DEG(正=机头比视线高,使速度方向落在视线上;默认0=关)。
          * yaw 侧滑≈0,只加 PN、不加迎角项。叠加在斜坡目标之上,受 λ̇ 限幅与常值约束,不会突跳。*/
-        // Surface.target_angle_Euler[NOW][YAW]   += PN_LEAD_K * vision_los_rate[YAW]; 
-        // if (Surface.current_angle_Euler[NOW][PITCH] < pitch_control_limit_deg)   /* 与上方 pitch 锁存条件一致:仅俯冲到位后主动制导 pitch */
-        //     Surface.target_angle_Euler[NOW][PITCH] += PN_LEAD_K * vision_los_rate[PITCH] + AOA_TRIM_DEG;
+        // Surface.target_angle_Euler[NOW][YAW]   -= PN_LEAD_K * vision_los_rate[YAW]; 
+        if (Surface.current_angle_Euler[NOW][PITCH] < pitch_control_limit_deg)   /* 与上方 pitch 锁存条件一致:仅俯冲到位后主动制导 pitch */
+            Surface.target_angle_Euler[NOW][PITCH] -= PN_LEAD_K * vision_los_rate[PITCH] + AOA_TRIM_DEG;
 
         float dive_floor = Pitch_Dive_Floor(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
         if (Surface.target_angle_Euler[NOW][PITCH] < dive_floor)
@@ -300,15 +296,23 @@ void get_current_Target(void)
         {
             case Start:
             {
-                Guidance_Start();                     
+                Guidance_Start();                  
             }break;
             case Stable:
             {
-                if(IMU_Data.Euler[NOW][PITCH]<=30.0f)
+                if(IMU_Data.calib_done==1)
                 {
-                    Stable_Flag = 1;
-                    Guidance_Stable();
-                }
+                    static uint16_t cnt = 0 ;
+                    if(cnt++>50)
+                    {
+                        IMU_Data.calib_done = 2;
+                        Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
+                        Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
+                        Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
+                    }
+                }   
+                Stable_Flag = 1;
+                Guidance_Stable();
             }break;
             case Terminal:
             {
@@ -335,7 +339,7 @@ void get_current_State(void)
             Self_Text.Self_Text_Process = 5; 
         }
     }
-    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][Y] >= 0.80f||IMU_Data.A[NOW][Y] <= -0.65f))
+    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][Y] >= 0.80f||IMU_Data.A[NOW][Y] <= -0.8f))
     {
         
         Vision_Transmit( Vision_Cmd_Work );
@@ -679,12 +683,40 @@ void surface_control_task(void)
     /*状态机，拿目标值*/
     get_current_State();
     get_current_Target();
-    /*pid，算输出值*/
+    /*pid/adrc，算输出值*/
     Surface.pid_cale_flag = 0;
     if (Guidance_State==Stable||Guidance_State==Terminal)
     {
         Surface.pid_cale_flag = 1;
-        Euler_pid_Cale(delta_time);//这部分先根据当前欧拉角计算差值，坐标系为东北天
+
+        /* ========== ADRC/PID 控制选择 ========== */
+        // if (adrc_mode == 1)
+        // {
+        //     /* 全通道ADRC */
+        //     // Euler_ADRC_Cale(delta_time);
+        // }
+        // else if (adrc_mode == 2)
+        // {
+        //     /* 仅Yaw用ADRC，其他用PID（调试用） */
+        //     // Euler_pid_Cale(delta_time);  /* 先算PID */
+        //     // /* 覆盖Yaw通道为ADRC输出 */
+        //     // float yaw_gyro_cmd = ADRC_Calc(
+        //     //     &adrc_ctrl[ADRC_YAW][ADRC_ANGLE_LOOP],
+        //     //     Surface.target_angle_Euler[NOW][YAW],
+        //     //     Surface.current_angle_Euler[NOW][YAW],
+        //     //     delta_time);
+        //     // Surface.output_gyro_Euler[NOW][YAW] = ADRC_Calc(
+        //     //     &adrc_ctrl[ADRC_YAW][ADRC_GYRO_LOOP],
+        //     //     yaw_gyro_cmd,
+        //     //     Surface.current_gyro_Euler[NOW][YAW],
+        //     //     delta_time);
+        // }
+        // else
+        // {
+            /* 原PID（默认） */
+            Euler_pid_Cale(delta_time);
+        // }
+        /* ===================================== */
     }
     /*解算到舵面*/
     if(DART_TYPE == VECTOR_NOZZLE   )//x翼
@@ -698,8 +730,9 @@ void surface_control_task(void)
             p_body = Surface.output_gyro_Euler[NOW][PITCH], 
             y_body = Surface.output_gyro_Euler[NOW][YAW],
             r_body = Surface.output_gyro_Euler[NOW][ROLL];
-        if (Guidance_State==Terminal)
+        if (Guidance_State==Terminal&&IMU_Data.Euler[NOW][PITCH]>=-15)
         {
+            y_body *=1.5f;
             // Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
             //                        Surface.output_gyro_Euler[NOW][YAW],
             //                        &p_body, &y_body);
@@ -709,9 +742,16 @@ void surface_control_task(void)
             y_body = 0.0f;
             p_body = 0.0f;
         }
+
+            // p_body = 0;
+            // y_body = 0;
+            // r_body = 0;
             /* 三轴统一接 PID 内环输出(roll 绕纵轴不反旋,直接用);按 Alloc_Mode 分派分配器。
              * 注:上面 p_body*0.85/y_body*1.05 是旧分配的经验微调,Mode2 精确分配下会破坏最优,
              * B 台架辨识后应把这两个系数设 1,由 B 承担全部相对标定。*/
+            Surface.output_Body_Euler[NOW][PITCH] = p_body;
+            Surface.output_Body_Euler[NOW][YAW]   = y_body; 
+            Surface.output_Body_Euler[NOW][ROLL]  = r_body;
             switch (Alloc_Mode)
             {
                 // case 0:  Servo_Mix_PitchPriority(p_body, r_body, y_body); break;  /* 旧对照(roll 入参已改 PID 输出) */

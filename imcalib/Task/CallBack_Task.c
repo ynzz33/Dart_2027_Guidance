@@ -201,9 +201,9 @@ void Vision_Transmit_Debug(void)
     // val[0]  = IMU_Data.A[NOW][X];
     // val[1]  = IMU_Data.A[NOW][Y];
     // val[2]  = IMU_Data.A[NOW][Z];
-    val[3]  = Surface.output_gyro_Euler[NOW][PITCH];
-    val[4]  = Surface.output_gyro_Euler[NOW][ROLL];
-    val[5]  = Surface.output_gyro_Euler[NOW][YAW];
+    val[3]  = Surface.output_Body_Euler[NOW][PITCH];
+    val[4]  = Surface.output_Body_Euler[NOW][ROLL];
+    val[5]  = Surface.output_Body_Euler[NOW][YAW];
     val[6]  = Surface.current_angle_Euler[NOW][PITCH];
     val[7]  = Surface.current_angle_Euler[NOW][ROLL];
     val[8]  = Surface.current_angle_Euler[NOW][YAW];

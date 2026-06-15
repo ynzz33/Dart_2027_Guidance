@@ -27,17 +27,17 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-// #define  Servo_UL_ZERO      1440
-// #define  Servo_UR_ZERO      1420
-// #define  Servo_DR_ZERO      1550
-// #define  Servo_DL_ZERO      1565 
+#define  Servo_UL_ZERO      1440
+#define  Servo_UR_ZERO      1420
+#define  Servo_DR_ZERO      1550
+#define  Servo_DL_ZERO      1565 
 
  
 // //镖体2 蓝色
-#define  Servo_UL_ZERO      1660
-#define  Servo_UR_ZERO      1505
-#define  Servo_DR_ZERO      1510
-#define  Servo_DL_ZERO      1500 
+// #define  Servo_UL_ZERO      1650
+// #define  Servo_UR_ZERO      1495
+// #define  Servo_DR_ZERO      1510
+// #define  Servo_DL_ZERO      1490 
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
  * 左侧两片(UL,DL)取 −1 因左右舵机镜像安装;台架单轴阶跃标定,某片整体反了翻它的号。
@@ -54,8 +54,8 @@
  * Alloc_Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
 #define  AXIS_LIMIT_PITCH   20.0f   /* 交付A:三轴各自独立限幅(度),可调 */
-#define  AXIS_LIMIT_ROLL    40.0f
-#define  AXIS_LIMIT_YAW     60.0f
+#define  AXIS_LIMIT_ROLL    20.0f
+#define  AXIS_LIMIT_YAW     50.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
 #define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还 原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
 
@@ -159,6 +159,7 @@ typedef struct
     float target_angle_Euler [3][3];  /* 目标欧拉角 °(状态机/视觉锁存写入) */
     float current_gyro_Euler [3][3];  /* 当前角速度 °/s(串级内环反馈,yaw 已取负) */
     float output_gyro_Euler  [3][3];  /* 串级 PID 内环输出 = 送混控的三轴力矩需求 */
+    float output_Body_Euler  [3][3];  
     float Finally_Angle      [3][4];  /* 最终写定时器的 PWM 比较值 µs(各舵 ZERO + 角度映射) */
     float Stable_Euler_Angle[3];      /* 自稳基准角:自检后锁存,作 Start/Stable/Terminal 的 roll/yaw(及保持时 pitch)目标 */
     int16_t Guidance_cnt[5];          /* 制导状态机各跳变的去抖计数 */
