@@ -30,13 +30,13 @@ void abs_limit(float *a, float ABS_MAX)
 void pid_init(void)
 {
 // // //镖体1
-    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,4,0.75f,0.00f,0.00f,0.3f,0.3f);  
+    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,4,3.5f,0.00f,0.00f,0.3f,0.3f);  
     PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,300,4,1.200f,0.00f,0.005f,0.3f,0.3f); 
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,300,40,6.50f,-0.6f,0.000f,0.3f,0.3f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,300,20,6.0f,0.5f,0.00f,0.3f,0.3f);
 
     PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,30,4,0.2500f,0.00f,0.00f,0.3f,0.3f);
-    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,80,4,0.18f,0.00f,0.00f,0.3f,0.3f);
-    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,80,4,0.4f,0.00f,0.0f,0.3f,0.3f);
+    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,60,4,0.22f,0.00f,0.00f,0.3f,0.3f);
+    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,60,4,0.4f,0.00f,0.0f,0.3f,0.3f);
 //镖体2
     // PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,80,4,0.20f,0.00f,0.00f,0.3f,0.7f);
     // PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,80,4,0.50f,0.00f,0.00f,0.3f,0.3f);

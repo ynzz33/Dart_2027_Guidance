@@ -65,6 +65,7 @@ uint8_t alloc_infeasible = 0, alloc_singular_flag = 0;
 float   vision_los_final[2][3],vision_los_current[3];   /* 末制导世界系视线终点:视觉新帧锁存,target 每 tick 斜坡逼近(方案3) */
 float   vision_los_rate[3] = {0};                    /* 末制导世界系惯性视线率λ̇(°/s):视觉帧间差分,PN超前用;丢帧保持/丢目标清0 */
 float   pitch_dive_floor = 0.0f, closeness_s = 0.0f; /* Vofa:末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1] */
+float   yaw_distance_gain = 1.0f;                   /* Vofa:末制导 yaw 距离面积增益 */
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
 
@@ -171,6 +172,47 @@ static float Pitch_Dive_Floor(uint16_t dist_cm, uint16_t area)
     pitch_dive_floor = dive_floor;
     return dive_floor;
 }
+
+/* === 末制导 YAW 距离面积增益:随接近度调整 yaw 控制增益 ===
+ * 参考 Pitch_Dive_Floor 的接近度 s 计算方式(距离/面积分段合成):
+ *   远段用距离 dist_cm(标定准、连续,s:0→DIVE_SCHED_SWITCH),
+ *   近段用面积 area(blob 大、近场更可靠,s:DIVE_SCHED_SWITCH→1),
+ *   dist_cm 决定走哪段;两包都无(dist_cm=0)退化为默认增益1.0。
+ *
+ * 增益线性插值:YAW_GAIN_FAR(s=0) → YAW_GAIN_NEAR(s=1)。
+ * 超过 YAW_GAIN_ENABLE_DIST 距离时不调整(返回1.0),避免远处误触发。
+ * Vofa 观测 yaw_distance_gain。*/
+static float Yaw_Distance_Area_Gain(uint16_t dist_cm, uint16_t area)
+{
+    /* 超过启用距离阈值，不调整增益 */
+    if ((float)dist_cm > YAW_GAIN_ENABLE_DIST)
+    {
+        yaw_distance_gain = 1.0f;
+        return 1.0f;
+    }
+
+    float s;
+    float gain;
+    if (dist_cm == 0)                              /* 无 0x5B 距离/面积包 → 退化为默认增益 */
+        // s = 0.0f;
+        gain = 1.0;
+    else if ((float)dist_cm > DIST_NEAR_CM)        /* 远段:距离调度,s 由远(s=0)线性升到切换点 */
+        gain = 1.3;
+        // s = DIVE_SCHED_SWITCH * (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
+    else         
+        gain = 0.85;                                  /* 近段:面积调度,s 由切换点升到近(s=1) */
+        // s = DIVE_SCHED_SWITCH + (1.0f - DIVE_SCHED_SWITCH) * ((float)area - AREA_NEAR) / (AREA_IMPACT - AREA_NEAR);
+
+    // if (s < 0.0f) s = 0.0f;
+    // if (s > 1.0f) s = 1.0f;
+
+    /* 增益线性插值:YAW_GAIN_FAR(s=0) → YAW_GAIN_NEAR(s=1) */
+    // float gain = YAW_GAIN_FAR + s * (YAW_GAIN_NEAR - YAW_GAIN_FAR);
+
+    yaw_distance_gain = gain;
+    return gain;
+}
+
 void Guidance_Terminal(void)//制导段
 {
     /* PN 视线率状态(函数级静态,帧间保持):上帧世界系视线终点 / 自上帧起累计的控制拍数 / 首帧标志 */
@@ -233,6 +275,10 @@ void Guidance_Terminal(void)//制导段
         los_rate_init = 0;
     }
 
+        /* YAW 距离面积增益:根据接近度调整 yaw 控制响应
+         * 远距离/小面积时增益小(减少抖动),近距离/大面积时增益大(提高跟踪精度)
+         * 对 yaw 目标误差应用增益:target_adj = current + gain * (target - current) */
+        float yaw_gain = Yaw_Distance_Area_Gain(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
     /* 方案3:setpoint 端速率限制——每 tick 目标朝锁存终点斜坡逼近,把视觉 50ms 阶跃摊平,
      * 消除目标台阶对外环 P(及对误差微分时的 D)的周期性冲击;非反馈环低通,不引入 P/I 相位滞后。
      * 帧间终点不变、斜坡到达后 target≡终点,与原"锁存+航位推算"等价,仅消去切换瞬间的阶跃。*/
@@ -244,7 +290,7 @@ void Guidance_Terminal(void)//制导段
     // }
     //镖体2是25
     Surface.target_angle_Euler[NOW][YAW] =
-        Target_Slew(vision_los_current[YAW], vision_los_final[NOW][YAW], fabs(vision_los_final[NOW][YAW]-vision_los_current[YAW])/25, 0);
+        Target_Slew(vision_los_current[YAW], vision_los_final[NOW][YAW], yaw_gain*fabs(vision_los_final[NOW][YAW]-vision_los_current[YAW])/20, 0);
     Surface.target_angle_Euler[NOW][PITCH] =
         Target_Slew(vision_los_current[PITCH], vision_los_final[NOW][PITCH], fabs(vision_los_final[NOW][PITCH]-vision_los_current[PITCH])/25, 0);
     // Surface.target_angle_Euler[NOW][YAW] = vision_los_final[NOW][YAW];
@@ -258,13 +304,14 @@ void Guidance_Terminal(void)//制导段
          * 既提前瞄准命中、又给外环超前相位压制猎振;②迎角前馈——本应加 θ−γ,但 γ(姿态前向)≡θ→该项恒0,
          * 无气动数据下退化为常值配平迎角 AOA_TRIM_DEG(正=机头比视线高,使速度方向落在视线上;默认0=关)。
          * yaw 侧滑≈0,只加 PN、不加迎角项。叠加在斜坡目标之上,受 λ̇ 限幅与常值约束,不会突跳。*/
-        // Surface.target_angle_Euler[NOW][YAW]   -= PN_LEAD_K * vision_los_rate[YAW]; 
+        // Surface.target_angle_Euler[NOW][YAW]   -= PN_LEAD_K * vision_los_rate[YAW];
         if (Surface.current_angle_Euler[NOW][PITCH] < pitch_control_limit_deg)   /* 与上方 pitch 锁存条件一致:仅俯冲到位后主动制导 pitch */
             Surface.target_angle_Euler[NOW][PITCH] -= PN_LEAD_K * vision_los_rate[PITCH] + AOA_TRIM_DEG;
 
         float dive_floor = Pitch_Dive_Floor(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
         if (Surface.target_angle_Euler[NOW][PITCH] < dive_floor)
             Surface.target_angle_Euler[NOW][PITCH] = dive_floor;
+
     }
 }
 void Guidance_End(void)
@@ -329,7 +376,7 @@ void get_current_Target(void)
         }
 }
 void get_current_State(void)
-{
+{ 
     if (Self_Text.Self_Text_Process==Self_Text_OK)
     {
         Guidance_State = Start;
@@ -339,7 +386,7 @@ void get_current_State(void)
             Self_Text.Self_Text_Process = 5; 
         }
     }
-    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][Y] >= 0.80f||IMU_Data.A[NOW][Y] <= -0.8f))
+    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][Y] >= 0.80f||IMU_Data.A[NOW][Y] <= -0.65f))
     {
         
         Vision_Transmit( Vision_Cmd_Work );
@@ -350,7 +397,7 @@ void get_current_State(void)
             Surface.Guidance_cnt[0] = 0;
         }
     }
-    else if (Guidance_State == Stable && IMU_Data.Euler[NOW][PITCH]<=5.0f)
+    else if (Guidance_State == Stable && IMU_Data.Euler[NOW][PITCH]<=15.0f)
     {
         Vision_Transmit( Vision_Cmd_Work );
         if(Surface.Guidance_cnt[1]++>5)
@@ -360,7 +407,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&IMU_Data.A_Normed[NOW][Y] >= 0.80f&& IMU_Data.A[NOW][Y]>=  1.0f)
+    else if (Guidance_State == Terminal &&IMU_Data.A_Normed[NOW][Y] >= 0.80f&& IMU_Data.A[NOW][Y]>=  2.0f)
     {
         Vision_Transmit( Vision_Cmd_Work ); 
         if(Surface.Guidance_cnt[2]++>5)
@@ -730,13 +777,13 @@ void surface_control_task(void)
             p_body = Surface.output_gyro_Euler[NOW][PITCH], 
             y_body = Surface.output_gyro_Euler[NOW][YAW],
             r_body = Surface.output_gyro_Euler[NOW][ROLL];
-        if (Guidance_State==Terminal&&IMU_Data.Euler[NOW][PITCH]>=-15)
-        {
-            y_body *=1.5f;
-            // Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
-            //                        Surface.output_gyro_Euler[NOW][YAW],
-            //                        &p_body, &y_body);
-        }
+        // if (Guidance_State==Terminal&&IMU_Data.Euler[NOW][PITCH]>=-15)
+        // {
+        //     // y_body *= 1.5f;
+        //     // Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
+        //     //                        Surface.output_gyro_Euler[NOW][YAW],
+        //     //                        &p_body, &y_body);
+        // }
         if (Guidance_State==Stable)
         {
             y_body = 0.0f;
