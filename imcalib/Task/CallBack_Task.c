@@ -196,7 +196,7 @@ void Vision_Transmit_Debug(void)
 
     val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State;
     val[1]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
-    val[2]  = Vision_Rx_Data.y[NOW]*1000.0f;
+    val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.A[NOW][Y]*10;
     
     // val[0]  = IMU_Data.A[NOW][X];
     // val[1]  = IMU_Data.A[NOW][Y];
