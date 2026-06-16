@@ -158,6 +158,11 @@ void SelfTestTask(void const * argument)
     if (Guidance_State == Self_Text_State)
     {
         Self_Text_Task();
+        static uint16_t Self_Text_cnt = 0;
+        if((Self_Text_cnt++)%5==0)
+        {
+          Buzzer_Remind();
+        }
     }
 	  Buzzer_play_task(&Buzzer_message);
     osDelay(100);
@@ -175,8 +180,9 @@ void SelfTestTask(void const * argument)
 void IMUTask(void const * argument)
 {
   /* USER CODE BEGIN IMUTask */
-  IMU_Calibrate();
+  // IMU_Calibrate();
   TickType_t xLastWake = xTaskGetTickCount();
+  IMU_Data.calib_done = 1;
   /* Infinite loop */
   for(;;)
   {

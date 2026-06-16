@@ -156,7 +156,7 @@ void Vision_Receive(uint8_t* Buf)
         HAL_GPIO_WritePin( LED_PORT,LED_PIN,GPIO_PIN_SET );
     if (Guidance_State==Terminal)
         {
-            Buzzer_play_song(song_ni);
+            Buzzer_Remind();
         }
     }
     else if(Buf[0]==0x5B&&Buf[5]==0xA6)        /* 距离+面积扩展包(6字节,独立于识别包):dist_cm/area 均 uint16 大端 */
@@ -197,13 +197,16 @@ void Vision_Transmit_Debug(void)
     val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State;
     val[1]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
     val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.A[NOW][Y]*10;
+    val[3]  = Surface.output_Body_Euler[NOW][PITCH];
+    val[4]  = Surface.output_Body_Euler[NOW][ROLL];
+    val[5]  = Surface.output_Body_Euler[NOW][YAW];
     
     // val[0]  = IMU_Data.A[NOW][X];
     // val[1]  = IMU_Data.A[NOW][Y];
     // val[2]  = IMU_Data.A[NOW][Z];
-    val[3]  = Surface.output_Body_Euler[NOW][PITCH];
-    val[4]  = Surface.output_Body_Euler[NOW][ROLL];
-    val[5]  = Surface.output_Body_Euler[NOW][YAW];
+    // val[3]  = IMU_Data.A_Normed[NOW][X];
+    // val[4]  = IMU_Data.A_Normed[NOW][Y];
+    // val[5]  = IMU_Data.A_Normed[NOW][Z];
     val[6]  = Surface.current_angle_Euler[NOW][PITCH];
     val[7]  = Surface.current_angle_Euler[NOW][ROLL];
     val[8]  = Surface.current_angle_Euler[NOW][YAW];

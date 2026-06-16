@@ -18,8 +18,14 @@
 Button_Data_t Button_Data = {0};
 Buzzer_note_t Long_notes[10] = {{M2,50},{M3b,50},{M3,50},{M4,50},{M5b,50},{M5,50},{M6b,50},{M6,50},{M7b,50},{M7,50},};
 Buzzer_note_t Short_notes[10] = {{M2,50},{M3b,50},{M3,50},{M4,50},{M5b,50},{M5,50},{M6b,50},{M6,50},{M7b,50},{M7,50},};
+Buzzer_note_t Remind_Sounds = {M7,200};
 
 
+void Buzzer_Remind(void)
+{
+        Buzzer_message.note = Remind_Sounds;
+        Buzzer_message.cmd = BUZZER_CMD_PLAY_NOTE;
+}
 void Press_Remind(void)
 {
         switch (Button_Data.Press_Type)

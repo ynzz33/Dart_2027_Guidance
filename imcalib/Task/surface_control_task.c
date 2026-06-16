@@ -103,10 +103,10 @@ void Wing_Control(void)
     {      
         if(Guidance_State == Self_Text_State)
         {
-            Surface.output_angle_Servo[NOW][UP_LEFT]    = 30;
-            Surface.output_angle_Servo[NOW][UP_RIGHT]   = 30;
-            Surface.output_angle_Servo[NOW][DOWN_LEFT]  = 30;
-            Surface.output_angle_Servo[NOW][DOWN_RIGHT] = 30;
+            Surface.output_angle_Servo[NOW][UP_LEFT]    = 0;
+            Surface.output_angle_Servo[NOW][UP_RIGHT]   = 0;
+            Surface.output_angle_Servo[NOW][DOWN_LEFT]  = 0;
+            Surface.output_angle_Servo[NOW][DOWN_RIGHT] = 0; 
         }
         else if(Guidance_State == Start&&IMU_Data.calib_done==1)
         {
@@ -317,20 +317,22 @@ void Guidance_Terminal(void)//制导段
 void Guidance_End(void)
 {
     // Dart_Trigger_Power_Control( Power_OFF );
-    if (Surface.Guidance_cnt[3]++>100)
+    if (Surface.Guidance_cnt[4]++>500)
     {
         Vision_Transmit(Vision_Cmd_Record_Stop);
         Guidance_State = PROCESS_OK;
         Buzzer_stop();
+        Surface.Guidance_cnt[4] = 0;
     }
     Wing_Servo_Control_Flag = 0;
     // Total_Power_Control( Power_OFF )//不能太快掉电，不然openmv保存不了视频等等
 }
 void Guidance_Process_OK(void)
 {
-    if (Surface.Guidance_cnt[4]++>500)
+    if (Surface.Guidance_cnt[5]++>500)
     {
 		Total_Power_Control(Power_OFF);
+        Surface.Guidance_cnt[5] = 0;
     }
 }
 
@@ -350,12 +352,14 @@ void get_current_Target(void)
                 if(IMU_Data.calib_done==1)
                 {
                     static uint16_t cnt = 0 ;
-                    if(cnt++>50)
+                    if(cnt++>1)
                     {
                         IMU_Data.calib_done = 2;
                         Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
                         Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
                         Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
+                        Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
+                        Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
                     }
                 }   
                 Stable_Flag = 1;
@@ -377,44 +381,52 @@ void get_current_Target(void)
 }
 void get_current_State(void)
 { 
-    if (Self_Text.Self_Text_Process==Self_Text_OK)
+    if (Self_Text.Self_Text_Process==Self_Text_OK&&Guidance_State == Self_Text_State)
     {
-        Guidance_State = Start;
-        Vision_Transmit( Vision_Cmd_Work );
-        if (Self_Text.Self_Text_Process<5)
+        if (Surface.Guidance_cnt[0]++>2000)
         {
-            Self_Text.Self_Text_Process = 5; 
+            Buzzer_Remind();
+            Guidance_State = Start;
+            Vision_Transmit( Vision_Cmd_Work );
+            if (Self_Text.Self_Text_Process<5)
+            {
+                Self_Text.Self_Text_Process = 5; 
+            }
+            Surface.Guidance_cnt[0] = 0;
+            Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
         }
     }
-    else if (Guidance_State == Start && (IMU_Data.A_Normed[NOW][Y] >= 0.80f||IMU_Data.A[NOW][Y] <= -0.65f))
+    else if (Guidance_State == Start && ((IMU_Data.A_Normed[NOW][Y] >= 0.80f&&IMU_Data.A[NOW][Y] >= 1.0f)||(IMU_Data.Euler[NOW][PITCH]<=(Surface.Stable_Euler_Angle[PITCH]-3)&&IMU_Data.Euler[NOW][PITCH]>=(Surface.Stable_Euler_Angle[PITCH]-10))))
     {
-        
         Vision_Transmit( Vision_Cmd_Work );
-        if (Surface.Guidance_cnt[0]++>5)
+        if (Surface.Guidance_cnt[1]++>5)
         {
+            Buzzer_Remind();
             Vision_Transmit( Vision_Cmd_Record_Start );
             Guidance_State = Stable;
-            Surface.Guidance_cnt[0] = 0;
+            Surface.Guidance_cnt[1] = 0;
         }
     }
-    else if (Guidance_State == Stable && IMU_Data.Euler[NOW][PITCH]<=15.0f)
+    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=5.0f))
     {
+            Buzzer_Remind();
         Vision_Transmit( Vision_Cmd_Work );
-        if(Surface.Guidance_cnt[1]++>5)
+        if(Surface.Guidance_cnt[2]++>5)
         {
             Guidance_State = Terminal;
-            Surface.Guidance_cnt[1] = 0;
+            Surface.Guidance_cnt[2] = 0;
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&IMU_Data.A_Normed[NOW][Y] >= 0.80f&& IMU_Data.A[NOW][Y]>=  2.0f)
+    else if (Guidance_State == Terminal &&IMU_Data.A_Normed[NOW][Y] >= 0.90f&& IMU_Data.A[NOW][Y]<=  -2.0f)
     {
+            Buzzer_Remind();
         Vision_Transmit( Vision_Cmd_Work ); 
-        if(Surface.Guidance_cnt[2]++>5)
+        if(Surface.Guidance_cnt[3]++>5)
         {
             Guidance_State = End;
             Vision_Transmit( Vision_Cmd_Record_Stop );
-            Surface.Guidance_cnt[2] = 0;
+            Surface.Guidance_cnt[3] = 0;
         }
     }
 }
@@ -777,22 +789,27 @@ void surface_control_task(void)
             p_body = Surface.output_gyro_Euler[NOW][PITCH], 
             y_body = Surface.output_gyro_Euler[NOW][YAW],
             r_body = Surface.output_gyro_Euler[NOW][ROLL];
-        // if (Guidance_State==Terminal&&IMU_Data.Euler[NOW][PITCH]>=-15)
-        // {
-        //     // y_body *= 1.5f;
-        //     // Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
-        //     //                        Surface.output_gyro_Euler[NOW][YAW],
-        //     //                        &p_body, &y_body);
-        // }
+        if (Guidance_State==Terminal&&IMU_Data.Euler[NOW][PITCH]>-5)
+        {
+            // y_body *= 1.5f;
+            // p_body = -5.0f;  
+            // Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
+            //                        Surface.output_gyro_Euler[NOW][YAW],
+            //                        &p_body, &y_body);
+        }
         if (Guidance_State==Stable)
         {
-            y_body = 0.0f;
+            y_body = 0.f;
             p_body = 0.0f;
         }
 
-            // p_body = 0;
-            // y_body = 0;
+            // p_body = 0; 
+            // y_body = 0; 
             // r_body = 0;
+        // if (Guidance_State==Terminal&&IMU_Data.Euler[NOW][PITCH]<-5)
+        // {
+        //     p_body += 5.0f; 
+        // }
             /* 三轴统一接 PID 内环输出(roll 绕纵轴不反旋,直接用);按 Alloc_Mode 分派分配器。
              * 注:上面 p_body*0.85/y_body*1.05 是旧分配的经验微调,Mode2 精确分配下会破坏最优,
              * B 台架辨识后应把这两个系数设 1,由 B 承担全部相对标定。*/

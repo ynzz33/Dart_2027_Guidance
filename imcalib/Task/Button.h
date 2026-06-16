@@ -50,5 +50,6 @@ typedef struct
 extern Button_Data_t Button_Data;
 
 void Button_Detect(void);
+void Buzzer_Remind(void);
 
 #endif //BUTTON_H
