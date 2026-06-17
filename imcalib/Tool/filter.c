@@ -194,15 +194,12 @@ void kalman_filter_init(kalman_filter_t *F, kalman_filter_init_t *I)
 */
 float *kalman_filter_calc(kalman_filter_t *F, float signal1, float signal2)
 {
-  static float TEMP_data[4] = {0, 0, 0, 0};
-  static float TEMP_data21[2] = {0, 0};
-  static mat TEMP,TEMP21;
-	static uint8_t is_temp_init = 0;
-	if (!is_temp_init) {
-		mat_init(&TEMP,    2, 2, (float *)TEMP_data);
-		mat_init(&TEMP21,  2, 1, (float *)TEMP_data21);
-		is_temp_init = 1;
-	}
+  /* 每个滤波器实例独立的临时变量，避免三轴互相覆盖 */
+  float TEMP_data[4] = {0, 0, 0, 0};
+  float TEMP_data21[2] = {0, 0};
+  mat TEMP, TEMP21;
+  mat_init(&TEMP,    2, 2, (float *)TEMP_data);
+  mat_init(&TEMP21,  2, 1, (float *)TEMP_data21);
   F->z.pData[0] = signal1;//z(k),
   F->z.pData[1] = signal2;//z(k)
 

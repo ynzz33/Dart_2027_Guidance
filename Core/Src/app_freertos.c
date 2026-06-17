@@ -180,9 +180,9 @@ void SelfTestTask(void const * argument)
 void IMUTask(void const * argument)
 {
   /* USER CODE BEGIN IMUTask */
-  // IMU_Calibrate();
+  IMU_Calibrate();
   TickType_t xLastWake = xTaskGetTickCount();
-  IMU_Data.calib_done = 1;
+  // IMU_Data.calib_done = 1;
   /* Infinite loop */
   for(;;)
   {

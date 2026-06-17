@@ -21,9 +21,9 @@
 
 /* Mahony 互补滤波:预测(陀螺积分)-校正(加速度拉回重力方向),即"更聪明的输入滤波" */
 #define mahony_MAXOUT   10.00f   /* 修正量限幅,防加速度突变把姿态拉飞 */
-#define mahony_i_maxout  1.00f   /* 积分限幅 */
-#define mahony_Kp        2.0f    /* 加速度校正强度:大→快速消陀螺漂移但易被振动带歪;小→抗扰好但收敛慢 */
-#define mahony_Ki        0.01f   /* 估计陀螺零偏残差,通常 0.005~0.02 */
+#define mahony_i_maxout  5.00f   /* 积分限幅 */
+#define mahony_Kp        10.0f    /* 加速度校正强度:大→快速消陀螺漂移但易被振动带歪;小→抗扰好但收敛慢 */
+#define mahony_Ki        0.00f   /* 估计陀螺零偏残差,通常 0.005~0.02 */
 #define mahony_Kd        0.0f    /* 必须为 0:标准 Mahony 只有 PI,D 项会放大噪声 */
 
 /* === 加速度可信度门控:高g/机动(发射推力/气动减速/冲击)期间加速度计测的是比力而非重力,

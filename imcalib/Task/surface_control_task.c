@@ -300,13 +300,10 @@ void Guidance_Terminal(void)//制导段
      * 接近放开到期望入射角;丢目标(FAILURE)走上面"持当前"分支、不钳,行为不变。yaw 不钳(无重力问题)。*/
     if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
     {
-        /* 混合导引超前(纯视觉、不依赖会漂的IMU速度):①PN——目标按惯性视线率λ̇超前,把"视线率打到0=碰撞航线",
-         * 既提前瞄准命中、又给外环超前相位压制猎振;②迎角前馈——本应加 θ−γ,但 γ(姿态前向)≡θ→该项恒0,
-         * 无气动数据下退化为常值配平迎角 AOA_TRIM_DEG(正=机头比视线高,使速度方向落在视线上;默认0=关)。
-         * yaw 侧滑≈0,只加 PN、不加迎角项。叠加在斜坡目标之上,受 λ̇ 限幅与常值约束,不会突跳。*/
-        // Surface.target_angle_Euler[NOW][YAW]   -= PN_LEAD_K * vision_los_rate[YAW];
-        if (Surface.current_angle_Euler[NOW][PITCH] < pitch_control_limit_deg)   /* 与上方 pitch 锁存条件一致:仅俯冲到位后主动制导 pitch */
-            Surface.target_angle_Euler[NOW][PITCH] -= PN_LEAD_K * vision_los_rate[PITCH] + AOA_TRIM_DEG;
+        /* 混合导引超前(收进 PNG_Task.c):在斜坡跟踪目标角之上,叠加按接近速度 Vc 缩放的 PN 超前
+         * (Mode0=Vc缩放/Mode1=EKF全量真PN,标志位切换),把惯性视线率λ̇→0=碰撞航线。pitch 内部仍带
+         * 俯冲到位门控与 flag=0 退回原固定增益超前(不回归),yaw 由 PNG_Yaw_Flag 开关。详见 PNG_Apply_Lead。*/
+        PNG_Apply_Lead(&Surface, &IMU_Data);
 
         float dive_floor = Pitch_Dive_Floor(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
         if (Surface.target_angle_Euler[NOW][PITCH] < dive_floor)
@@ -697,27 +694,27 @@ void Servo_Mix_MinEnergy(float p, float r, float y)
 #endif
 void Wing_Control_VECTOR_NOZZLE(void)
 {
-    if (Guidance_State == Terminal||Guidance_State == Self_Text_State||Stable_Flag ==1 )
-    // if (Guidance_State == Self_Text_State)
-    {
-        Wing_UL_Control(Surface.output_angle_Servo[NOW][UP_LEFT]    );
-        Wing_UR_Control(Surface.output_angle_Servo[NOW][UP_RIGHT]   );
-        Wing_DL_Control(Surface.output_angle_Servo[NOW][DOWN_LEFT]  );
-        Wing_DR_Control(Surface.output_angle_Servo[NOW][DOWN_RIGHT] );
-    }
-    else
-    {
-        // 末端失去目标或制导结束,舵面回中
+    // if (Guidance_State == Terminal||Guidance_State == Self_Text_State||Stable_Flag ==1 )
+    // // if (Guidance_State == Self_Text_State)
+    // {
+    //     Wing_UL_Control(Surface.output_angle_Servo[NOW][UP_LEFT]    );
+    //     Wing_UR_Control(Surface.output_angle_Servo[NOW][UP_RIGHT]   );
+    //     Wing_DL_Control(Surface.output_angle_Servo[NOW][DOWN_LEFT]  );
+    //     Wing_DR_Control(Surface.output_angle_Servo[NOW][DOWN_RIGHT] );
+    // }
+    // else
+    // {
+    //     // 末端失去目标或制导结束,舵面回中
+    //     Wing_UL_Control(0.0f);
+    //     Wing_UR_Control(0.0f);
+    //     Wing_DL_Control(0.0f);
+    //     Wing_DR_Control(0.0f);
+    //     return;
+    // }
         Wing_UL_Control(0.0f);
         Wing_UR_Control(0.0f);
         Wing_DL_Control(0.0f);
         Wing_DR_Control(0.0f);
-        return;
-    }
-        // Wing_UL_Control(0.0f);
-        // Wing_UR_Control(0.0f);
-        // Wing_DL_Control(0.0f);
-        // Wing_DR_Control(0.0f);
 }
 #endif
 /*---- 线程区 ----*/

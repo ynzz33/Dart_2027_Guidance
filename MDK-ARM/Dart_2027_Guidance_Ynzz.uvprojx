@@ -788,6 +788,16 @@
               <FilePath>..\imcalib\Tool\filter.h</FilePath>
             </File>
             <File>
+              <FileName>vision_ins.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\imcalib\Tool\vision_ins.c</FilePath>
+            </File>
+            <File>
+              <FileName>vision_ins.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\imcalib\Tool\vision_ins.h</FilePath>
+            </File>
+            <File>
               <FileName>pid.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\imcalib\Tool\pid.c</FilePath>

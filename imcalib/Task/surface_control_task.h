@@ -197,6 +197,7 @@ typedef struct
 }Self_Text_t;
 
 extern float Stable_Euler_Angle[3];
+extern float pitch_control_limit_deg;   /* 放开 pitch 控制的俯冲角阈值°(<此值才主动制导 pitch);PNG_Apply_Lead 引用 */
 extern Surface_t Surface;
 extern Self_Text_t Self_Text;
 extern uint8_t Guidance_State;

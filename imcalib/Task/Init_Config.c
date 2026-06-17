@@ -3,6 +3,7 @@
 #include "CallBack_Task.h"
 //#include "cmsis_os.h"
 #include "filter.h"
+#include "vision_ins.h"
 #include "main.h"
 #include "user_lib.h"
 #include "tim.h"
@@ -41,6 +42,7 @@ void TotalInitTask(void)
 		PNG_Init(&PNG_Data);
 
 		Kalman_Vel_Init();
+		VisInsEKF_Init();   /* 视觉/IMU 紧耦合速度 EKF 初始化(取代纯积分速度,见 Tool/vision_ins.c) */
 
 		Total_Power_Control(Power_ON);
 }

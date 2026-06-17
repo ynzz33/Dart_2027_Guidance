@@ -13,10 +13,11 @@
 #include "math.h"
 #include "pid.h"
 #include "surface_control_task.h"
+#include "CallBack_Task.h"
+#include "vision_ins.h"
 u8 Current_Sensor,Current_Use_Flag,receiveflag = 0;
 IMU_DATA_t IMU_Data = {0};
 uint32_t IMU_Cnt = 0,control_cnt = 0;
-float acc_trust_obs = 1.0f;   /* Vofa 观测:Mahony 加速度校正权重,1=全信任 / 0=纯陀螺coast */
 float   gamma_pitch_deg = 0.0f;   /* 弹道角(速度方向俯仰角,速度积分版)°。注:速度链路已 #if 0 停用→此变量不再更新,消费端改用下面 gamma_pitch_fwd_deg;保留定义便于日后接观测器复活 */
 float   gamma_pitch_fwd_deg = 0.0f; /* 弹道角γ的姿态前向估计°(机体纵轴前向仰角,不漂):取代会漂的速度版,供末制导俯冲限幅/Vofa 用 */
 uint8_t Vel_Reanchor_Flag = 0;    /* 俯冲入段置1:本拍 IMU 用"姿态前向×V_NOM"锚定世界速度后清0(见下) */
@@ -99,14 +100,15 @@ void IMU_Attitude_Algorithm(void)
     }
     else
     {
-        ax_normed=fabs(a_raw_x)/acc_norm;
-        ay_normed=fabs(a_raw_y)/acc_norm;
-        az_normed=fabs(a_raw_z)/acc_norm;
+        /* 归一化：保留符号！fabs会丢失方向信息，导致Mahony补偿错误 */
+        ax_normed = a_raw_x / acc_norm;
+        ay_normed = a_raw_y / acc_norm;
+        az_normed = a_raw_z / acc_norm;
     }
     /* === 加速度可信度门控(核心修复) ===
      * acc_norm 以 g 为单位、静止≈1.0。偏离 1g 越多→越可能掺入线加速度(发射推力/气动减速/冲击),
      * 此时加速度方向不是重力,用它做 Mahony 校正会把姿态拉飞且回不来 → 按偏离程度线性降权。*/
-    float acc_dev = fabsf(acc_norm - 1.0f);
+    float acc_dev = fabsf(fabs(acc_norm) - 1.0f);
     float acc_trust;
     if      (acc_dev <= ACC_TRUST_FULL_DEV) acc_trust = 1.0f;
     else if (acc_dev >= ACC_TRUST_ZERO_DEV) acc_trust = 0.0f;
@@ -114,9 +116,9 @@ void IMU_Attitude_Algorithm(void)
     /* 方案B:发射后整个飞行段无"干净重力相"(推力→气动减速→冲击),气动减速幅度有时≈1g却方向朝后
      * 会骗过幅度门控;故状态机一旦判出已发射(Start→Stable 用 A_Normed[Y]≥0.8),全程硬置0、纯靠
      * (已去零偏的)陀螺 coast。Guidance_State/枚举见 surface_control_task.h(IMU.c 已 include)。*/
-    if (Guidance_State == Stable || Guidance_State == Terminal || Guidance_State == End)
-        acc_trust = 0.0f;
-    acc_trust_obs = acc_trust;   /* 丢 Vofa 看门控:静止≈1,发射那一拍应立刻掉到 0 并保持到落地 */
+    // if (Guidance_State == Stable || Guidance_State == Terminal || Guidance_State == End)
+    //     acc_trust = 0.0f;
+    acc_trust = 1.0f;
     /* 计算误差(误差先乘可信度:trust=0 时 err=0 → 比例项=0 且 pid 积分停止累加=冻结零偏估计不被污染,
      * 同时 pid 内 iout 保留发射前学到的好零偏值继续补偿陀螺,正是 coast 想要的)*/
         mahony_temp[X] = pid_calc(&mahony_pid[X], acc_trust*(az_normed*ty - ay_normed*tz), 0, dT);
@@ -137,7 +139,7 @@ void IMU_Attitude_Algorithm(void)
 
 
 #endif
-#if 0   /* 速度预测链路整段停用省算力:纯积分速度无外部观测必漂(见上分析),末制导改用姿态前向γ(下方)+视觉视线率PN,
+#if 1   /* 速度预测链路整段停用省算力:纯积分速度无外部观测必漂(见上分析),末制导改用姿态前向γ(下方)+视觉视线率PN,
          * 不再需要 A_World/世界速度/机体速度/ZUPT 零速。保留代码体,日后接观测器(视觉/PNG)时改回 #if 1 即可复活。*/
     /*世界加速度与
       世界速度与
@@ -150,9 +152,17 @@ void IMU_Attitude_Algorithm(void)
     float g_norm_dps = sqrtf(IMU_Data.G[NOW][PITCH]*IMU_Data.G[NOW][PITCH] +
                              IMU_Data.G[NOW][ROLL ]*IMU_Data.G[NOW][ROLL ] +
                              IMU_Data.G[NOW][YAW  ]*IMU_Data.G[NOW][YAW  ]);
+    /* ZUPT 静止判据要用"去零偏后"的加速度模长,不能用裸 acc_dev:
+     * BMX055 加速度零位偏移可达 ~0.07-0.15g,静止时裸 ‖a_raw‖ 未必落在 1g±ZUPT_ACC_DEV_G,
+     * 该固定偏移会把 acc_dev 永久顶在阈值外→"静止且状态对仍判不出静止"(实测根因)。
+     * 扣掉标定/在线对准的 A_Offset 后,静止 ≈1g → acc_dev_zupt≈0。A_Offset 上电即由 IMU_Calibrate 填好,无死锁。*/
+    float axc = a_raw_x - IMU_Data.A_Offset[X];
+    float ayc = a_raw_y - IMU_Data.A_Offset[Y];
+    float azc = a_raw_z - IMU_Data.A_Offset[Z];
+    float acc_dev_zupt = fabsf(sqrtf(axc*axc + ayc*ayc + azc*azc) - 1.0f);
     static uint16_t zupt_cnt = 0;
     uint8_t pre_launch = (Guidance_State == Self_Text_State || Guidance_State == Start);
-    if (pre_launch && acc_dev < ZUPT_ACC_DEV_G && g_norm_dps < ZUPT_GYR_DPS)  /* acc_dev=|‖a‖−1g|,复用上面 Mahony 门控量 */
+    if (pre_launch && acc_dev_zupt < ZUPT_ACC_DEV_G && g_norm_dps < ZUPT_GYR_DPS)  /* 用去零偏模长,见上 */
     {
         if (zupt_cnt < ZUPT_HOLD_CNT) zupt_cnt++;
     }
@@ -177,23 +187,43 @@ void IMU_Attitude_Algorithm(void)
         IMU_Data.A_World[NOW] [i]  =  ( IMU_Data.R_matrix_T[0][i]*ax_no_gravity +
                                         IMU_Data.R_matrix_T[1][i]*ay_no_gravity +
                                         IMU_Data.R_matrix_T[2][i]*az_no_gravity );
-        // IMU_Data.A_World[NOW] [i] = KalmanFilter( &ACC_WORLD_Kalman_Filter[i],IMU_Data.A_World[NOW][i],0.1f,5.0f );
+        IMU_Data.A_World[NOW] [i] = KalmanFilter( &ACC_WORLD_Kalman_Filter[i],IMU_Data.A_World[NOW][i],0.1f,5.0f );
     }
-    /*世界速度*/
-    /* 俯冲入段锚定:用姿态把"机体前向(纵轴 Y=机体[0,1,0])"映射到世界系=R_matrix_T 第1行
-     * (因 world_vec[i]=Σ_k R_matrix_T[k][i]·body_vec[k]),乘标称速度 V_NOM_MS 作世界速度初值。
-     * 这样 γ 起始≈机体俯仰(纯俯仰 φ 时 world_fwd=(0,cosφ,sinφ)→atan2(sinφ,cosφ)=φ)、随后由 A_World 积分演化。
-     * 与速度积分同任务同拍 R_matrix_T,无跨任务竞争。V_NOM 只影响 γ 演化速率、不影响初始 γ。*/
+    /* === 视觉/IMU 紧耦合 EKF:取代纯积分,给不漂的世界/机体速度(见 Tool/vision_ins.c) ===
+     * 全部在本任务(IMUTask)内调用:predict 每拍 + 视觉新帧位置更新 + 静止零速更新,单任务零竞争。*/
+    {
+        /* 1) 预测:本拍世界加速度推进一步(1kHz) */
+        float a_w[3] = { IMU_Data.A_World[NOW][X], IMU_Data.A_World[NOW][Y], IMU_Data.A_World[NOW][Z] };
+        VisInsEKF_Predict(a_w, dT);
+    }
+    /* 2) 俯冲入段锚定初速(姿态前向×V_NOM) */
     if (Vel_Reanchor_Flag)
     {
         float fwd_x = IMU_Data.R_matrix_T[1][0];
         float fwd_y = IMU_Data.R_matrix_T[1][1];
         float fwd_z = IMU_Data.R_matrix_T[1][2];
-        Kalman_Vel_Set(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
+        VisInsEKF_SetVel(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
         Vel_Reanchor_Flag = 0;
     }
-    Kalman_Vel_Calc(IMU_Data.A_World[NOW][X],IMU_Data.A_World[NOW][Y],IMU_Data.A_World[NOW][Z]);
-    if (imu_is_static) Kalman_Vel_Set(0.0f, 0.0f, 0.0f);  /* ZUPT:发射前静止→把积分出的速度钉回0(零速观测,防漂),下游机体速度/γ 随之归零 */
+    /* 3) 视觉新帧(识别成功且有距离包)→ 笛卡尔位置量测更新。用 Vision_Recog_Cnt 跳变判新帧,
+     *    不抢 TotalControlTask 的 Vision_New_Data_flag;本任务读 Vision_Rx_Data(ISR 写,字段小). */
+    {
+        static uint32_t vins_last_recog = 0;
+        uint32_t rc = Vision_Rx_Data.Vision_Recog_Cnt;
+        if (rc != vins_last_recog)
+        {
+            if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS && Vision_Rx_Data.dist_cm > 0)
+                VisInsEKF_UpdateVision((float)Vision_Rx_Data.x[NOW], (float)Vision_Rx_Data.y[NOW],
+                                       (float)Vision_Rx_Data.dist_cm, IMU_Data.R_matrix_T);
+            vins_last_recog = rc;
+        }
+    }
+    /* 4) 物理静止 → 零速更新(脱离 Guidance_State,见上 ZUPT 修复) */
+    if (imu_is_static) VisInsEKF_UpdateZeroVel();
+    /* 5) EKF 世界速度回写,供下面机体速度映射 + PNG V_c + Vofa */
+    IMU_Data.Velocity[World][NOW][X] = vins_v_world[X];
+    IMU_Data.Velocity[World][NOW][Y] = vins_v_world[Y];
+    IMU_Data.Velocity[World][NOW][Z] = vins_v_world[Z];
     /*机体速度*/
     IMU_Data.Velocity[Body][NOW][X] = IMU_Data.R_matrix_T[0][0] * IMU_Data.Velocity[World][NOW][X] +
                                       IMU_Data.R_matrix_T[0][1] * IMU_Data.Velocity[World][NOW][Y] +
@@ -500,17 +530,33 @@ void IMU_Init(void)
 }
 
 /*
- * 静态零偏校准:上电后保持飞镖静止 2 秒,采样均值作为 gyro/acc 零偏。
+ * 静态零偏校准:上电后保持飞镖静止 3 秒,采样均值作为 gyro/acc 零偏。
  * 校准期间 calib_done=0,IMU_Data_Read 不减偏,保证采样的是真实零位。
+ *
+ * 关键改进:校准期间同步运行姿态算法,让 R_matrix_T 收敛后再计算零偏,
+ * 确保零偏与重力投影自洽,静止时 A_World≈0。
  */
 void IMU_Calibrate(void)
 {
-    const uint16_t N = 2000;
+    const uint16_t WARMUP_MS = 1000;   /* 姿态收敛等待 */
+    const uint16_t SAMPLE_MS = 2000;   /* 零偏采样 */
     float gsum[3] = {0}, asum[3] = {0};
+
     IMU_Data.calib_done = 0;
-    for (uint16_t n = 0; n < N; n++)
+
+    /* Phase 1: 姿态收敛期 — 持续读传感器+解算姿态,不采零偏 */
+    for (uint16_t n = 0; n < WARMUP_MS; n++)
     {
         IMU_Data_Read();
+        IMU_Attitude_Algorithm();
+        osDelay(1);
+    }
+
+    /* Phase 2: 零偏采样期 — 姿态已收敛,R_col3≈真重力方向,此时采零偏与去重力自洽 */
+    for (uint16_t n = 0; n < SAMPLE_MS; n++)
+    {
+        IMU_Data_Read();
+        IMU_Attitude_Algorithm();
         for (int i = 0; i < 3; i++)
         {
             gsum[i] += IMU_Data.G[NOW][i];
@@ -518,21 +564,21 @@ void IMU_Calibrate(void)
         }
         osDelay(1);
     }
-    /* 零偏与去重力公式自洽:静止 mean(a_raw)=机体零偏 + 重力·g_dir(g_dir=单位重力方向)。原写法 Z−1 假设
-     * 板子绝对水平、把安装/姿态倾角的 X/Y 读数整个误当零偏,与去重力用的姿态 R_col3(指真实重力方向)不自洽
-     * → 静止 A_World≠0、速度/γ 漂(此即 γ 静止不准的根因之一)。改为扣掉"平均加速度方向上的单位重力投影":
-     * 静止时该方向≈Mahony 收敛后的 R_col3,剩余即机体系真零偏。不依赖标定姿态是否水平、任意安装角都成立,
-     * 且给出的 A_Offset 即 ZUPT 在线对准的目标值(a_raw−R_col3),开机即自洽、ZUPT 只需保持。*/
-    float amean[3], amean_norm = 0.0f;
+
+    /* 零偏 = 均值 − R_col3(姿态已收敛,此即真重力方向)
+     * 与去重力公式 a_no_grav = gravity*((a_raw−A_Offset)−R_col3) 完全自洽:
+     * 静止时 a_raw=A_Offset+R_col3 → a_no_grav=0 → A_World=0 → 速度不漂。*/
+    float amean[3];
     for (int i = 0; i < 3; i++)
     {
-        IMU_Data.G_Offset[i] = gsum[i] / (float)N;
-        amean[i] = asum[i] / (float)N;
-        amean_norm += amean[i] * amean[i];
+        IMU_Data.G_Offset[i] = gsum[i] / (float)SAMPLE_MS;
+        amean[i] = asum[i] / (float)SAMPLE_MS;
     }
-    amean_norm = sqrtf(amean_norm);
-    for (int i = 0; i < 3; i++)
-        IMU_Data.A_Offset[i] = (amean_norm > 0.001f) ? (amean[i] - amean[i] / amean_norm) : amean[i];
+    /* R_col3 = R_matrix_T 第3列(姿态已收敛,取最新值) */
+    IMU_Data.A_Offset[X] = amean[X] - IMU_Data.R_matrix_T[0][2];
+    IMU_Data.A_Offset[Y] = amean[Y] - IMU_Data.R_matrix_T[1][2];
+    IMU_Data.A_Offset[Z] = amean[Z] - IMU_Data.R_matrix_T[2][2];
+
     IMU_Data.calib_done = 1;
 }
 

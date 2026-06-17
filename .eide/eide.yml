@@ -93,6 +93,8 @@ virtualFolder:
         - path: imcalib/Tool/pid.h
         - path: imcalib/Tool/Vofa_send.c
         - path: imcalib/Tool/Vofa_send.h
+        - path: imcalib/Tool/vision_ins.c
+        - path: imcalib/Tool/vision_ins.h
       folders: []
     - name: User
       files:
