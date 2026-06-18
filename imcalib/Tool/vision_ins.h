@@ -48,11 +48,15 @@
 #define VINS_EL_SIGN          (+1.0f)   /* 像素 y(垂直)→ 绕右轴俯仰:+ = 目标偏上 */
 
 /* EKF 输出(世界系),也回写到 IMU_Data.Velocity 供 PNG/遥测 */
-extern float vins_p_world[3];   /* 镖相对靶位置 (m) */
-extern float vins_v_world[3];   /* 镖速度 (m/s) */
-extern float vins_range_m;      /* |p| 估计距离 (m),融合后的,比裸 dist_cm 稳 */
-extern float vins_vc;           /* 接近速度 V_c = −(p·v)/|p| (m/s),供 PNG */
-extern uint8_t vins_locked;     /* 1=已被视觉锁定过(p 可信) */
+typedef struct {
+    float   p_world[3];   /* 镖相对靶位置 (m) */
+    float   v_world[3];   /* 镖速度 (m/s) */
+    float   range_m;      /* |p| 估计距离 (m),融合后的,比裸 dist_cm 稳 */
+    float   vc;           /* 接近速度 V_c = −(p·v)/|p| (m/s),供 PNG */
+    uint8_t locked;       /* 1=已被视觉锁定过(p 可信) */
+} VinsOut_t;
+
+extern VinsOut_t vins_out;
 
 void VisInsEKF_Init(void);
 /* 1kHz:用 IMU 世界加速度推进一步。a_world 单位 m/s²,dt 单位 s */

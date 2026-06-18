@@ -11,20 +11,16 @@ static float X[6];        /* [px,py,pz, vx,vy,vz] 世界系 */
 static float P[6][6];     /* 协方差 */
 
 /* ===== 对外输出 ===== */
-float   vins_p_world[3] = {0};
-float   vins_v_world[3] = {0};
-float   vins_range_m    = 0.0f;
-float   vins_vc         = 0.0f;
-uint8_t vins_locked     = 0;
+VinsOut_t vins_out = {0};
 
 static void publish(void)
 {
-    for (int i = 0; i < 3; i++) { vins_p_world[i] = X[i]; vins_v_world[i] = X[3+i]; }
+    for (int i = 0; i < 3; i++) { vins_out.p_world[i] = X[i]; vins_out.v_world[i] = X[3+i]; }
     float r2 = X[0]*X[0] + X[1]*X[1] + X[2]*X[2];
-    vins_range_m = sqrtf(r2);
+    vins_out.range_m = sqrtf(r2);
     /* 接近速度 V_c = −d|p|/dt = −(p·v)/|p|;靠近(|p|减小)时为正 */
-    vins_vc = (vins_range_m > 0.01f)
-            ? -(X[0]*X[3] + X[1]*X[4] + X[2]*X[5]) / vins_range_m
+    vins_out.vc = (vins_out.range_m > 0.01f)
+            ? -(X[0]*X[3] + X[1]*X[4] + X[2]*X[5]) / vins_out.range_m
             : 0.0f;
 }
 
@@ -32,7 +28,7 @@ void VisInsEKF_Init(void)
 {
     for (int i = 0; i < 6; i++) { X[i] = 0.0f; for (int j = 0; j < 6; j++) P[i][j] = 0.0f; }
     for (int i = 0; i < 3; i++) { P[i][i] = VINS_P0_POS; P[3+i][3+i] = VINS_P0_VEL; }
-    vins_locked = 0;
+    vins_out.locked = 0;
     publish();
 }
 
@@ -40,7 +36,7 @@ void VisInsEKF_Init(void)
  * H = 在 m0 处的 3x3 单位、其余 0。标准 KF:S=HPHᵀ+R; K=PHᵀS⁻¹; x+=K(z−Hx); P=(I−KH)P。*/
 static void ekf_update(int m0, const float z[3], const float R[3][3])
 {
-    /* S = P[m0..][m0..] + R  (3x3) */
+    /* S = P[m0..][m0..] + R  (3x3) */      //新息协方差
     float Sd[9], Sinvd[9];
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++)
@@ -155,7 +151,7 @@ void VisInsEKF_UpdateVision(float x_px, float y_px, float dist_cm, const float R
             R[i][j] = (i==j ? sp2 : 0.0f) + (sr2 - sp2)*u_world[i]*u_world[j];
 
     ekf_update(0, z, R);
-    vins_locked = 1;
+    vins_out.locked = 1;
 }
 
 void VisInsEKF_UpdateZeroVel(void)

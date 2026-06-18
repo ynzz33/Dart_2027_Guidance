@@ -47,8 +47,8 @@ void IMU_Attitude_Algorithm(void)
         IMU_Data.temp[NOW][Z]/=acc_norm_t;
     }
 #endif
-#if 1 /*对速度的二阶卡尔曼*/
-    // Kalman_Vel_Calc();
+#if 0 /*对速度的二阶卡尔曼*/ //速度改用ekf，
+
 #endif
 #if 1   /*局部变量定义*/
     float
@@ -116,9 +116,9 @@ void IMU_Attitude_Algorithm(void)
     /* 方案B:发射后整个飞行段无"干净重力相"(推力→气动减速→冲击),气动减速幅度有时≈1g却方向朝后
      * 会骗过幅度门控;故状态机一旦判出已发射(Start→Stable 用 A_Normed[Y]≥0.8),全程硬置0、纯靠
      * (已去零偏的)陀螺 coast。Guidance_State/枚举见 surface_control_task.h(IMU.c 已 include)。*/
-    // if (Guidance_State == Stable || Guidance_State == Terminal || Guidance_State == End)
-    //     acc_trust = 0.0f;
-    acc_trust = 1.0f;
+    if ((Guidance_State == Stable || Guidance_State == Terminal || Guidance_State == End)&&imu_is_static==0)
+        acc_trust = 0.0f;
+    // acc_trust = 1.0f;
     /* 计算误差(误差先乘可信度:trust=0 时 err=0 → 比例项=0 且 pid 积分停止累加=冻结零偏估计不被污染,
      * 同时 pid 内 iout 保留发射前学到的好零偏值继续补偿陀螺,正是 coast 想要的)*/
         mahony_temp[X] = pid_calc(&mahony_pid[X], acc_trust*(az_normed*ty - ay_normed*tz), 0, dT);
@@ -134,14 +134,9 @@ void IMU_Attitude_Algorithm(void)
 
     /*计算修正后的陀螺仪数据（比例+积分补偿）*/
 #endif
-#if 0   /*ekf补偿,还没做*/
 
-
-
-#endif
-#if 1   /* 速度预测链路整段停用省算力:纯积分速度无外部观测必漂(见上分析),末制导改用姿态前向γ(下方)+视觉视线率PN,
-         * 不再需要 A_World/世界速度/机体速度/ZUPT 零速。保留代码体,日后接观测器(视觉/PNG)时改回 #if 1 即可复活。*/
-    /*世界加速度与
+#if 1   
+   /*世界加速度与
       世界速度与
       机体速度*/
     /* === ZUPT 零速更新 + 地面零偏对准(仅发射前) ===
@@ -221,9 +216,9 @@ void IMU_Attitude_Algorithm(void)
     /* 4) 物理静止 → 零速更新(脱离 Guidance_State,见上 ZUPT 修复) */
     if (imu_is_static) VisInsEKF_UpdateZeroVel();
     /* 5) EKF 世界速度回写,供下面机体速度映射 + PNG V_c + Vofa */
-    IMU_Data.Velocity[World][NOW][X] = vins_v_world[X];
-    IMU_Data.Velocity[World][NOW][Y] = vins_v_world[Y];
-    IMU_Data.Velocity[World][NOW][Z] = vins_v_world[Z];
+    IMU_Data.Velocity[World][NOW][X] = vins_out.v_world[X];
+    IMU_Data.Velocity[World][NOW][Y] = vins_out.v_world[Y];
+    IMU_Data.Velocity[World][NOW][Z] = vins_out.v_world[Z];
     /*机体速度*/
     IMU_Data.Velocity[Body][NOW][X] = IMU_Data.R_matrix_T[0][0] * IMU_Data.Velocity[World][NOW][X] +
                                       IMU_Data.R_matrix_T[0][1] * IMU_Data.Velocity[World][NOW][Y] +

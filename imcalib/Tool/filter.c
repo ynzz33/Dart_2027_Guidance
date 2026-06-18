@@ -118,7 +118,7 @@ kalman_filter_init_t V_KF_Init_z = {
 								0.0f, 1.0f}   // ���ٶȹ۲�����
 };
 #endif
-#if 1/*���ٶȵĶ��׿�����Ԥ��*/
+#if 0/*���ٶȵĶ��׿�����Ԥ��*/
 void Kalman_Vel_Init(void)
 {
 	kalman_filter_init(&V_KF_x,&V_KF_Init_x);
@@ -350,6 +350,7 @@ void kalman_filter3_init(kalman_filter3_t *F, kalman_filter3_init_t *I)
   *@param ���ٶ�
   *@param ���ٶ�
 */
+#if 0
 float *kalman_filter3_imu_calc(kalman_filter3_t *F, float acc_x, float acc_y, float acc_z, float gyr_x, float gyr_y, float gyr_z)
 {
   float TEMP_data[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -412,4 +413,5 @@ float *kalman_filter3_imu_calc(kalman_filter3_t *F, float acc_x, float acc_y, fl
 }
 /*@brief һ�׵�ͨ�˲�*/
 
+#endif
 #endif

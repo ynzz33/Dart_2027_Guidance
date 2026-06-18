@@ -204,9 +204,9 @@ void Vision_Transmit_Debug(void)
     // val[0]  = IMU_Data.A[NOW][X];
     // val[1]  = IMU_Data.A[NOW][Y];
     // val[2]  = IMU_Data.A[NOW][Z];
-    // val[3]  = IMU_Data.A_Normed[NOW][X];
-    // val[4]  = IMU_Data.A_Normed[NOW][Y];
-    // val[5]  = IMU_Data.A_Normed[NOW][Z];
+    // val[3]  = IMU_Data.Velocity[World][NOW][X];
+    // val[4]  = IMU_Data.Velocity[World][NOW][Y];
+    // val[5]  = IMU_Data.Velocity[World][NOW][Z];
     val[6]  = Surface.current_angle_Euler[NOW][PITCH];
     val[7]  = Surface.current_angle_Euler[NOW][ROLL];
     val[8]  = Surface.current_angle_Euler[NOW][YAW];

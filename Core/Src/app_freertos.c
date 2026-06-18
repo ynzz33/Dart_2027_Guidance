@@ -159,7 +159,7 @@ void SelfTestTask(void const * argument)
     {
         Self_Text_Task();
         static uint16_t Self_Text_cnt = 0;
-        if((Self_Text_cnt++)%5==0)
+        if((Self_Text_cnt++)%10==0)
         {
           Buzzer_Remind();
         }

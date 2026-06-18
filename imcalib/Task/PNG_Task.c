@@ -17,7 +17,7 @@ PNG_Data_t PNG_Data;
 
 /* 速度PN开关默认值:先上 yaw(=1)、pitch 后续(=0)、稳健 Vc 缩放档(Mode0);三者均可 Vofa/调试器在线改 */
 uint8_t PNG_Yaw_Flag   = 1;
-uint8_t PNG_Pitch_Flag = 0;
+uint8_t PNG_Pitch_Flag = 1;
 uint8_t PNG_Mode       = 0;
 
 void PNG_Init(PNG_Data_t* PNG_Data)
@@ -42,14 +42,14 @@ void PNG_Init(PNG_Data_t* PNG_Data)
  *
  * Mode0(默认,稳健):用现成世界系视线率 vision_los_rate[deg/s](已限幅),增益 = PNG_K_VC·Vc;
  *                   速度只通过 Vc 进来(EKF 最稳健的标量输出),λ̇ 仍用经过验证的视觉信号。
- * Mode1(EKF全量,验证可用后切):用 vins_p_world×vins_v_world 算 1kHz 世界系视线率,N·Vc·λ̇/K_Dyn → 超前角,
+ * Mode1(EKF全量,验证可用后切):用 vins_out.p_world×vins_out.v_world 算 1kHz 世界系视线率,N·Vc·λ̇/K_Dyn → 超前角,
  *                   信号更平滑、更接近教科书真 PN,但更依赖速度质量。p×v 的符号/轴映射 ★台架待定★。*/
 void PNG_Apply_Lead(Surface_t* Surface , IMU_DATA_t* IMU_Data)
 {
 	(void)IMU_Data;   /* 预留(Mode1 如需机体量再用);当前世界系量直接取 vins_*/
 
 	/* 1) 接近速度 Vc:未锁定退化为标称 V_NOM;取模长后钳到 [VC_MIN,VC_MAX] 防 0 失效/异常放大 */
-	float vc = vins_locked ? fabsf(vins_vc) : V_NOM_MS;
+	float vc = vins_out.locked ? fabsf(vins_out.vc) : V_NOM_MS;
 	if (vc < PNG_VC_MIN) vc = PNG_VC_MIN;
 	if (vc > PNG_VC_MAX) vc = PNG_VC_MAX;
 	PNG_Data.vc_used = vc;
@@ -70,12 +70,12 @@ void PNG_Apply_Lead(Surface_t* Surface , IMU_DATA_t* IMU_Data)
 	else
 	{
 		/* Mode1:EKF 世界系几何视线率 ω=(p×v)/|p|² (rad/s)。
-		 * p = vins_p_world = 镖−靶(世界 ENU:X右/东,Y前/北,Z上);v = vins_v_world。
+		 * p = vins_out.p_world = 镖−靶(世界 ENU:X右/东,Y前/北,Z上);v = vins_out.v_world。
 		 * yaw 面(绕世界 Z/上):ω_z = (px·vy − py·vx)/|p|²。
 		 * pitch 面(俯仰角速率):ρ=√(px²+py²),  λ̇_el = (vz·ρ² − pz·(px·vx+py·vy)) / (|p|²·ρ)。
 		 * ★符号/轴映射台架单轴验证★:转动视线看超前是否同向,反了在此翻 SIGN。*/
-		float px = vins_p_world[X], py = vins_p_world[Y], pz = vins_p_world[Z];
-		float vx = vins_v_world[X], vy = vins_v_world[Y], vz = vins_v_world[Z];
+		float px = vins_out.p_world[X], py = vins_out.p_world[Y], pz = vins_out.p_world[Z];
+		float vx = vins_out.v_world[X], vy = vins_out.v_world[Y], vz = vins_out.v_world[Z];
 		float p2  = px*px + py*py + pz*pz;
 		float rho = sqrtf(px*px + py*py);
 		float w_yaw = 0.0f, w_pitch = 0.0f;

@@ -27,11 +27,11 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-// #define  Servo_UL_ZERO      1440
-// #define  Servo_UR_ZERO      1420
-// #define  Servo_DR_ZERO      1550
-// #define  Servo_DL_ZERO      1565 
-
+#define  Servo_UL_ZERO      1400
+#define  Servo_UR_ZERO      1360
+#define  Servo_DR_ZERO      1500
+#define  Servo_DL_ZERO      1480 
+#define Shot_Pitch 35
  
 // //镖体2 蓝色
 // #define  Servo_UL_ZERO      1650
@@ -40,10 +40,13 @@
 // #define  Servo_DL_ZERO      1490 
 
 //镖体3 红色
-#define  Servo_UL_ZERO      1470
-#define  Servo_UR_ZERO      1530
-#define  Servo_DR_ZERO      1645
-#define  Servo_DL_ZERO      1600
+// #define  Servo_UL_ZERO      1460
+// #define  Servo_UR_ZERO      1560
+// #define  Servo_DR_ZERO      1645
+// #define  Servo_DL_ZERO      1500
+// #define Shot_Pitch 25
+
+
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
  * 左侧两片(UL,DL)取 −1 因左右舵机镜像安装;台架单轴阶跃标定,某片整体反了翻它的号。
@@ -61,7 +64,7 @@
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
 #define  AXIS_LIMIT_PITCH   30.0f   /* 交付A:三轴各自独立限幅(度),可调 */
 #define  AXIS_LIMIT_ROLL    20.0f
-#define  AXIS_LIMIT_YAW     65.0f
+#define  AXIS_LIMIT_YAW     30.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
 #define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还 原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
 
@@ -88,7 +91,7 @@
 /* 接近度 s 分段合成(面积+距离一起用):远段用距离(标定准、连续),近段用面积(blob大、近场更可靠);
  * dist_cm 决定走哪段,两段在切换点 s=DIVE_SCHED_SWITCH 衔接。dist/area 来自视觉 0x5B 包。全部待台架实测。*/
 #define  DIST_ACQUIRE_CM         (700.0f)   /* 远段起点:刚识别引导灯(s=0)的目标距离cm */
-#define  DIST_NEAR_CM            (400.0f)   /* 远/近段切换距离(s=DIVE_SCHED_SWITCH);≤此距离改用面积调度 */
+#define  DIST_NEAR_CM            (450.0f)   /* 远/近段切换距离(s=DIVE_SCHED_SWITCH);≤此距离改用面积调度 */
 #define  AREA_NEAR               (800.0f)   /* 近段起点面积(≈DIST_NEAR_CM处的blob像素,s=DIVE_SCHED_SWITCH) */
 #define  AREA_IMPACT            (4000.0f)   /* 近段终点:接近撞击(s=1)的blob像素 */
 #define  DIVE_SCHED_SWITCH        (0.6f)    /* 远/近段衔接处的接近度s:距离管 0→此值,面积管 此值→1 */
@@ -104,7 +107,7 @@
  * 全部待台架实测微调。*/
 #define  YAW_GAIN_FAR            (1.5f)    /* 远处(s=0)的 yaw 增益:补偿视觉距离效应,更灵敏 */
 #define  YAW_GAIN_NEAR           (0.8f)    /* 近处(s=1)的 yaw 增益:近距离视觉误差大,适当减小防过冲 */
-#define  YAW_GAIN_ENABLE_DIST    (700.0f)  /* 启用 yaw 增益调整的最大距离阈值(cm):超过此距离不调整(无数据) */
+#define  YAW_GAIN_ENABLE_DIST    (800.0f)  /* 启用 yaw 增益调整的最大距离阈值(cm):超过此距离不调整(无数据) */
 
 /* === 末制导混合导引:视线率PN超前 + 配平迎角前馈(均不依赖会漂的IMU积分速度) ===
  * PN:目标角按"世界系惯性视线率λ̇"超前——λ̇由锁存视线帧间差分得(纯视觉),驱动λ̇→0=碰撞航线,

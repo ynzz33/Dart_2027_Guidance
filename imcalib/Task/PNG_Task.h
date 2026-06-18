@@ -16,7 +16,7 @@
 /* === 速度比例导引超前(PNG_Apply_Lead)调参 === */
 /* Mode0(Vc缩放,稳健):超前角 corr_deg = PNG_K_VC·Vc·λ̇(deg/s)。设计点:Vc≈15m/s 时 PNG_K_VC·15≈0.05
  * =现固定增益 PN_LEAD_K → 标称速度下幅度不变、随接近速度 Vc 线性自动缩放。台架按跟手/抖动微调。*/
-#define PNG_K_VC           0.003f
+#define PNG_K_VC           0.001f
 #define PNG_VC_MIN         2.0f    /* Vc 下限钳位(m/s):防 Vc≈0 时 PN 消失 */
 #define PNG_VC_MAX         40.0f   /* Vc 上限钳位(m/s):防异常大 Vc 放大超前 */
 #define PNG_LEAD_LIMIT_DEG 8.0f    /* 单轴 PN 超前角限幅(deg):丢帧/速度异常时防爆冲 */

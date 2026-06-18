@@ -41,7 +41,6 @@ void TotalInitTask(void)
 
 		PNG_Init(&PNG_Data);
 
-		Kalman_Vel_Init();
 		VisInsEKF_Init();   /* 视觉/IMU 紧耦合速度 EKF 初始化(取代纯积分速度,见 Tool/vision_ins.c) */
 
 		Total_Power_Control(Power_ON);
