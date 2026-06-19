@@ -41,8 +41,8 @@ uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
 
 float pitch_control_limit_deg = -20.0f;//开始放开pitch控制的角度限制 
 
-/* ADRC控制选择：0=使用原PID, 1=使用ADRC(全部通道), 2=仅Yaw用ADRC(调试用) */
-uint8_t adrc_mode = 0;
+/* ADRC控制选择：0=使用原PID, 1=使用ADRC(全部通道), 2=仅Yaw用ADRC(调试用), 3=仅Roll用ADRC(调试用) */
+uint8_t adrc_mode = 0;  /* 仅Roll用ADRC，测试PID瓶颈 */
 
 /* === 控制分配(混控)全局 === */
 uint8_t Alloc_Mode = 1;                        /* 默认=交付A三轴限幅(逐级优先级缩放,roll-only 下线性正确);0=旧PitchPriority对照 2=最小能量 */
@@ -66,6 +66,7 @@ float   vision_los_final[2][3],vision_los_current[3];   /* 末制导世界系视
 float   vision_los_rate[3] = {0};                    /* 末制导世界系惯性视线率λ̇(°/s):视觉帧间差分,PN超前用;丢帧保持/丢目标清0 */
 float   pitch_dive_floor = 0.0f, closeness_s = 0.0f; /* Vofa:末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1] */
 float   yaw_distance_gain = 1.0f;                   /* Vofa:末制导 yaw 距离面积增益 */
+float   pitch_distance_gain = 1.0f;                  /* Vofa:末制导 pitch 距离面积增益(远端小、近端大) */
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
 
@@ -197,19 +198,63 @@ static float Yaw_Distance_Area_Gain(uint16_t dist_cm, uint16_t area)
         // s = 0.0f;
         gain = 1.0;
     else if ((float)dist_cm > DIST_NEAR_CM)        /* 远段:距离调度,s 由远(s=0)线性升到切换点 */
-        gain = 1.3;
-        // s = DIVE_SCHED_SWITCH * (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
-    else         
-        gain = 0.85;                                  /* 近段:面积调度,s 由切换点升到近(s=1) */
-        // s = DIVE_SCHED_SWITCH + (1.0f - DIVE_SCHED_SWITCH) * ((float)area - AREA_NEAR) / (AREA_IMPACT - AREA_NEAR);
+        // gain = 1.3;
+        s = DIVE_SCHED_SWITCH * (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
+    else
+        // gain = 0.85;                                  /* 近段:面积调度,s 由切换点升到近(s=1) */
+        s = DIVE_SCHED_SWITCH + (1.0f - DIVE_SCHED_SWITCH) * ((float)area - AREA_NEAR) / (AREA_IMPACT - AREA_NEAR);
 
-    // if (s < 0.0f) s = 0.0f;
-    // if (s > 1.0f) s = 1.0f;
-
-    /* 增益线性插值:YAW_GAIN_FAR(s=0) → YAW_GAIN_NEAR(s=1) */
-    // float gain = YAW_GAIN_FAR + s * (YAW_GAIN_NEAR - YAW_GAIN_FAR);
+    if (dist_cm != 0)
+    {
+        if (s < 0.0f) s = 0.0f;
+        if (s > 1.0f) s = 1.0f;
+        /* 增益线性插值:远端小,近端大 */
+        gain = YAW_GAIN_FAR + s * (YAW_GAIN_NEAR - YAW_GAIN_FAR);
+    }
 
     yaw_distance_gain = gain;
+    return gain;
+}
+
+/* === 末制导 PITCH 距离面积增益:随接近度调整 pitch 控制增益 ===
+ * 与 YAW 类似但逻辑相反:
+ *   远端:增益小(控制保守,避免过早俯冲消耗能量)
+ *   近端:增益大(控制激进,确保精准命中)
+ * 使用相同的接近度 s 计算方式(距离/面积分段合成):
+ *   远段用距离 dist_cm(s:0→DIVE_SCHED_SWITCH),
+ *   近段用面积 area(s:DIVE_SCHED_SWITCH→1),
+ *   dist_cm 决定走哪段;两包都无(dist_cm=0)退化为默认增益1.0。
+ *
+ * 增益线性插值:PITCH_GAIN_FAR(s=0) → PITCH_GAIN_NEAR(s=1)。
+ * 超过 PITCH_GAIN_ENABLE_DIST 距离时不调整(返回1.0)。
+ * Vofa 观测 pitch_distance_gain。*/
+static float Pitch_Distance_Area_Gain(uint16_t dist_cm, uint16_t area)
+{
+    /* 超过启用距离阈值，不调整增益 */
+    if ((float)dist_cm > PITCH_GAIN_ENABLE_DIST)
+    {
+        pitch_distance_gain = 1.0f;
+        return 1.0f;
+    }
+
+    float s;
+    float gain;
+    if (dist_cm == 0)                              /* 无 0x5B 距离/面积包 → 退化为默认增益 */
+        gain = 1.0f;
+    else if ((float)dist_cm > DIST_NEAR_CM)        /* 远段:距离调度,s 由远(s=0)线性升到切换点 */
+        s = DIVE_SCHED_SWITCH * (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
+    else                                           /* 近段:面积调度,s 由切换点升到近(s=1) */
+        s = DIVE_SCHED_SWITCH + (1.0f - DIVE_SCHED_SWITCH) * ((float)area - AREA_NEAR) / (AREA_IMPACT - AREA_NEAR);
+
+    if (dist_cm != 0)
+    {
+        if (s < 0.0f) s = 0.0f;
+        if (s > 1.0f) s = 1.0f;
+        /* 增益线性插值:远端小,近端大 */
+        gain = PITCH_GAIN_FAR + s * (PITCH_GAIN_NEAR - PITCH_GAIN_FAR);
+    }
+
+    pitch_distance_gain = gain;
     return gain;
 }
 
@@ -279,28 +324,29 @@ void Guidance_Terminal(void)//制导段
          * 远距离/小面积时增益小(减少抖动),近距离/大面积时增益大(提高跟踪精度)
          * 对 yaw 目标误差应用增益:target_adj = current + gain * (target - current) */
         float yaw_gain = Yaw_Distance_Area_Gain(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
+        /* PITCH 距离面积增益:根据接近度调整 pitch 控制响应
+         * 远端增益小(保守控制,保射程),近端增益大(激进控制,精准命中) */
+        float pitch_gain = Pitch_Distance_Area_Gain(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
         /* 俯仰俯冲限幅(能量管理):仅识别成功(主动视觉制导)时钳俯仰目标 ≥ θ_floor——远处禁陡俯冲保射程*/
-        float dive_floor = Pitch_Dive_Floor(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
+        // float dive_floor = Pitch_Dive_Floor(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
     /* 方案3:setpoint 端速率限制——每 tick 目标朝锁存终点斜坡逼近,把视觉 50ms 阶跃摊平,
      * 消除目标台阶对外环 P(及对误差微分时的 D)的周期性冲击;非反馈环低通,不引入 P/I 相位滞后。
      * 帧间终点不变、斜坡到达后 target≡终点,与原"锁存+航位推算"等价,仅消去切换瞬间的阶跃。*/
     // 先将目标置为当前值，然后将新的目标值存在vision_los_final中以斜坡方式逼近最终目标值，
     Surface.target_angle_Euler[NOW][YAW] =
-        Target_Slew(vision_los_current[YAW], vision_los_final[NOW][YAW], yaw_gain*fabs(vision_los_final[NOW][YAW]-vision_los_current[YAW])/20, 0);
-    Surface.target_angle_Euler[NOW][PITCH] =
-        Target_Slew(vision_los_current[PITCH], vision_los_final[NOW][PITCH], fabs(vision_los_final[NOW][PITCH]-vision_los_current[PITCH])/20, 0);
+        Target_Slew(vision_los_current[YAW], vision_los_final[NOW][YAW], yaw_gain*fabs(vision_los_final[NOW][YAW]-vision_los_current[YAW])/10, 0);
+    Surface.target_angle_Euler[NOW][PITCH] = 
+        Target_Slew(vision_los_current[PITCH], vision_los_final[NOW][PITCH], pitch_gain*fabs(vision_los_final[NOW][PITCH]-vision_los_current[PITCH])/20, 0);
 
     /* 混合导引超前:在斜坡目标之上叠加 PN 超前(必须在 Target_Slew 之后,否则被覆盖) */
     if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
         PNG_Apply_Lead(&Surface, &IMU_Data);
 
-        if (Surface.target_angle_Euler[NOW][PITCH] < dive_floor)
-            Surface.target_angle_Euler[NOW][PITCH] = dive_floor;
 }
 void Guidance_End(void)
 {
     // Dart_Trigger_Power_Control( Power_OFF );
-    if (Surface.Guidance_cnt[4]++>500)
+    if (Surface.Guidance_cnt[4]++>3000)
     {
         Vision_Transmit(Vision_Cmd_Record_Stop);
         Guidance_State = PROCESS_OK;
@@ -704,7 +750,7 @@ void Wing_Control_VECTOR_NOZZLE(void)
 }
 #endif
 /*---- 线程区 ----*/
-void surface_control_task(void)
+void surface_control_task(void) 
 {
   /* USER CODE BEGIN surface_control_task */
     static uint32_t prev_tick = 0;
@@ -731,31 +777,47 @@ void surface_control_task(void)
     {
         Surface.pid_cale_flag = 1;
 
-        /* ========== ADRC/PID 控制选择 ========== */
+        // /* ========== ADRC/PID 控制选择 ========== */
         // if (adrc_mode == 1)
         // {
         //     /* 全通道ADRC */
-        //     // Euler_ADRC_Cale(delta_time);
+        //     Euler_ADRC_Cale(delta_time);
         // }
         // else if (adrc_mode == 2)
         // {
         //     /* 仅Yaw用ADRC，其他用PID（调试用） */
-        //     // Euler_pid_Cale(delta_time);  /* 先算PID */
-        //     // /* 覆盖Yaw通道为ADRC输出 */ 
-        //     // float yaw_gyro_cmd = ADRC_Calc(
-        //     //     &adrc_ctrl[ADRC_YAW][ADRC_ANGLE_LOOP],
-        //     //     Surface.target_angle_Euler[NOW][YAW],
-        //     //     Surface.current_angle_Euler[NOW][YAW],
-        //     //     delta_time);
-        //     // Surface.output_gyro_Euler[NOW][YAW] = ADRC_Calc(
-        //     //     &adrc_ctrl[ADRC_YAW][ADRC_GYRO_LOOP],
-        //     //     yaw_gyro_cmd,
-        //     //     Surface.current_gyro_Euler[NOW][YAW],
-        //     //     delta_time);
+        //     Euler_pid_Cale(delta_time);  /* 先算PID */
+        //     /* 覆盖Yaw通道为ADRC输出 */
+        //     float yaw_gyro_cmd = ADRC_Calc(
+        //         &adrc_ctrl[ADRC_YAW][ADRC_ANGLE_LOOP],
+        //         Surface.target_angle_Euler[NOW][YAW],
+        //         Surface.current_angle_Euler[NOW][YAW],
+        //         delta_time);
+        //     Surface.output_gyro_Euler[NOW][YAW] = ADRC_Calc(
+        //         &adrc_ctrl[ADRC_YAW][ADRC_GYRO_LOOP],
+        //         yaw_gyro_cmd,
+        //         Surface.current_gyro_Euler[NOW][YAW],
+        //         delta_time);
+        // }
+        // else if (adrc_mode == 3)
+        // {
+        //     /* 仅Roll用ADRC，Pitch/Yaw用PID（调试用） */
+        //     Euler_pid_Cale(delta_time);  /* 先算PID */
+        //     /* 覆盖Roll通道为ADRC输出 */
+        //     float roll_gyro_cmd = ADRC_Calc(
+        //         &adrc_ctrl[ADRC_ROLL][ADRC_ANGLE_LOOP],
+        //         Surface.target_angle_Euler[NOW][ROLL],
+        //         Surface.current_angle_Euler[NOW][ROLL],
+        //         delta_time);
+        //     Surface.output_gyro_Euler[NOW][ROLL] = ADRC_Calc(
+        //         &adrc_ctrl[ADRC_ROLL][ADRC_GYRO_LOOP],
+        //         roll_gyro_cmd,
+        //         Surface.current_gyro_Euler[NOW][ROLL],
+        //         delta_time);
         // }
         // else
         // {
-            /* 原PID（默认） */
+            // /* 原PID（默认） */
             Euler_pid_Cale(delta_time);
         // }
         /* ===================================== */
@@ -779,9 +841,9 @@ void surface_control_task(void)
         // }
             if (Guidance_State==Terminal)
             {
-            // Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
-            //                        Surface.output_gyro_Euler[NOW][YAW],
-            //                        &p_body, &y_body);
+            Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
+                                   Surface.output_gyro_Euler[NOW][YAW],
+                                   &p_body, &y_body);
             }
 
             // p_body = 0; 

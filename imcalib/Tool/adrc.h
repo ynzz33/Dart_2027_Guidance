@@ -208,6 +208,12 @@ void ESO_Update(ESO_t *eso, float y, float u, float dt);
  *============================================================================*/
 
 /**
+ * @brief 初始化所有ADRC控制器（3通道 × 2环）
+ * @note  在首次调用 Euler_ADRC_Cale 前调用，或在切换模式时调用
+ */
+void ADRC_Init_All(void);
+
+/**
  * @brief 串级ADRC计算（角度外环 + 角速度内环）
  * @param delta_time 采样周期(s)
  * @details 替代原有的Euler_pid_Cale函数
@@ -219,6 +225,28 @@ void Euler_ADRC_Cale(float delta_time);
  * @brief ADRC全局实例（3通道 × 2环）
  */
 extern ADRC_t adrc_ctrl[ADRC_CH_COUNT][ADRC_LOOP_COUNT];
+
+
+/*============================================================================
+ *  调试接口
+ *============================================================================*/
+
+/**
+ * @brief 获取ADRC扰动估计（用于Vofa观测）
+ * @param channel 通道：ADRC_PITCH / ADRC_ROLL / ADRC_YAW
+ * @param loop 环类型：ADRC_ANGLE_LOOP / ADRC_GYRO_LOOP
+ * @return 估计的扰动值
+ */
+float ADRC_GetDisturbance(uint8_t channel, uint8_t loop);
+
+/**
+ * @brief 获取ADRC状态估计（用于Vofa观测）
+ * @param channel 通道
+ * @param loop 环类型
+ * @param z1 角度估计输出
+ * @param z2 角速度估计输出
+ */
+void ADRC_GetStateEstimate(uint8_t channel, uint8_t loop, float *z1, float *z2);
 
 
 /*============================================================================

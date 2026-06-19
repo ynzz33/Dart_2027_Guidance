@@ -9,6 +9,7 @@
 #include "tim.h"
 #include "IMU.h"
 #include "pid.h"
+#include "adrc.h"              /* ADRC自抗扰控制器 */
 #include "surface_control_task.h"
 #include "usart.h"
 #include "PNG_Task.h"
@@ -42,6 +43,8 @@ void TotalInitTask(void)
 		PNG_Init(&PNG_Data);
 
 		VisInsEKF_Init();   /* 视觉/IMU 紧耦合速度 EKF 初始化(取代纯积分速度,见 Tool/vision_ins.c) */
+
+		ADRC_Init_All();    /* ADRC控制器初始化(3通道×2环) */
 
 		Total_Power_Control(Power_ON);
 }

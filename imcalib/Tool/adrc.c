@@ -425,12 +425,18 @@ void NLSEF_SetBandwidth(NLSEF_t *nlsef, float wc)
 
 /**
  * @brief 初始化角度环ADRC（外环）
- * @note  针对飞镖姿态控制优化的参数
+ * @note  基于当前PID参数映射配置
  *
- *  参数设计原则：
- *        - TD：适度跟踪速度，不要太快（避免目标突变冲击）
- *        - ESO：中等观测带宽，平衡跟踪速度和噪声抑制
- *        - NLSEF：较小控制带宽，保证稳定性
+ *  PID → ADRC 参数映射原则：
+ *        - ESO带宽 ω₀ ≈ 3~5 × Kp（观测器要比闭环快）
+ *        - NLSEF带宽 ωc ≈ Kp（保持相似的响应速度）
+ *        - TD速度 r：根据目标变化率需求
+ *        - b0：控制增益，一般从1.0开始调
+ *
+ *  当前PID参数（镖体1）：
+ *        PITCH: Kp=8.0,  Ki=1.0, Kd=0.5,  MaxOut=200, deadband=1.0°
+ *        ROLL:  Kp=0.9,  Ki=0,   Kd=0.02, MaxOut=1200, deadband=1.0°
+ *        YAW:   Kp=6.0,  Ki=0.5, Kd=0.02, MaxOut=500, deadband=0.2°
  */
 void ADRC_Init_AngleLoop(ADRC_t *adrc, uint8_t channel)
 {
@@ -439,60 +445,65 @@ void ADRC_Init_AngleLoop(ADRC_t *adrc, uint8_t channel)
 
     /* TD参数 */
     TD_Init(&adrc->td, 0.001f);      /* 1kHz采样 */
-    adrc->td.r = 100.0f;             /* 跟踪速度：中等 */
     adrc->td.h0 = 0.005f;            /* 滤波因子：5ms */
 
-    /* ESO参数 */
+    /* ESO参数（通用） */
     ESO_Init(&adrc->eso, 0.001f);
-    adrc->eso.b0 = 1.0f;             /* 控制增益估计（需根据实际调整） */
     adrc->eso.alpha1 = 0.75f;        /* z2通道：0.5~1 */
     adrc->eso.alpha2 = 0.5f;         /* z3通道：0.25~0.5 */
     adrc->eso.delta = 0.01f;         /* 线性区宽度：约0.6° */
 
-    /* 根据通道设置不同带宽 */
-    switch (channel)
-    {
-        case ADRC_PITCH:
-            ESO_SetBandwidth(&adrc->eso, 15.0f);   /* pitch：中等响应 */
-            break;
-        case ADRC_ROLL:
-            ESO_SetBandwidth(&adrc->eso, 20.0f);   /* roll：稍快 */
-            break;
-        case ADRC_YAW:
-            ESO_SetBandwidth(&adrc->eso, 25.0f);   /* yaw：需要快速响应 */
-            break;
-    }
-
-    /* NLSEF参数 */
+    /* NLSEF参数（通用） */
     adrc->nlsef.alpha1 = 0.75f;
-    adrc->nlsef.alpha2 = 0.75f;      /* 微分通道指数：0.5~1，保证非线性特性 */
+    adrc->nlsef.alpha2 = 0.75f;      /* 微分通道指数：0.5~1 */
     adrc->nlsef.delta = 0.01f;
 
-    /* 根据通道设置控制带宽 */
+    /* 根据通道设置参数（映射自PID） */
     switch (channel)
     {
         case ADRC_PITCH:
-            NLSEF_SetBandwidth(&adrc->nlsef, 8.0f);
+            /* PID: Kp=8.0, Ki=1.0, Kd=0.5 → 闭环带宽约8~12 rad/s */
+            adrc->td.r = 100.0f;                    /* 跟踪速度：中等偏快 */
+            adrc->eso.b0 = 1.0f;                    /* 控制增益估计 */
+            ESO_SetBandwidth(&adrc->eso, 40.0f);    /* ω₀=40 ≈ 5×Kp，观测器快 */
+            NLSEF_SetBandwidth(&adrc->nlsef, 10.0f); /* ωc=10 ≈ Kp，保持响应速度 */
+            adrc->max_output = 200.0f;              /* 与PID MaxOut一致 */
+            adrc->min_output = -200.0f;
+            adrc->deadband = 1.0f;                  /* 与PID一致 */
             break;
+
         case ADRC_ROLL:
-            NLSEF_SetBandwidth(&adrc->nlsef, 10.0f);
+            /* PID: Kp=0.9, Ki=0, Kd=0.02 → 闭环带宽约2~4 rad/s */
+            adrc->td.r = 50.0f;                     /* 跟踪速度：较慢 */
+            adrc->eso.b0 = 1.0f;
+            ESO_SetBandwidth(&adrc->eso, 15.0f);    /* ω₀=15 ≈ 5×Kp */
+            NLSEF_SetBandwidth(&adrc->nlsef, 3.0f);  /* ωc=3 ≈ Kp×3 */
+            adrc->max_output = 1200.0f;             /* 与PID MaxOut一致 */
+            adrc->min_output = -1200.0f;
+            adrc->deadband = 1.0f;                  /* 与PID一致 */
             break;
+
         case ADRC_YAW:
-            NLSEF_SetBandwidth(&adrc->nlsef, 12.0f);  /* yaw：较快响应 */
+            /* PID: Kp=6.0, Ki=0.5, Kd=0.02 → 闭环带宽约6~10 rad/s */
+            adrc->td.r = 80.0f;                     /* 跟踪速度：中等 */
+            adrc->eso.b0 = 1.0f;
+            ESO_SetBandwidth(&adrc->eso, 30.0f);    /* ω₀=30 = 5×Kp */
+            NLSEF_SetBandwidth(&adrc->nlsef, 8.0f);  /* ωc=8 ≈ Kp */
+            adrc->max_output = 500.0f;              /* 与PID MaxOut一致 */
+            adrc->min_output = -500.0f;
+            adrc->deadband = 0.2f;                  /* 与PID一致 */
             break;
     }
-
-    /* 输出限幅 */
-    adrc->max_output = 300.0f;        /* 角度环输出：角速度指令 */
-    adrc->min_output = -300.0f;
-
-    /* 死区 */
-    adrc->deadband = 0.5f;            /* 0.5°死区 */
 }
 
 /**
  * @brief 初始化角速度环ADRC（内环）
- * @note  内环需要更快的响应和更高的观测带宽
+ * @note  基于当前PID参数映射配置
+ *
+ *  当前PID参数（镖体1）：
+ *        PITCH: Kp=0.8, MaxOut=20.0, deadband=1.0°
+ *        ROLL:  Kp=0.2, MaxOut=15.0, deadband=0.5°
+ *        YAW:   Kp=0.4, MaxOut=40.0, deadband=0.0°
  */
 void ADRC_Init_GyroLoop(ADRC_t *adrc, uint8_t channel)
 {
@@ -501,55 +512,55 @@ void ADRC_Init_GyroLoop(ADRC_t *adrc, uint8_t channel)
 
     /* TD参数 */
     TD_Init(&adrc->td, 0.001f);
-    adrc->td.r = 300.0f;             /* 内环跟踪更快 */
     adrc->td.h0 = 0.002f;            /* 滤波因子更小：2ms */
 
-    /* ESO参数 */
+    /* ESO参数（通用） */
     ESO_Init(&adrc->eso, 0.001f);
-    adrc->eso.b0 = 1.0f;
     adrc->eso.alpha1 = 0.5f;         /* 内环用更激进的非线性 */
     adrc->eso.alpha2 = 0.25f;
     adrc->eso.delta = 0.1f;          /* 线性区：约5.7°/s */
 
-    /* 内环观测带宽更高 */
-    switch (channel)
-    {
-        case ADRC_PITCH:
-            ESO_SetBandwidth(&adrc->eso, 60.0f);
-            break;
-        case ADRC_ROLL:
-            ESO_SetBandwidth(&adrc->eso, 80.0f);
-            break;
-        case ADRC_YAW:
-            ESO_SetBandwidth(&adrc->eso, 100.0f);  /* yaw内环：高带宽 */
-            break;
-    }
-
-    /* NLSEF参数 */
+    /* NLSEF参数（通用） */
     adrc->nlsef.alpha1 = 0.5f;
-    adrc->nlsef.alpha2 = 0.75f;      /* 微分通道指数：0.5~1，保证非线性特性 */
+    adrc->nlsef.alpha2 = 0.75f;
     adrc->nlsef.delta = 0.1f;
 
-    /* 内环控制带宽 */
+    /* 根据通道设置参数（映射自PID） */
     switch (channel)
     {
         case ADRC_PITCH:
-            NLSEF_SetBandwidth(&adrc->nlsef, 30.0f);
+            /* PID: Kp=0.8, MaxOut=20.0 → 内环带宽约5~10 rad/s */
+            adrc->td.r = 200.0f;                    /* 内环跟踪更快 */
+            adrc->eso.b0 = 1.0f;
+            ESO_SetBandwidth(&adrc->eso, 40.0f);    /* ω₀=40 = 50×Kp，内环观测要快 */
+            NLSEF_SetBandwidth(&adrc->nlsef, 6.0f);  /* ωc=6 ≈ 8×Kp */
+            adrc->max_output = 20.0f;               /* 与PID MaxOut一致 */
+            adrc->min_output = -20.0f;
+            adrc->deadband = 1.0f;                  /* 与PID一致 */
             break;
+
         case ADRC_ROLL:
-            NLSEF_SetBandwidth(&adrc->nlsef, 40.0f);
+            /* PID: Kp=0.2, MaxOut=15.0 → 内环带宽约2~5 rad/s */
+            adrc->td.r = 150.0f;
+            adrc->eso.b0 = 1.0f;
+            ESO_SetBandwidth(&adrc->eso, 20.0f);    /* ω₀=20 = 100×Kp */
+            NLSEF_SetBandwidth(&adrc->nlsef, 3.0f);  /* ωc=3 = 15×Kp */
+            adrc->max_output = 15.0f;               /* 与PID MaxOut一致 */
+            adrc->min_output = -15.0f;
+            adrc->deadband = 0.5f;                  /* 与PID一致 */
             break;
+
         case ADRC_YAW:
-            NLSEF_SetBandwidth(&adrc->nlsef, 50.0f);
+            /* PID: Kp=0.4, MaxOut=40.0 → 内环带宽约3~8 rad/s */
+            adrc->td.r = 180.0f;
+            adrc->eso.b0 = 1.0f;
+            ESO_SetBandwidth(&adrc->eso, 30.0f);    /* ω₀=30 = 75×Kp */
+            NLSEF_SetBandwidth(&adrc->nlsef, 5.0f);  /* ωc=5 = 12.5×Kp */
+            adrc->max_output = 40.0f;               /* 与PID MaxOut一致 */
+            adrc->min_output = -40.0f;
+            adrc->deadband = 0.0f;                  /* 与PID一致 */
             break;
     }
-
-    /* 输出限幅 */
-    adrc->max_output = 200.0f;        /* 内环输出：舵面角度 */
-    adrc->min_output = -200.0f;
-
-    /* 内环不用死区 */
-    adrc->deadband = 0.0f;
 }
 
 /**
@@ -608,16 +619,10 @@ void ADRC_Init_All(void)
  *        2. 内环ADRC：角速度指令 → 舵面输出
  *
  *        输出写入 Surface.output_gyro_Euler[NOW][i]
+ * @note  ADRC_Init_All() 已在 TotalInitTask() 中调用，此处不再重复初始化
  */
 void Euler_ADRC_Cale(float delta_time)
 {
-    static uint8_t inited = 0;
-    if (!inited)
-    {
-        ADRC_Init_All();
-        inited = 1;
-    }
-
     for (int i = 0; i < 3; i++)
     {
         /* 外环：角度 → 角速度指令 */
