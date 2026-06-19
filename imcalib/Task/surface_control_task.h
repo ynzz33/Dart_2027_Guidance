@@ -29,7 +29,7 @@
 //镖体1 红色
 // #define  Servo_UL_ZERO      1400
 // #define  Servo_UR_ZERO      1360
-// #define  Servo_DR_ZERO      1500
+// #define  Servo_DR_ZERO      1610
 // #define  Servo_DL_ZERO      1480 
 // #define Shot_Pitch 35
  
@@ -38,7 +38,7 @@
 #define  Servo_UR_ZERO      1460
 #define  Servo_DR_ZERO      1540
 #define  Servo_DL_ZERO      1380 
-#define Shot_Pitch 25
+#define Shot_Pitch 28
 
 //镖体3 红色
 // #define  Servo_UL_ZERO      1460

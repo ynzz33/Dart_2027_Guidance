@@ -96,6 +96,7 @@ void Data_Updata(void)
 {
     Euler_Updata();
     Servo_Updata();
+    Surface.target_angle_Euler[LAST][YAW] = Surface.target_angle_Euler[NOW][YAW];
 }
 
 void Wing_Control(void)
@@ -334,8 +335,11 @@ void Guidance_Terminal(void)//制导段
      * 帧间终点不变、斜坡到达后 target≡终点,与原"锁存+航位推算"等价,仅消去切换瞬间的阶跃。*/
     // 先将目标置为当前值，然后将新的目标值存在vision_los_final中以斜坡方式逼近最终目标值，
     Surface.target_angle_Euler[NOW][YAW] =
+    // Surface.current_angle_Euler[NOW][YAW];
+        // Low_Pass_Filter(Surface.target_angle_Euler[NOW][YAW],Surface.target_angle_Euler[LAST][YAW],0.8);
         Target_Slew(vision_los_current[YAW], vision_los_final[NOW][YAW], yaw_gain*fabs(vision_los_final[NOW][YAW]-vision_los_current[YAW])/10, 0);
     Surface.target_angle_Euler[NOW][PITCH] = 
+    // Surface.current_angle_Euler[NOW][PITCH];
         Target_Slew(vision_los_current[PITCH], vision_los_final[NOW][PITCH], pitch_gain*fabs(vision_los_final[NOW][PITCH]-vision_los_current[PITCH])/20, 0);
 
     /* 混合导引超前:在斜坡目标之上叠加 PN 超前(必须在 Target_Slew 之后,否则被覆盖) */
