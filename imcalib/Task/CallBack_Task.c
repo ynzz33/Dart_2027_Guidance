@@ -15,6 +15,7 @@
 #include "task.h"
 #include "TotalControl.h"
 #include "Vofa_send.h"
+#include "adrc.h"
 uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Vision_Tx_Buf[3] = {0x5A,0,0xA5},Vision_TxDebug_Buf[50],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5],flag = 0;
 Dart_Trigger_Data_t Dart_Trigger_Data = {.Frame_Head = 0xAA,.Frame_Tail = 0x00};
 Vision_Rx_Buf_t Vision_Rx_Data ;
@@ -194,22 +195,34 @@ void Vision_Transmit_Debug(void)
     uint8_t *src;
     uint8_t  i;
 
-    // val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State;
+    // val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
     // val[1]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
     // val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.A[NOW][Y]*10;
-    val[0]  = temp[PITCH]; 
-    val[1]  = Surface.current_gyro_Euler[NOW][YAW];
-    val[2]  = temp[YAW];
-    val[3]  = Surface.output_Body_Euler[NOW][PITCH];
-    val[4]  = Surface.output_Body_Euler[NOW][ROLL];
-    val[5]  = Surface.output_Body_Euler[NOW][YAW];
+
+    // val[3]  = Surface.output_Body_Euler[NOW][PITCH];
+    // val[4]  = Surface.output_Body_Euler[NOW][ROLL];
+    // val[5]  = Surface.output_Body_Euler[NOW][YAW];
+
+    
+    val[0]  = IMU_Data.A_Normed[NOW][Y];
+    val[1]  = IMU_Data.A[NOW][Y];
+    val[2]  = Surface.current_gyro_Euler[NOW][ROLL];
+    val[3]  = ladrc_ctrl[LADRC_ROLL].z1;
+    val[4]  = ladrc_ctrl[LADRC_ROLL].z2;
+    val[5]  = ladrc_ctrl[LADRC_ROLL].z3;
+    // val[0]  = temp[PITCH]; 
+    // val[1]  = Surface.current_gyro_Euler[NOW][YAW];
+    // val[2]  = temp[YAW];
+    // val[0]  = ladrc_ctrl[LADRC_ROLL].z1; 
+    // val[1]  = ladrc_ctrl[LADRC_ROLL].z2;
+    // val[2]  = ladrc_ctrl[LADRC_ROLL].z3;
     
     // val[0]  = IMU_Data.A[NOW][X];
     // val[1]  = IMU_Data.A[NOW][Y];
     // val[2]  = IMU_Data.A[NOW][Z];
-    // val[3]  = IMU_Data.Velocity[World][NOW][X];
-    // val[4]  = IMU_Data.Velocity[World][NOW][Y];
-    // val[5]  = IMU_Data.Velocity[World][NOW][Z];
+    // val[3]  = IMU_Data.A_Normed[NOW][X];
+    // val[4]  = IMU_Data.A_Normed[NOW][Y];
+    // val[5]  = IMU_Data.A_Normed[NOW][Z];
     val[6]  = Surface.current_angle_Euler[NOW][PITCH];
     val[7]  = Surface.current_angle_Euler[NOW][ROLL];
     val[8]  = Surface.current_angle_Euler[NOW][YAW];

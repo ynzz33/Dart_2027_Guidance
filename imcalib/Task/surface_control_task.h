@@ -27,25 +27,25 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-// #define  Servo_UL_ZERO      1400
+// #define  Servo_UL_ZERO      1350
 // #define  Servo_UR_ZERO      1360
 // #define  Servo_DR_ZERO      1610
 // #define  Servo_DL_ZERO      1480 
-// #define Shot_Pitch 35
+// #define Shot_Pitch 28
  
 // //镖体2 蓝色
-#define  Servo_UL_ZERO      1660
-#define  Servo_UR_ZERO      1460
-#define  Servo_DR_ZERO      1540
-#define  Servo_DL_ZERO      1380 
-#define Shot_Pitch 28
+// #define  Servo_UL_ZERO      1660
+// #define  Servo_UR_ZERO      1460
+// #define  Servo_DR_ZERO      1540
+// #define  Servo_DL_ZERO      1380 
+// #define Shot_Pitch 28
 
 //镖体3 红色
-// #define  Servo_UL_ZERO      1460
-// #define  Servo_UR_ZERO      1560
-// #define  Servo_DR_ZERO      1645
-// #define  Servo_DL_ZERO      1500
-// #define Shot_Pitch 25
+#define  Servo_UL_ZERO      1460
+#define  Servo_UR_ZERO      1560
+#define  Servo_DR_ZERO      1645
+#define  Servo_DL_ZERO      1500
+#define Shot_Pitch 22
 
 
 
@@ -106,7 +106,7 @@
  *   dist_cm 决定走哪段;两包都无(dist_cm=0)退化为默认增益1.0。
  * 增益线性插值:YAW_GAIN_FAR(s=0,远处) → YAW_GAIN_NEAR(s=1,近处)。
  * 全部待台架实测微调。*/
-#define  YAW_GAIN_FAR            (1.5f)    /* 远处(s=0)的 yaw 增益:补偿视觉距离效应,更灵敏 */
+#define  YAW_GAIN_FAR            (1.2f)    /* 远处(s=0)的 yaw 增益:补偿视觉距离效应,更灵敏 */
 #define  YAW_GAIN_NEAR           (0.8f)    /* 近处(s=1)的 yaw 增益:近距离视觉误差大,适当减小防过冲 */
 #define  YAW_GAIN_ENABLE_DIST    (800.0f)  /* 启用 yaw 增益调整的最大距离阈值(cm):超过此距离不调整(无数据) */
 

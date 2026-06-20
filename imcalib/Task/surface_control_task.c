@@ -18,7 +18,7 @@
 #include "buzzer.h"
 #include "CallBack_Task.h"
 #include "pid.h"
-#include "adrc.h"           /* ADRC自抗扰控制器 */
+#include "adrc.h"           /* LADRC 线性自抗扰控制器(文件名仍 adrc.*) */
 #include "cmsis_os.h"
 #include "FreeRTOS.h"
 #include "IMU.h"
@@ -41,8 +41,9 @@ uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
 
 float pitch_control_limit_deg = -20.0f;//开始放开pitch控制的角度限制 
 
-/* ADRC控制选择：0=使用原PID, 1=使用ADRC(全部通道), 2=仅Yaw用ADRC(调试用), 3=仅Roll用ADRC(调试用) */
-uint8_t adrc_mode = 0;  /* 仅Roll用ADRC，测试PID瓶颈 */
+/* LADRC 控制选择：0=全 PID(安全默认), 1=三轴全 LADRC, 3=仅 Roll 用 LADRC(本次先试)
+ * LADRC 旋钮在 ladrc_ctrl[轴].{wc,wo,b0}，可用调试器 Watch 在线改(见 adrc.c)。*/
+uint8_t ladrc_mode = 3;  /* ★ 先在 roll 上试 LADRC，pitch/yaw 仍走 PID；要回全 PID 就改 0 */
 
 /* === 控制分配(混控)全局 === */
 uint8_t Alloc_Mode = 1;                        /* 默认=交付A三轴限幅(逐级优先级缩放,roll-only 下线性正确);0=旧PitchPriority对照 2=最小能量 */
@@ -426,10 +427,10 @@ void get_current_State(void)
                 Self_Text.Self_Text_Process = 5; 
             } 
             Surface.Guidance_cnt[0] = 0;
-            Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
+            // Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
         }
     }
-    else if (Guidance_State == Start && (IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch+8.0f&&IMU_Data.Euler[NOW][PITCH]>=Shot_Pitch- 8.0f)&&((IMU_Data.A_Normed[NOW][Y] >= 0.80f&&IMU_Data.A[NOW][Y] >= 1.0f)||(IMU_Data.Euler[NOW][PITCH]<=(Surface.Stable_Euler_Angle[PITCH]-3)&&IMU_Data.Euler[NOW][PITCH]>=(Surface.Stable_Euler_Angle[PITCH]-10))))
+    else if (Guidance_State == Start && (IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch+8.0f&&IMU_Data.Euler[NOW][PITCH]>=Shot_Pitch- 8.0f)&&((IMU_Data.A_Normed[NOW][Y] >= 0.70f&&IMU_Data.A[NOW][Y] >= 0.8f)||(IMU_Data.Euler[NOW][PITCH]<=(Surface.Stable_Euler_Angle[PITCH]-3)&&IMU_Data.Euler[NOW][PITCH]>=(Surface.Stable_Euler_Angle[PITCH]-10))))
     {
         Vision_Transmit( Vision_Cmd_Work );
         if (Surface.Guidance_cnt[1]++>5)
@@ -753,6 +754,7 @@ void Wing_Control_VECTOR_NOZZLE(void)
         // Wing_DR_Control(0.0f);
 }
 #endif
+
 /*---- 线程区 ----*/
 void surface_control_task(void) 
 {
@@ -777,53 +779,35 @@ void surface_control_task(void)
     get_current_Target();
     /*pid/adrc，算输出值*/
     Surface.pid_cale_flag = 0;
-    if (Guidance_State==Stable||Guidance_State==Terminal)
+    if ((Guidance_State==Stable||Guidance_State==Terminal)&&(imu_is_static==0))
     {
         Surface.pid_cale_flag = 1;
 
-        // /* ========== ADRC/PID 控制选择 ========== */
-        // if (adrc_mode == 1)
-        // {
-        //     /* 全通道ADRC */
-        //     Euler_ADRC_Cale(delta_time);
-        // }
-        // else if (adrc_mode == 2)
-        // {
-        //     /* 仅Yaw用ADRC，其他用PID（调试用） */
-        //     Euler_pid_Cale(delta_time);  /* 先算PID */
-        //     /* 覆盖Yaw通道为ADRC输出 */
-        //     float yaw_gyro_cmd = ADRC_Calc(
-        //         &adrc_ctrl[ADRC_YAW][ADRC_ANGLE_LOOP],
-        //         Surface.target_angle_Euler[NOW][YAW],
-        //         Surface.current_angle_Euler[NOW][YAW],
-        //         delta_time);
-        //     Surface.output_gyro_Euler[NOW][YAW] = ADRC_Calc(
-        //         &adrc_ctrl[ADRC_YAW][ADRC_GYRO_LOOP],
-        //         yaw_gyro_cmd,
-        //         Surface.current_gyro_Euler[NOW][YAW],
-        //         delta_time);
-        // }
-        // else if (adrc_mode == 3)
-        // {
-        //     /* 仅Roll用ADRC，Pitch/Yaw用PID（调试用） */
-        //     Euler_pid_Cale(delta_time);  /* 先算PID */
-        //     /* 覆盖Roll通道为ADRC输出 */
-        //     float roll_gyro_cmd = ADRC_Calc(
-        //         &adrc_ctrl[ADRC_ROLL][ADRC_ANGLE_LOOP],
-        //         Surface.target_angle_Euler[NOW][ROLL],
-        //         Surface.current_angle_Euler[NOW][ROLL],
-        //         delta_time);
-        //     Surface.output_gyro_Euler[NOW][ROLL] = ADRC_Calc(
-        //         &adrc_ctrl[ADRC_ROLL][ADRC_GYRO_LOOP],
-        //         roll_gyro_cmd,
-        //         Surface.current_gyro_Euler[NOW][ROLL],
-        //         delta_time);
-        // }
-        // else
-        // {
-            // /* 原PID（默认） */
+        /* ========== LADRC / PID 控制选择 ==========
+         * ladrc_mode: 0=全 PID(安全默认)  1=三轴全 LADRC  3=仅 Roll 用 LADRC(本次先试)
+         * LADRC 单环二阶：目标角度→力矩需求，直接写 output_gyro_Euler(与 PID 同一条链路进混控)。
+         * 旋钮在 ladrc_ctrl[轴].{wc,wo,b0}，调试器在线改即可(见 adrc.c)。*/
+        if (ladrc_mode == 1)
+        {
+            /* 三轴全 LADRC */
+            Euler_LADRC_Cale(delta_time);
+        }
+        else if (ladrc_mode == 3)
+        {
+            /* 仅 Roll 用 LADRC，Pitch/Yaw 仍 PID：先按 PID 算三轴，再用 LADRC 覆盖 Roll 通道 */
             Euler_pid_Cale(delta_time);
-        // }
+            Surface.output_gyro_Euler[NOW][ROLL] = LADRC_Calc(
+                &ladrc_ctrl[LADRC_ROLL],
+                Surface.target_angle_Euler[NOW][ROLL],   /* roll 自稳目标 = Stable 角 */
+                Surface.current_angle_Euler[NOW][ROLL],  /* 当前 roll 角 */
+                Surface.current_gyro_Euler[NOW][ROLL],   /* 实测 roll 角速度(阻尼用，替代 LESO z2) */
+                delta_time);
+        }
+        else
+        {
+            /* 原 PID（默认安全档） */
+            Euler_pid_Cale(delta_time);
+        }
         /* ===================================== */
     }
     /*解算到舵面*/

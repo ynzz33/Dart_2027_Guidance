@@ -1,320 +1,144 @@
 /**
  * @file    adrc.h
- * @brief   ADRC自抗扰控制器 - 完整实现
- * @details 针对制导飞镖X翼构型优化的ADRC控制器
- *          包含：跟踪微分器(TD)、扩张状态观测器(ESO)、非线性状态误差反馈(NLSEF)
- *          支持串级控制：外环(角度) + 内环(角速度)
+ * @brief   LADRC 线性自抗扰控制器 - 单环二阶实现（替代原非线性 ADRC）
+ * @details 针对制导飞镖 X 翼构型。从原"非线性 ADRC(TD/ESO/NLSEF + fal/fst)"改为
+ *          高志强(Gao)带宽法 LADRC：线性扩张状态观测器(LESO) + 线性状态误差反馈(LSEF)。
+ *
+ *          ★ 文件名保持 adrc.c/.h 不变(避免改动 eide/MDK 构建工程)，内部已全部换成 LADRC。
  *
  * @author  ynz
- * @date    2026/06/15
+ * @date    2026/06/21
  *
- * 设计原理：
- *   ADRC不依赖精确模型，通过ESO实时估计"总扰动"（模型误差+外部干扰+耦合），
- *   然后在控制量中直接补偿，从而实现：
- *   - 大误差时快速响应（非线性增益）
- *   - 小误差时稳定不抖（小增益+阻尼）
- *   - 自动补偿气动扰动、耦合、模型误差
- *   - 对参数变化鲁棒
+ * ============================================================================
+ *  为什么从 ADRC 换 LADRC？
+ *    原 ADRC 用了一堆非线性函数(fal/fst)和 α/δ 参数，每个轴 2 环 ×(TD r + ESO ω₀ +
+ *    NLSEF ωc + b0 + α1/α2/δ ...)十几个旋钮，根本没法系统地调。
+ *
+ *    LADRC 把它全线性化，整轴只剩 3 个旋钮：
+ *      • wc  控制带宽：决定"跟得多快"。越大越快越冲。
+ *      • wo  观测带宽：决定"看得多准多快"，一般取 wc 的 3~5 倍。
+ *      • b0  控制增益估计：u=(u0−z3)/b0。最关键，决定整体"力度"。
+ *    其余 kp/kd/β1/β2/β3 全部由 wc/wo 自动算出，不用手碰。
+ *
+ *  单环二阶 LADRC 原理（被控对象当作二阶：θ̈ = f + b0·u，f=总扰动）：
+ *    1. LESO：只用"测得的角度 y"和"上拍输出 u"，就估出
+ *         z1≈角度、z2≈角速度(天生干净，不靠微分)、z3≈总扰动(气动+耦合+模型误差+一切)
+ *    2. LSEF：u0 = kp·(目标−z1) − kd·z2           (比例 + 纯阻尼)
+ *    3. 扰动补偿：u = (u0 − z3)/b0                  (把估出来的扰动直接减掉)
+ *    结果：不要精确模型，自动补偿一切扰动；只调 3 个带宽就行。
+ * ============================================================================
  */
 
-#ifndef __ADRC_H
-#define __ADRC_H
+#ifndef __LADRC_H
+#define __LADRC_H
 
 #include "stm32g4xx_hal.h"
 
 /*============================================================================
- *  全局配置宏
+ *  通道索引（必须与 Surface 的 [PITCH=0, ROLL=1, YAW=2] 完全一致）
  *============================================================================*/
-
-/* ADRC通道索引 */
 enum {
-    ADRC_PITCH = 0,
-    ADRC_ROLL  = 1,
-    ADRC_YAW   = 2,
-    ADRC_CH_COUNT = 3
-};
-
-/* ADRC环类型 */
-enum {
-    ADRC_ANGLE_LOOP = 0,    /* 外环：角度环 */
-    ADRC_GYRO_LOOP  = 1,    /* 内环：角速度环 */
-    ADRC_LOOP_COUNT = 2
+    LADRC_PITCH = 0,
+    LADRC_ROLL  = 1,
+    LADRC_YAW   = 2,
+    LADRC_CH_COUNT = 3
 };
 
 /*============================================================================
- *  核心数据结构
+ *  单环二阶 LADRC 控制器
+ *  一个轴 = 一个三阶 LESO + 一个 LSEF。整轴只暴露 wc/wo/b0 三个旋钮。
  *============================================================================*/
-
-/**
- * @brief 跟踪微分器(TD) - 安排过渡过程
- * @note  功能：
- *        1. 给目标信号安排光滑过渡，避免阶跃冲击
- *        2. 同时提取目标的微分信号（前馈）
- *        3. 可独立调节跟踪速度和超调量
- */
 typedef struct {
-    /* 输出 */
-    float x1;              /* 跟踪信号（平滑后的目标） */
-    float x2;              /* 微分信号（目标变化率） */
+    /* ---- 3 个旋钮（调试器 Watch 在线改，改完下一拍即生效） ---- */
+    float wc;          /* 控制器带宽 rad/s：越大跟踪越快、越激进 */
+    float wo;          /* 观测器带宽 rad/s：一般取 3~5×wc；越大估计越快但越吃噪声 */
+    float b0;          /* 控制增益估计：u=(u0−z3)/b0。太小→输出过猛甚至发散；太大→绵软无力。最关键 */
 
-    /* 参数 */
-    float r;               /* 速度因子：越大跟踪越快，但噪声敏感 */
-    float h;               /* 采样周期(s) */
-    float h0;              /* 滤波因子：越大滤波效果越好，但跟踪滞后 */
+    /* ---- 阻尼源选择（本次改动：阻尼项 −kd·ω 的角速度 ω 用实测陀螺，而非 LESO 估的 z2） ----
+     * 纯单环 LADRC 拿 LESO 的 z2 当角速度，z2 准不准全押在 wo/b0 上；本板有现成高质量陀螺，
+     * 故默认改用实测角速度做阻尼：相位准、不依赖 b0，roll 不易高频抖。需在 LADRC_Calc 喂入实测值。*/
+    uint8_t use_gyro_damp; /* 1=阻尼用实测陀螺(默认)；0=回到纯单环用 z2(对比/兜底) */
+    float   gyro_sign;     /* 实测陀螺符号校正：须与"角度增大方向"一致。台架若一动就反向猛打/发散→翻成 −1 */
 
-    /* 内部状态 */
-    float x1_last;
-    float x2_last;
-} TD_t;
+    /* ---- 由 wc/wo 自动算出的线性增益（每拍按当前 wc/wo 重算，故直接改 wc/wo 即可） ---- */
+    float kp;          /* = wc²    (LSEF 比例) */
+    float kd;          /* = 2·wc   (LSEF 阻尼) */
+    float beta1;       /* = 3·wo   (LESO 对 z1 校正) */
+    float beta2;       /* = 3·wo²  (LESO 对 z2 校正) */
+    float beta3;       /* = wo³    (LESO 对 z3 校正) */
 
-/**
- * @brief 扩张状态观测器(ESO) - ADRC核心
- * @note  功能：
- *        1. 估计系统状态（角度、角速度）
- *        2. 估计"总扰动"（模型误差+气动干扰+耦合+一切未建模动态）
- *        3. 不需要精确模型，只需要控制增益b0的大致范围
- * @note  总扰动 z3 包含：
- *        - 气动阻力矩
- *        - 舵面耦合
- *        - 重心偏移
- *        - 模型不确定
- *        - 外部干扰
- */
-typedef struct {
-    /* 输出（状态估计） */
-    float z1;              /* 角度估计 */
-    float z2;              /* 角速度估计 */
-    float z3;              /* 总扰动估计 */
+    /* ---- LESO 状态估计（也是最有用的 Vofa 观测量） ---- */
+    float z1;          /* 角度估计 */
+    float z2;          /* 角速度估计（不靠微分，天生干净，可代替陀螺反馈） */
+    float z3;          /* 总扰动估计（气动力矩+舵面耦合+重心偏移+模型误差+外扰，全在这一项里） */
 
-    /* 参数 */
-    float beta1;           /* 观测器增益1（对z1的校正强度） */
-    float beta2;           /* 观测器增益2（对z2的校正强度） */
-    float beta3;           /* 观测器增益3（对z3的校正强度） */
-    float b0;              /* 控制增益估计（系统b的标称值） */
-    float alpha1;          /* fal函数指数1（z2通道，0.5~1） */
-    float alpha2;          /* fal函数指数2（z3通道，0.25~0.5） */
-    float delta;           /* fal函数线性区宽度（防抖振） */
+    /* ---- 限幅 / 死区 / 周期角 ---- */
+    float   max_output;/* 输出限幅(±)，与原 PID 内环 MaxOut/AXIS_LIMIT 对齐 */
+    float   deadband;  /* 角度误差死区半宽(度)，0=不启用；只软化比例项，扰动补偿 z3 仍守稳态不下垂 */
+    uint8_t angle_wrap;/* 1=误差/新息按 ±180° 环绕(roll/yaw 是 atan2 周期角)；roll 默认 0 与原 PID 对齐 */
 
-    /* 内部状态 */
-    float z1_last;
-    float z2_last;
-    float z3_last;
-} ESO_t;
+    /* ---- 运行状态 ---- */
+    float   u;         /* 本拍输出(=送混控的力矩需求)，下一拍喂回 LESO（用实际限幅后的值，自带抗饱和） */
+    uint8_t inited;    /* 0=未初始化(首拍用当前反馈对齐 z1，避免初始冲击) */
 
-/**
- * @brief 非线性状态误差反馈(NLSEF) - 控制律
- * @note  功能：
- *        1. 组合TD和ESO输出产生控制量
- *        2. 非线性增益：误差大时增益大，误差小时增益小
- *        3. 加上扰动补偿，实现"模型无关"控制
- */
-typedef struct {
-    /* 参数 */
-    float beta1;           /* 比例增益（对角度误差的响应） */
-    float beta2;           /* 微分增益（对角速度误差的阻尼） */
-    float alpha1;          /* fal函数指数1（比例通道） */
-    float alpha2;          /* fal函数指数2（微分通道） */
-    float delta;           /* fal函数线性区宽度 */
-
-    /* 输出（用于观测） */
-    float u0;              /* 补偿前控制量 */
-    float u_compensated;   /* 补偿后控制量（最终输出） */
-    float disturbance;     /* 估计的扰动 */
-} NLSEF_t;
-
-/**
- * @brief 完整ADRC控制器
- * @note  包含TD + ESO + NLSEF三个组件
- *        支持角度环和角速度环两种配置
- */
-typedef struct {
-    /* 三个核心组件 */
-    TD_t    td;            /* 跟踪微分器 */
-    ESO_t   eso;           /* 扩张状态观测器 */
-    NLSEF_t nlsef;         /* 非线性状态误差反馈 */
-
-    /* 配置 */
-    uint8_t loop_type;     /* ADRC_ANGLE_LOOP 或 ADRC_GYRO_LOOP */
-    uint8_t channel;       /* ADRC_PITCH / ADRC_ROLL / ADRC_YAW */
-
-    /* 输出限幅 */
-    float max_output;      /* 最大输出 */
-    float min_output;      /* 最小输出（通常为-max_output） */
-
-    /* 死区（可选） */
-    float deadband;        /* 死区半宽，0=不启用 */
-
-    /* 初始化标志 */
-    uint8_t td_inited;     /* TD是否已初始化，0=未初始化，1=已初始化 */
-
-    /* 用于观测的中间变量 */
-    float target;          /* 当前目标 */
-    float feedback;        /* 当前反馈 */
-    float error;           /* 当前误差 */
-    float control_out;     /* 最终控制输出 */
-} ADRC_t;
-
+    /* ---- 仅供 Vofa 观测 ---- */
+    float target;      /* 当前目标 */
+    float feedback;    /* 当前反馈 */
+    float error;       /* 当前误差(目标−反馈，已按需环绕) */
+    float u0;          /* 补偿前(LSEF)输出 */
+    float gyro;        /* 本拍实际用于阻尼的实测角速度°/s(=gyro_sign×传入测量；use_gyro_damp=1 时生效) */
+} LADRC_t;
 
 /*============================================================================
- *  初始化函数
+ *  全局实例：3 通道，每轴一个单环 LADRC
+ *============================================================================*/
+extern LADRC_t ladrc_ctrl[LADRC_CH_COUNT];
+
+/*============================================================================
+ *  接口
  *============================================================================*/
 
 /**
- * @brief 初始化角度环ADRC参数（外环）
- * @param adrc ADRC结构体指针
- * @param channel 通道：ADRC_PITCH / ADRC_ROLL / ADRC_YAW
+ * @brief 初始化单轴 LADRC（按通道给默认 wc/wo/b0/限幅/死区）
+ * @param c       LADRC 实例
+ * @param channel LADRC_PITCH / LADRC_ROLL / LADRC_YAW
  */
-void ADRC_Init_AngleLoop(ADRC_t *adrc, uint8_t channel);
+void LADRC_Init(LADRC_t *c, uint8_t channel);
 
 /**
- * @brief 初始化角速度环ADRC参数（内环）
- * @param adrc ADRC结构体指针
- * @param channel 通道：ADRC_PITCH / ADRC_ROLL / ADRC_YAW
+ * @brief 初始化全部 3 轴 LADRC（在 TotalInitTask 中调用一次）
  */
-void ADRC_Init_GyroLoop(ADRC_t *adrc, uint8_t channel);
+void LADRC_Init_All(void);
 
 /**
- * @brief 重置ADRC内部状态（切换模式时调用）
+ * @brief 复位单轴内部状态（切模式 / 重新进入控制时调用）
  */
-void ADRC_Reset(ADRC_t *adrc);
-
-
-/*============================================================================
- *  核心计算函数
- *============================================================================*/
+void LADRC_Reset(LADRC_t *c);
 
 /**
- * @brief ADRC完整计算（一拍）
- * @param adrc  ADRC结构体
- * @param target 目标值（角度或角速度）
- * @param feedback 反馈值（当前角度或角速度）
- * @param dt 采样周期(s)
- * @return 控制输出
+ * @brief 单拍 LADRC 计算
+ * @param c        LADRC 实例
+ * @param target   目标角度(度)
+ * @param feedback 当前角度(度)
+ * @param gyro_meas 实测角速度(°/s，同轴陀螺；符号须与角度增大方向一致，use_gyro_damp=1 时用它做阻尼)
+ * @param dt       采样周期(s)
+ * @return 控制输出(=送混控的力矩需求)，已限幅
  */
-float ADRC_Calc(ADRC_t *adrc, float target, float feedback, float dt);
+float LADRC_Calc(LADRC_t *c, float target, float feedback, float gyro_meas, float dt);
 
 /**
- * @brief 仅运行ESO（用于观测扰动，不输出控制量）
- * @param eso ESO结构体
- * @param y 系统输出（测量值）
- * @param u 控制输入
- * @param dt 采样周期
+ * @brief 三轴 LADRC 计算（角度→力矩），输出写 Surface.output_gyro_Euler[NOW][i]
+ * @note  替代原 Euler_pid_Cale；当 ladrc_mode==1(三轴全 LADRC) 时调用
  */
-void ESO_Update(ESO_t *eso, float y, float u, float dt);
-
-
-/*============================================================================
- *  串级ADRC接口（替代原有Euler_pid_Cale）
- *============================================================================*/
+void Euler_LADRC_Cale(float delta_time);
 
 /**
- * @brief 初始化所有ADRC控制器（3通道 × 2环）
- * @note  在首次调用 Euler_ADRC_Cale 前调用，或在切换模式时调用
+ * @brief 在线设置带宽（也可直接改 c->wc / c->wo，LADRC_Calc 内每拍会重算增益）
  */
-void ADRC_Init_All(void);
-
-/**
- * @brief 串级ADRC计算（角度外环 + 角速度内环）
- * @param delta_time 采样周期(s)
- * @details 替代原有的Euler_pid_Cale函数
- *          输出写入 Surface.output_gyro_Euler[NOW][i]
- */
-void Euler_ADRC_Cale(float delta_time);
-
-/**
- * @brief ADRC全局实例（3通道 × 2环）
- */
-extern ADRC_t adrc_ctrl[ADRC_CH_COUNT][ADRC_LOOP_COUNT];
-
-
-/*============================================================================
- *  调试接口
- *============================================================================*/
-
-/**
- * @brief 获取ADRC扰动估计（用于Vofa观测）
- * @param channel 通道：ADRC_PITCH / ADRC_ROLL / ADRC_YAW
- * @param loop 环类型：ADRC_ANGLE_LOOP / ADRC_GYRO_LOOP
- * @return 估计的扰动值
- */
-float ADRC_GetDisturbance(uint8_t channel, uint8_t loop);
-
-/**
- * @brief 获取ADRC状态估计（用于Vofa观测）
- * @param channel 通道
- * @param loop 环类型
- * @param z1 角度估计输出
- * @param z2 角速度估计输出
- */
-void ADRC_GetStateEstimate(uint8_t channel, uint8_t loop, float *z1, float *z2);
-
-
-/*============================================================================
- *  参数在线调整接口（调试用）
- *============================================================================*/
-
-/**
- * @brief 设置ESO观测器带宽（核心参数）
- * @param eso ESO结构体
- * @param w0 观测器带宽(rad/s)：越大跟踪越快，但噪声敏感
- * @note  推荐值：角度环 10~30，角速度环 50~100
- */
-void ESO_SetBandwidth(ESO_t *eso, float w0);
-
-/**
- * @brief 设置TD跟踪速度
- * @param td TD结构体
- * @param r 速度因子：越大跟踪越快
- * @note  推荐值：角度环 50~200，角速度环 200~500
- */
-void TD_SetSpeed(TD_t *td, float r);
-
-/**
- * @brief 设置NLSEF控制器带宽
- * @param nlsef NLSEF结构体
- * @param wc 控制器带宽(rad/s)：越大响应越快
- * @note  推荐值：角度环 5~15，角速度环 20~50
- */
-void NLSEF_SetBandwidth(NLSEF_t *nlsef, float wc);
-
-
-/*============================================================================
- *  辅助函数
- *============================================================================*/
-
-/**
- * @brief fal函数 - ADRC核心非线性函数
- * @param e 误差
- * @param alpha 指数（0<alpha<1时有"大误差小增益，小误差大增益"特性）
- * @param delta 线性区宽度（防抖振）
- * @return fal(e, alpha, delta)
- */
-float fal(float e, float alpha, float delta);
-
-/**
- * @brief fst函数 - 最速综合函数（TD用）
- * @param x1 状态1
- * @param x2 状态2
- * @param r 速度因子
- * @param h 滤波因子
- * @return fst值
- */
-float fst(float x1, float x2, float r, float h);
-
-/**
- * @brief 限幅函数
- */
-static inline float adrc_limit(float val, float min_val, float max_val)
+static inline void LADRC_SetBandwidth(LADRC_t *c, float wc, float wo)
 {
-    if (val > max_val) return max_val;
-    if (val < min_val) return min_val;
-    return val;
+    c->wc = wc;
+    c->wo = wo;
 }
 
-static inline float adrc_abs_limit(float val, float limit)
-{
-    return adrc_limit(val, -limit, limit);
-}
-
-
-#endif /* __ADRC_H */
+#endif /* __LADRC_H */
