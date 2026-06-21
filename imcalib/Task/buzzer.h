@@ -136,6 +136,7 @@ void Buzzer_play_task(Buzzer_message_t *Buzzer_message);
 extern const Buzzer_song_t song_ni;
 extern Buzzer_message_t Buzzer_message;
 extern uint32_t current_count ;
+void Buzzer_Remind(void);
 /* 函数原型声明 END */
 /*----------------------------------------------------------------------------*/
 #endif // DART_G431_DEMO_BUZZER_H

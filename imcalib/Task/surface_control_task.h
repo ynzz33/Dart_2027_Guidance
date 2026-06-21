@@ -27,26 +27,26 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-#define  Servo_UL_ZERO      1350
-#define  Servo_UR_ZERO      1360
-#define  Servo_DR_ZERO      1480
-#define  Servo_DL_ZERO      1480 
-#define  Shot_Pitch 32
-#define  Dart_Cnt_is_First 1
+// #define  Servo_UL_ZERO      1350
+// #define  Servo_UR_ZERO      1360
+// #define  Servo_DR_ZERO      1480
+// #define  Servo_DL_ZERO      1480 
+// #define  Shot_Pitch 33
+// #define  Dart_Cnt_is_First 1
  
 // //镖体2 蓝色
-// #define  Servo_UL_ZERO      1660
-// #define  Servo_UR_ZERO      1460
-// #define  Servo_DR_ZERO      1540
-// #define  Servo_DL_ZERO      1380 
-// #define Shot_Pitch 28
-// #define  Dart_Cnt_is_First 0
+#define  Servo_UL_ZERO      1660
+#define  Servo_UR_ZERO      1460
+#define  Servo_DR_ZERO      1540
+#define  Servo_DL_ZERO      1380 
+#define Shot_Pitch 28
+#define  Dart_Cnt_is_First 0
 
 //镖体3 红色
 // #define  Servo_UL_ZERO      1460
-// #define  Servo_UR_ZERO      1560
-// #define  Servo_DR_ZERO      1645
-// #define  Servo_DL_ZERO      1500
+// #define  Servo_UR_ZERO      1400
+// #define  Servo_DR_ZERO      1530
+// #define  Servo_DL_ZERO      1530    
 // #define Shot_Pitch 22
 // #define  Dart_Cnt_is_First 0
 
@@ -66,9 +66,9 @@
 /* === 控制分配(混控)参数 ===
  * Alloc_Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
-#define  AXIS_LIMIT_PITCH   40.0f   /* 交付A:三轴各自独立限幅(度),可调 */
+#define  AXIS_LIMIT_PITCH   25.0f   /* 交付A:三轴各自独立限幅(度),可调 */
 #define  AXIS_LIMIT_ROLL    20.0f
-#define  AXIS_LIMIT_YAW     40.0f
+#define  AXIS_LIMIT_YAW     35.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
 #define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还 原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
 
@@ -119,7 +119,7 @@
  *   近端:增益大(控制激进,确保精准命中)
  * 增益线性插值:PITCH_GAIN_FAR(s=0,远处) → PITCH_GAIN_NEAR(s=1,近处)。*/
 #define  PITCH_GAIN_FAR          (0.8f)    /* 远处(s=0)的 pitch 增益:保守控制,保射程 */
-#define  PITCH_GAIN_NEAR         (1.5f)    /* 近处(s=1)的 pitch 增益:激进控制,精准命中 */
+#define  PITCH_GAIN_NEAR         (1.2f)    /* 近处(s=1)的 pitch 增益:激进控制,精准命中 */
 #define  PITCH_GAIN_ENABLE_DIST  (800.0f)  /* 启用 pitch 增益调整的最大距离阈值(cm) */
 
 /* === 末制导混合导引:视线率PN超前 + 配平迎角前馈(均不依赖会漂的IMU积分速度) ===
@@ -198,6 +198,7 @@ typedef struct
     float Finally_Angle      [3][4];  /* 最终写定时器的 PWM 比较值 µs(各舵 ZERO + 角度映射) */
     float Stable_Euler_Angle[3];      /* 自稳基准角:自检后锁存,作 Start/Stable/Terminal 的 roll/yaw(及保持时 pitch)目标 */
     int16_t Guidance_cnt[6];          /* 制导状态机各跳变的去抖计数 */
+    int8_t  Guidance_flag[6];          /* 制导状态机各跳变的去抖计数 */
     uint8_t pid_cale_flag;            /* 本拍是否跑了 PID(Vofa 观测) */
     uint8_t Text_Flag;                /* 自检标志(预留) */
 }Surface_t;
@@ -231,6 +232,8 @@ extern float pitch_dive_floor;      /* Vofa:末制导俯仰俯冲下限θ_floor�
 extern float closeness_s;           /* Vofa:接近度s∈[0,1](像素面积调度,缺失时按γ) */
 extern float yaw_distance_gain;     /* Vofa:末制导 yaw 距离面积增益 */
 extern float pitch_distance_gain;   /* Vofa:末制导 pitch 距离面积增益(远端小、近端大) */
+
+extern uint16_t current_tick;
 void surface_control_task(void);
 void Roll_Derotate_PitchYaw(float Pw, float Yw, float *Pb, float *Yb);
 void Servo_Mix_AxisLimit(float p, float r, float y);

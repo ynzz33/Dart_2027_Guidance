@@ -197,12 +197,15 @@ void Vision_Transmit_Debug(void)
 
     val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
     val[1]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
-    val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.A[NOW][Y]*10;
+    val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.Velocity[Body][NOW][YAW]*10;
 
     val[3]  = Surface.output_Body_Euler[NOW][PITCH];
     val[4]  = Surface.output_Body_Euler[NOW][ROLL];
-    val[5]  = IMU_Data.A[NOW][Y]*100+IMU_Data.A_Normed[NOW][Y];
+    val[5]  = Surface.output_Body_Euler[NOW][YAW];
 
+    // val[3]  = IMU_Data.Velocity[Body][NOW][PITCH];
+    // val[4]  = IMU_Data.Velocity[Body][NOW][ROLL];
+    // val[5]  = IMU_Data.Velocity[Body][NOW][YAW];
     
     // val[0]  = IMU_Data.A_Normed[NOW][Y];
     // val[1]  = IMU_Data.A[NOW][Y];
@@ -213,10 +216,7 @@ void Vision_Transmit_Debug(void)
     // val[0]  = temp[PITCH]; 
     // val[1]  = Surface.current_gyro_Euler[NOW][YAW];
     // val[2]  = temp[YAW];
-    // val[0]  = ladrc_ctrl[LADRC_ROLL].z1; 
-    // val[1]  = ladrc_ctrl[LADRC_ROLL].z2;
-    // val[2]  = ladrc_ctrl[LADRC_ROLL].z3;
-    
+
     // val[0]  = IMU_Data.A[NOW][X];
     // val[1]  = IMU_Data.A[NOW][Y];
     // val[2]  = IMU_Data.A[NOW][Z];
@@ -226,6 +226,9 @@ void Vision_Transmit_Debug(void)
     val[6]  = Surface.current_angle_Euler[NOW][PITCH];
     val[7]  = Surface.current_angle_Euler[NOW][ROLL];
     val[8]  = Surface.current_angle_Euler[NOW][YAW];
+    // val[9]  = Surface.current_gyro_Euler[NOW][PITCH];
+    // val[10] = Surface.current_gyro_Euler[NOW][ROLL];
+    // val[11] = Surface.current_gyro_Euler[NOW][YAW];
     val[9]  = Surface.target_angle_Euler[NOW][PITCH];
     val[10] = Surface.target_angle_Euler[NOW][ROLL];
     val[11] = Surface.target_angle_Euler[NOW][YAW];
