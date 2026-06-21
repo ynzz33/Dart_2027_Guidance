@@ -108,11 +108,11 @@ void LADRC_Init(LADRC_t *c, uint8_t channel)
     {
         case LADRC_ROLL:
             /* ★ 本次先试的轴：roll 自稳到 Stable 角，最简单最安全 */
-            c->wc = 3.00f;                    /* 控制带宽：温和起步(原 PID 角度环 Kp=3，等效带宽≈3) */
+            c->wc = 10.0f;                    /* 控制带宽：温和起步(原 PID 角度环 Kp=3，等效带宽≈3) */
             c->wo = 5*c->wc;                   /* 观测带宽 = 4×wc */
-            c->b0 = 60.0f;                   /* 控制增益估计：与原 PID 同力度(见上注释)，最关键的旋钮 */
+            c->b0 = 55.0f;                   /* 控制增益估计：与原 PID 同力度(见上注释)，最关键的旋钮 */
             c->max_output = AXIS_LIMIT_ROLL; /* ±15，与原 PID 内环/混控限幅一致 */
-            c->deadband   = 1.0f;            /* 与原 PID roll 一致，防舵机静态抖 */
+            c->deadband   = 0.5f;            /* 与原 PID roll 一致，防舵机静态抖 */
             c->angle_wrap = 0;               /* 与原 PID roll 对齐(原 surface_control_pid[Angle][ROLL].angle_wrap=0) */
             break;
 

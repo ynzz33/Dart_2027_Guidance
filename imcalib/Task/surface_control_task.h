@@ -27,11 +27,12 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-// #define  Servo_UL_ZERO      1350
-// #define  Servo_UR_ZERO      1360
-// #define  Servo_DR_ZERO      1610
-// #define  Servo_DL_ZERO      1480 
-// #define Shot_Pitch 28
+#define  Servo_UL_ZERO      1350
+#define  Servo_UR_ZERO      1360
+#define  Servo_DR_ZERO      1480
+#define  Servo_DL_ZERO      1480 
+#define  Shot_Pitch 32
+#define  Dart_Cnt_is_First 1
  
 // //镖体2 蓝色
 // #define  Servo_UL_ZERO      1660
@@ -39,13 +40,15 @@
 // #define  Servo_DR_ZERO      1540
 // #define  Servo_DL_ZERO      1380 
 // #define Shot_Pitch 28
+// #define  Dart_Cnt_is_First 0
 
 //镖体3 红色
-#define  Servo_UL_ZERO      1460
-#define  Servo_UR_ZERO      1560
-#define  Servo_DR_ZERO      1645
-#define  Servo_DL_ZERO      1500
-#define Shot_Pitch 22
+// #define  Servo_UL_ZERO      1460
+// #define  Servo_UR_ZERO      1560
+// #define  Servo_DR_ZERO      1645
+// #define  Servo_DL_ZERO      1500
+// #define Shot_Pitch 22
+// #define  Dart_Cnt_is_First 0
 
 
 
@@ -64,7 +67,7 @@
  * Alloc_Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
 #define  AXIS_LIMIT_PITCH   40.0f   /* 交付A:三轴各自独立限幅(度),可调 */
-#define  AXIS_LIMIT_ROLL    15.0f
+#define  AXIS_LIMIT_ROLL    20.0f
 #define  AXIS_LIMIT_YAW     40.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
 #define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还 原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */

@@ -195,21 +195,21 @@ void Vision_Transmit_Debug(void)
     uint8_t *src;
     uint8_t  i;
 
-    // val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
-    // val[1]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
-    // val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.A[NOW][Y]*10;
+    val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
+    val[1]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
+    val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.A[NOW][Y]*10;
 
-    // val[3]  = Surface.output_Body_Euler[NOW][PITCH];
-    // val[4]  = Surface.output_Body_Euler[NOW][ROLL];
-    // val[5]  = Surface.output_Body_Euler[NOW][YAW];
+    val[3]  = Surface.output_Body_Euler[NOW][PITCH];
+    val[4]  = Surface.output_Body_Euler[NOW][ROLL];
+    val[5]  = IMU_Data.A[NOW][Y]*100+IMU_Data.A_Normed[NOW][Y];
 
     
-    val[0]  = IMU_Data.A_Normed[NOW][Y];
-    val[1]  = IMU_Data.A[NOW][Y];
-    val[2]  = Surface.current_gyro_Euler[NOW][ROLL];
-    val[3]  = ladrc_ctrl[LADRC_ROLL].z1;
-    val[4]  = ladrc_ctrl[LADRC_ROLL].z2;
-    val[5]  = ladrc_ctrl[LADRC_ROLL].z3;
+    // val[0]  = IMU_Data.A_Normed[NOW][Y];
+    // val[1]  = IMU_Data.A[NOW][Y];
+    // val[2]  = Surface.current_gyro_Euler[NOW][ROLL];
+    // val[3]  = ladrc_ctrl[LADRC_ROLL].z1;
+    // val[4]  = ladrc_ctrl[LADRC_ROLL].z2;
+    // val[5]  = ladrc_ctrl[LADRC_ROLL].z3;
     // val[0]  = temp[PITCH]; 
     // val[1]  = Surface.current_gyro_Euler[NOW][YAW];
     // val[2]  = temp[YAW];

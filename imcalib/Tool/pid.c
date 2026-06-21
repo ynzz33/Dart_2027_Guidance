@@ -67,9 +67,9 @@ void pid_init(void)
     surface_control_pid[Angle][ROLL].angle_wrap = 0;
     surface_control_pid[Angle][YAW].angle_wrap  = 0;
     
-    PID_struct_init(&mahony_pid[PITCH] ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
-    PID_struct_init(&mahony_pid[ROLL]  ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
-    PID_struct_init(&mahony_pid[YAW]   ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
+    PID_struct_init(&mahony_pid[X]  ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
+    PID_struct_init(&mahony_pid[Y]  ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
+    PID_struct_init(&mahony_pid[Z]  ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
 }
 
 void Euler_pid_Cale(float delta_time_z)

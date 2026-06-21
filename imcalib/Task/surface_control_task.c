@@ -38,6 +38,7 @@ uint8_t Guidance_State;
 Surface_t Surface;
 Self_Text_t Self_Text;
 uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
+int8_t Stable_Cnt = 0;
 
 float pitch_control_limit_deg = -20.0f;//开始放开pitch控制的角度限制 
 
@@ -130,11 +131,13 @@ void Guidance_Start(void)//自检后的判断
 }
 void Guidance_Stable(void)//自稳
 {
+            Buzzer_Remind();
         Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
         Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
         // Buzzer_play_song(song_ni);
 }
+#if 1
 /* 目标斜坡逼近(速率限制):把 cur 朝 target 每拍最多移动 max_step,把视觉阶跃摊成斜坡(方案3)。
  * wrap=1:差值按角度环绕到最短弧(YAW 是 atan2 周期角);wrap=0:普通(PITCH 是 asin 不环绕)。*/
 static float Target_Slew(float cur, float target, float max_step, uint8_t wrap)
@@ -259,7 +262,7 @@ static float Pitch_Distance_Area_Gain(uint16_t dist_cm, uint16_t area)
     pitch_distance_gain = gain;
     return gain;
 }
-
+#endif
 void Guidance_Terminal(void)//制导段
 {
     /* PN 视线率状态(函数级静态,帧间保持):上帧世界系视线终点 / 自上帧起累计的控制拍数 / 首帧标志 */
@@ -351,7 +354,7 @@ void Guidance_Terminal(void)//制导段
 void Guidance_End(void)
 {
     // Dart_Trigger_Power_Control( Power_OFF );
-    if (Surface.Guidance_cnt[4]++>3000)
+    if (Surface.Guidance_cnt[4]++>1000)
     {
         Vision_Transmit(Vision_Cmd_Record_Stop);
         Guidance_State = PROCESS_OK;
@@ -363,13 +366,12 @@ void Guidance_End(void)
 }
 void Guidance_Process_OK(void)
 {
-    if (Surface.Guidance_cnt[5]++>500)
+    if (Surface.Guidance_cnt[5]++>300)
     {
 		Total_Power_Control(Power_OFF);
         Surface.Guidance_cnt[5] = 0;
     }
 }
-
 
 void get_current_Target(void)
 {
@@ -415,6 +417,12 @@ void get_current_Target(void)
 }
 void get_current_State(void)
 { 
+    if(
+                0// Guidance_State == Stable
+    )
+    {
+            Buzzer_Remind();
+    }
     if (Self_Text.Self_Text_Process==Self_Text_OK&&Guidance_State == Self_Text_State)
     {
         if (Surface.Guidance_cnt[0]++>2000)
@@ -428,18 +436,49 @@ void get_current_State(void)
             } 
             Surface.Guidance_cnt[0] = 0;
             // Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
+            // Shot_Pitch = IMU_Data.Euler[NOW][PITCH];
         }
     }
-    else if (Guidance_State == Start && (IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch+8.0f&&IMU_Data.Euler[NOW][PITCH]>=Shot_Pitch- 8.0f)&&((IMU_Data.A_Normed[NOW][Y] >= 0.70f&&IMU_Data.A[NOW][Y] >= 0.8f)||(IMU_Data.Euler[NOW][PITCH]<=(Surface.Stable_Euler_Angle[PITCH]-3)&&IMU_Data.Euler[NOW][PITCH]>=(Surface.Stable_Euler_Angle[PITCH]-10))))
+    else if (Guidance_State == Start )
     {
-        Vision_Transmit( Vision_Cmd_Work );
-        if (Surface.Guidance_cnt[1]++>5)
+        if((IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch+8.0f&&IMU_Data.Euler[NOW][PITCH]>=Shot_Pitch- 8.0f)&&((IMU_Data.A_Normed[NOW][Y] >= 0.70f&&IMU_Data.A[NOW][Y] >= 0.7f)||(IMU_Data.Euler[NOW][PITCH]<=(Shot_Pitch-5))))
         {
-            Buzzer_Remind();
-            Vision_Transmit( Vision_Cmd_Record_Start );
-            Guidance_State = Stable;
-            Surface.Guidance_cnt[1] = 0;
+            Vision_Transmit( Vision_Cmd_Work );
+            Surface.Guidance_cnt[1]++;
+            if( Surface.Guidance_cnt[1]>=5 )
+            {
+                Buzzer_Remind();
+                Vision_Transmit( Vision_Cmd_Record_Start );
+                Guidance_State = Stable;
+                Surface.Guidance_cnt[1] = 0;
+            }
         }
+        // if(Dart_Cnt_is_First==1&&Surface.Guidance_cnt[1]>=5)
+        // {
+        //     if (Stable_Cnt<Dart_Cnt_is_First)
+        //     {
+        //         if(imu_is_static==1&&Stable_Cnt==0)
+        //         {
+        //             Surface.Guidance_cnt[1] = 0;
+        //             Stable_Cnt = 1;
+        //         }
+        //     }
+        //     else if(Stable_Cnt>=Dart_Cnt_is_First) 
+        //     {
+        //         Buzzer_Remind();
+        //         Vision_Transmit( Vision_Cmd_Record_Start );
+        //         Guidance_State = Stable;
+        //         Surface.Guidance_cnt[1] = 0;
+        //         Stable_Cnt = 2;
+        //     }
+        // }    
+        // else if(Dart_Cnt_is_First==0&&Surface.Guidance_cnt[1]>=5)   
+        // {
+        //     Buzzer_Remind();
+        //     Vision_Transmit( Vision_Cmd_Record_Start );
+        //     Guidance_State = Stable;
+        //     Surface.Guidance_cnt[1] = 0;
+        // }
     }
     else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=10.0f||Vision_Rx_Data.x[NOW]!=0.0f))
     {
@@ -452,7 +491,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&fabs(IMU_Data.A_Normed[NOW][Y])>= 0.80f&& IMU_Data.A[NOW][Y]<=  -1.5f)
+    else if (Guidance_State == Terminal &&fabs(IMU_Data.A_Normed[NOW][Y])>= 0.80f&& IMU_Data.A[NOW][Y]<=  -0.8f)
     {
         Vision_Transmit( Vision_Cmd_Work ); 
         if(Surface.Guidance_cnt[3]++>5)
@@ -462,6 +501,13 @@ void get_current_State(void)
             Vision_Transmit( Vision_Cmd_Record_Stop );
             Surface.Guidance_cnt[3] = 0;
         }
+    }
+    else 
+    {
+        Surface.Guidance_cnt[0] = 0;
+        Surface.Guidance_cnt[1] = 0;
+        Surface.Guidance_cnt[2] = 0;
+        Surface.Guidance_cnt[3] = 0;
     }
 }
 #if 1 //DART_TYPE == VECTOR_NOZZLE
@@ -834,8 +880,8 @@ void surface_control_task(void)
                                    &p_body, &y_body);
             }
 
-            // p_body = 0; 
-            // y_body = 0; 
+            p_body = 0; 
+            y_body = 0; 
             // r_body = 0;
             /* 三轴统一接 PID 内环输出(roll 绕纵轴不反旋,直接用);按 Alloc_Mode 分派分配器。
              * 注:上面 p_body*0.85/y_body*1.05 是旧分配的经验微调,Mode2 精确分配下会破坏最优,
