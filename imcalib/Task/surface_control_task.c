@@ -68,7 +68,7 @@ float   vision_los_rate[3] = {0};                    /* 末制导世界系惯性
 float   pitch_dive_floor = 0.0f, closeness_s = 0.0f; /* Vofa:末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1] */
 float   yaw_distance_gain = 1.0f;                   /* Vofa:末制导 yaw 距离面积增益 */
 float   pitch_distance_gain = 1.0f;                  /* Vofa:末制导 pitch 距离面积增益(远端小、近端大) */
-float pitch_control_limit_deg = 0.0f;//开始放开pitch控制的角度限制 
+float pitch_control_limit_deg = 5.0f;//开始放开pitch控制的角度限制 
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
 #if 1
@@ -553,7 +553,8 @@ void Guidance_Start(void)//自检后的判断
 void Guidance_Stable(void)//自稳
 {
             // Buzzer_Remind();
-        Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+        Surface.target_angle_Euler[NOW][PITCH] = 
+        Surface.current_angle_Euler[NOW][PITCH];
         Surface.target_angle_Euler[NOW][ROLL]  = 
         Surface.Stable_Euler_Angle[ROLL];
         // Surface.current_angle_Euler[NOW][ROLL]+((Surface.Stable_Euler_Angle[ROLL]-Surface.current_angle_Euler[NOW][ROLL])/2.0f);
@@ -628,10 +629,10 @@ void Guidance_Terminal(void)//制导段
         //斜坡
     Surface.target_angle_Euler[NOW][YAW] =
     // Surface.current_angle_Euler[NOW][YAW];
-        Target_Slew(vision_los_current[YAW], vision_los_final[NOW][YAW], yaw_gain*fabs(vision_los_final[NOW][YAW]-vision_los_current[YAW])/10, 0);
+        Target_Slew(vision_los_current[YAW], vision_los_final[NOW][YAW], yaw_gain*fabs(vision_los_final[NOW][YAW]-vision_los_current[YAW])/5, 0);
     Surface.target_angle_Euler[NOW][PITCH] = 
     // Surface.current_angle_Euler[NOW][PITCH];
-        Target_Slew(vision_los_current[PITCH], vision_los_final[NOW][PITCH], pitch_gain*fabs(vision_los_final[NOW][PITCH]-vision_los_current[PITCH])/20, 0);
+        Target_Slew(vision_los_current[PITCH], vision_los_final[NOW][PITCH], pitch_gain*fabs(vision_los_final[NOW][PITCH]-vision_los_current[PITCH])/10, 0);
 
     /* 混合导引超前:在斜坡目标之上叠加 PN 超前(必须在 Target_Slew 之后,否则被覆盖) */
     if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
@@ -786,7 +787,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&fabs(IMU_Data.A_Normed[NOW][Y])>= 0.80f&& IMU_Data.A[NOW][Y]<=  -0.8f)
+    else if (Guidance_State == Terminal &&fabs(IMU_Data.A_Normed[NOW][Y])>= 0.80f&& IMU_Data.A[NOW][Y]<= -0.8f)
     {
         Vision_Transmit( Vision_Cmd_Work ); 
         if(Surface.Guidance_cnt[3]++>5)
@@ -886,11 +887,12 @@ void surface_control_task(void)
         //     // y_body *= 1.5f;
         //     // p_body = 0.0f;  
         // }
-            if (Guidance_State==Terminal)
+            if (Guidance_State==Terminal&&Surface.current_angle_Euler[NOW][PITCH]>pitch_control_limit_deg)
             {
             // Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
             //                        Surface.output_gyro_Euler[NOW][YAW],
             //                        &p_body, &y_body);
+                // p_body = 0;             
             }
 
             // p_body = 0; 
