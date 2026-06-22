@@ -13,6 +13,7 @@
 #include "FreeRTOS.h"
 #include "surface_control_task.h"
 #include "task.h"
+#include <math.h>
 #include "TotalControl.h"
 #include "Vofa_send.h"
 #include "adrc.h"
@@ -162,8 +163,10 @@ void Vision_Receive(uint8_t* Buf)
     }
     else if(Buf[0]==0x5B&&Buf[5]==0xA6)        /* 距离+面积扩展包(6字节,独立于识别包):dist_cm/area 均 uint16 大端 */
     {
-        Vision_Rx_Data.dist_cm = (uint16_t)(Buf[1]<<8|Buf[2]);   /* 目标距离 cm(视觉端 DIST_K/sqrt(blob像素)) → 末制导俯冲调度的剩余距离代理 */
-        Vision_Rx_Data.area    = (uint16_t)(Buf[3]<<8|Buf[4]);   /* 当前目标 blob 像素数(辅助/观测,不直接进调度) */
+        Vision_Rx_Data.dist_cm = (uint16_t)(Buf[1]<<8|Buf[2]);   /* 目标距离 cm(视觉端 DIST_K/sqrt(blob像素)) */
+        Vision_Rx_Data.area    = (uint16_t)(Buf[3]<<8|Buf[4]);   /* 当前目标 blob 像素面积 */
+        /* 由面积算等效半径:r = sqrt(area/π),供视线角归一化用 */
+        Vision_Rx_Data.radius  = (uint16_t)sqrtf(Vision_Rx_Data.area / M_PI);
     }
     else if(Buf[0]==0x7A&&Buf[5]==0xA7)
     {
@@ -198,10 +201,21 @@ void Vision_Transmit_Debug(void)
     val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
     val[1]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
     val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.Velocity[Body][NOW][YAW]*10;
+    val[3]  = Surface.current_angle_Euler[NOW][YAW];
+    val[4]  = Surface.target_angle_Euler[NOW][YAW]; 
+    val[5]  = Vision_Rx_Data.radius;
+    val[6]  = surface_control_pid[Angle][YAW].pout;
+    val[7]  = surface_control_pid[Angle][YAW].iout;
+    val[8]  = surface_control_pid[Angle][YAW].dout;
+    val[9]  = Surface.current_gyro_Euler[NOW][YAW];
+    val[10] = temp[YAW];
+    val[11] = Surface.output_Body_Euler[NOW][YAW];
 
-    val[3]  = Surface.output_Body_Euler[NOW][PITCH];
-    val[4]  = Surface.output_Body_Euler[NOW][ROLL];
-    val[5]  = Surface.output_Body_Euler[NOW][YAW];
+
+
+    // val[3]  = Surface.output_Body_Euler[NOW][PITCH];
+    // val[4]  = Surface.output_Body_Euler[NOW][ROLL];
+    // val[5]  = Surface.output_Body_Euler[NOW][YAW];
 
     // val[3]  = IMU_Data.Velocity[Body][NOW][PITCH];
     // val[4]  = IMU_Data.Velocity[Body][NOW][ROLL];
@@ -223,15 +237,15 @@ void Vision_Transmit_Debug(void)
     // val[3]  = IMU_Data.A_Normed[NOW][X];
     // val[4]  = IMU_Data.A_Normed[NOW][Y];
     // val[5]  = IMU_Data.A_Normed[NOW][Z];
-    val[6]  = Surface.current_angle_Euler[NOW][PITCH];
-    val[7]  = Surface.current_angle_Euler[NOW][ROLL];
-    val[8]  = Surface.current_angle_Euler[NOW][YAW];
+    // val[6]  = Surface.current_angle_Euler[NOW][PITCH];
+    // val[7]  = Surface.current_angle_Euler[NOW][ROLL];
+    // val[8]  = Surface.current_angle_Euler[NOW][YAW];
     // val[9]  = Surface.current_gyro_Euler[NOW][PITCH];
     // val[10] = Surface.current_gyro_Euler[NOW][ROLL];
     // val[11] = Surface.current_gyro_Euler[NOW][YAW];
-    val[9]  = Surface.target_angle_Euler[NOW][PITCH];
-    val[10] = Surface.target_angle_Euler[NOW][ROLL];
-    val[11] = Surface.target_angle_Euler[NOW][YAW];
+    // val[9]  = Surface.target_angle_Euler[NOW][PITCH];
+    // val[10] = Surface.target_angle_Euler[NOW][ROLL];
+    // val[11] = Surface.target_angle_Euler[NOW][YAW];
 
     /* 帧头0x57 + 12×float(大端,MSB先,每个4字节) + 帧尾0x75, 共50字节(Vision_TxDebug_Buf[50])。
      * 视觉端定长收50字节,校验首0x57/尾0x75后大端解析,如 Python: struct.unpack('>12f', buf[1:49])。 */

@@ -27,26 +27,26 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-#define  Servo_UL_ZERO      1350
-#define  Servo_UR_ZERO      1360
-#define  Servo_DR_ZERO      1400
-#define  Servo_DL_ZERO      1480 
-#define  Shot_Pitch 33
-#define  Dart_Cnt_is_First 1
+// #define  Servo_UL_ZERO      1350
+// #define  Servo_UR_ZERO      1470
+// #define  Servo_DR_ZERO      1400
+// #define  Servo_DL_ZERO      1480 
+// #define  Shot_Pitch 33
+// #define  Dart_Cnt_is_First 1
  
 // //镖体2 蓝色
-// #define  Servo_UL_ZERO      1660
-// #define  Servo_UR_ZERO      1460
-// #define  Servo_DR_ZERO      1540
-// #define  Servo_DL_ZERO      1380 
-// #define Shot_Pitch 28
-// #define  Dart_Cnt_is_First 0
+#define  Servo_UL_ZERO      1660
+#define  Servo_UR_ZERO      1460
+#define  Servo_DR_ZERO      1540
+#define  Servo_DL_ZERO      1380 
+#define Shot_Pitch 28
+#define  Dart_Cnt_is_First 0
 
 //镖体3 红色
-// #define  Servo_UL_ZERO      1490
-// #define  Servo_UR_ZERO      1430
-// #define  Servo_DR_ZERO      1505
-// #define  Servo_DL_ZERO      1530    
+// #define  Servo_UL_ZERO      1480
+// #define  Servo_UR_ZERO      1445
+// #define  Servo_DR_ZERO      1480
+// #define  Servo_DL_ZERO      1565    
 // #define Shot_Pitch 22
 // #define  Dart_Cnt_is_First 0
 
@@ -67,8 +67,8 @@
  * Alloc_Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
 #define  AXIS_LIMIT_PITCH   25.0f   /* 交付A:三轴各自独立限幅(度),可调 */
-#define  AXIS_LIMIT_ROLL    20.0f
-#define  AXIS_LIMIT_YAW     25.0f
+#define  AXIS_LIMIT_ROLL    15.0f
+#define  AXIS_LIMIT_YAW     35.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
 #define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还 原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
 
@@ -95,7 +95,7 @@
 /* 接近度 s 分段合成(面积+距离一起用):远段用距离(标定准、连续),近段用面积(blob大、近场更可靠);
  * dist_cm 决定走哪段,两段在切换点 s=DIVE_SCHED_SWITCH 衔接。dist/area 来自视觉 0x5B 包。全部待台架实测。*/
 #define  DIST_ACQUIRE_CM         (700.0f)   /* 远段起点:刚识别引导灯(s=0)的目标距离cm */
-#define  DIST_NEAR_CM            (470.0f)   /* 远/近段切换距离(s=DIVE_SCHED_SWITCH);≤此距离改用面积调度 */
+#define  DIST_NEAR_CM            (150.0f)   /* 远/近段切换距离(s=DIVE_SCHED_SWITCH);≤此距离改用面积调度 */
 #define  AREA_NEAR               (800.0f)   /* 近段起点面积(≈DIST_NEAR_CM处的blob像素,s=DIVE_SCHED_SWITCH) */
 #define  AREA_IMPACT            (4000.0f)   /* 近段终点:接近撞击(s=1)的blob像素 */
 #define  DIVE_SCHED_SWITCH        (0.6f)    /* 远/近段衔接处的接近度s:距离管 0→此值,面积管 此值→1 */
@@ -109,8 +109,8 @@
  *   dist_cm 决定走哪段;两包都无(dist_cm=0)退化为默认增益1.0。
  * 增益线性插值:YAW_GAIN_FAR(s=0,远处) → YAW_GAIN_NEAR(s=1,近处)。
  * 全部待台架实测微调。*/
-#define  YAW_GAIN_FAR            (1.2f)    /* 远处(s=0)的 yaw 增益:补偿视觉距离效应,更灵敏 */
-#define  YAW_GAIN_NEAR           (0.8f)    /* 近处(s=1)的 yaw 增益:近距离视觉误差大,适当减小防过冲 */
+#define  YAW_GAIN_FAR            (1.3f)    /* 远处(s=0)的 yaw 增益:补偿视觉距离效应,更灵敏 */
+#define  YAW_GAIN_NEAR           (0.7f)    /* 近处(s=1)的 yaw 增益:近距离视觉误差大,适当减小防过冲 */
 #define  YAW_GAIN_ENABLE_DIST    (800.0f)  /* 启用 yaw 增益调整的最大距离阈值(cm):超过此距离不调整(无数据) */
 
 /* === 末制导 PITCH 距离面积增益:随接近度调整 pitch 控制增益 ===
@@ -118,9 +118,17 @@
  *   远端:增益小(控制保守,避免过早俯冲消耗能量)
  *   近端:增益大(控制激进,确保精准命中)
  * 增益线性插值:PITCH_GAIN_FAR(s=0,远处) → PITCH_GAIN_NEAR(s=1,近处)。*/
-#define  PITCH_GAIN_FAR          (0.6f)    /* 远处(s=0)的 pitch 增益:保守控制,保射程 */
-#define  PITCH_GAIN_NEAR         (1.5f)    /* 近处(s=1)的 pitch 增益:激进控制,精准命中 */
+#define  PITCH_GAIN_FAR          (0.7f)    /* 远处(s=0)的 pitch 增益:保守控制,保射程 */
+#define  PITCH_GAIN_NEAR         (1.2f)    /* 近处(s=1)的 pitch 增益:激进控制,精准命中 */
 #define  PITCH_GAIN_ENABLE_DIST  (800.0f)  /* 启用 pitch 增益调整的最大距离阈值(cm) */
+
+/* === 视线角半径归一化 ===
+ * 远处引导灯 blob 小(半径~5px),同样像素偏移对应更大实际角度;
+ * 近处 blob 大(半径~30px),同样像素偏移对应更小实际角度。
+ * 归一化到参考半径:normalized_angle = angle × (REF_RADIUS / radius),
+ * 使控制增益不随距离变化。REF_RADIUS 按典型标定距离的 blob 半径设定。*/
+#define  REF_RADIUS             (15.0f)   /* 参考半径(像素):标定距离处的 blob 等效半径 */
+#define  REF_RADIUS_MIN         (3.0f)    /* 半径下限(像素):防 radius=0/异常除零 */
 
 /* === 末制导混合导引:视线率PN超前 + 配平迎角前馈(均不依赖会漂的IMU积分速度) ===
  * PN:目标角按"世界系惯性视线率λ̇"超前——λ̇由锁存视线帧间差分得(纯视觉),驱动λ̇→0=碰撞航线,
@@ -232,6 +240,7 @@ extern float pitch_dive_floor;      /* Vofa:末制导俯仰俯冲下限θ_floor�
 extern float closeness_s;           /* Vofa:接近度s∈[0,1](像素面积调度,缺失时按γ) */
 extern float yaw_distance_gain;     /* Vofa:末制导 yaw 距离面积增益 */
 extern float pitch_distance_gain;   /* Vofa:末制导 pitch 距离面积增益(远端小、近端大) */
+extern float LOOKING_DATA[10];
 
 extern uint16_t current_tick;
 void surface_control_task(void);

@@ -60,7 +60,7 @@ void Vofa(void)
 	// Surface.output_gyro_Euler[NOW][PITCH],
     // Surface.output_gyro_Euler[NOW][ROLL], 
     // Surface.output_gyro_Euler[NOW][YAW],
-	imu_is_static,
+	yaw_distance_gain,
 	Surface.Finally_Angle[NOW][UP_RIGHT  ],
 	Surface.Finally_Angle[NOW][DOWN_RIGHT],
 	Surface.Finally_Angle[NOW][DOWN_LEFT   ],

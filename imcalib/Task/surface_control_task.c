@@ -33,6 +33,8 @@
 /* 静态变量定义 static variable(s) END */
 /*---------------------------------------------------------------------------*/
 /* 全局变量定义 global variable(s) BEGIN */
+
+
 uint8_t DART_TYPE = VECTOR_NOZZLE;
 uint8_t Guidance_State;
 Surface_t Surface;
@@ -68,7 +70,7 @@ float   vision_los_rate[3] = {0};                    /* 末制导世界系惯性
 float   pitch_dive_floor = 0.0f, closeness_s = 0.0f; /* Vofa:末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1] */
 float   yaw_distance_gain = 1.0f;                   /* Vofa:末制导 yaw 距离面积增益 */
 float   pitch_distance_gain = 1.0f;                  /* Vofa:末制导 pitch 距离面积增益(远端小、近端大) */
-float pitch_control_limit_deg = 5.0f;//开始放开pitch控制的角度限制 
+float pitch_control_limit_deg = -5.0f;//开始放开pitch控制的角度限制 
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
 #if 1
@@ -182,6 +184,22 @@ void Wing_Control(void)
 }
 
 #if 1
+/* === 视线角半径归一化 ===
+ * 远处引导灯 blob 半径小(~5px),同样像素偏移对应更大实际角度;
+ * 近处 blob 半径大(~30px),同样像素偏移对应更小实际角度。
+ * 归一化到 REF_RADIUS(15px):normalized = angle × (REF_RADIUS / radius)
+ * → 控制增益不再随距离变化,同一像素偏移始终对应同一归一化角。
+ *
+ * 输入:angle_deg 视觉原始视线角(度), radius_px blob等效半径(像素)
+ * 输出:归一化后的视线角(度),radius<REF_RADIUS_MIN 时原样返回(防除零) */
+static float Vision_Angle_Normalize(float angle_deg, uint16_t radius_px)
+{
+    if (radius_px < REF_RADIUS_MIN) return angle_deg;  /* 半径太小/无数据,不补偿 */
+    float r = (float)radius_px;
+    
+    return angle_deg * (REF_RADIUS / r);
+}
+
 /* 目标斜坡逼近(速率限制):把 cur 朝 target 每拍最多移动 max_step,把视觉阶跃摊成斜坡(方案3)。
  * wrap=1:差值按角度环绕到最短弧(YAW 是 atan2 周期角);wrap=0:普通(PITCH 是 asin 不环绕)。*/
 static float Target_Slew(float cur, float target, float max_step, uint8_t wrap)
@@ -223,85 +241,119 @@ static float Pitch_Dive_Floor(uint16_t dist_cm, uint16_t area)
     return dive_floor;
 }
 
-/* === 末制导 YAW 距离面积增益:随接近度调整 yaw 控制增益 ===
- * 参考 Pitch_Dive_Floor 的接近度 s 计算方式(距离/面积分段合成):
- *   远段用距离 dist_cm(标定准、连续,s:0→DIVE_SCHED_SWITCH),
- *   近段用面积 area(blob 大、近场更可靠,s:DIVE_SCHED_SWITCH→1),
- *   dist_cm 决定走哪段;两包都无(dist_cm=0)退化为默认增益1.0。
+/* === [旧函数已注释] 末制导 YAW 距离面积增益 ===
+ * 原函数使用距离+面积双段合成,调试中出现异常增益值,注释保留供参考。
+ * 替换为纯距离线性插值版 Yaw_Gain_ByDist()。
  *
- * 增益线性插值:YAW_GAIN_FAR(s=0) → YAW_GAIN_NEAR(s=1)。
- * 超过 YAW_GAIN_ENABLE_DIST 距离时不调整(返回1.0),避免远处误触发。
- * Vofa 观测 yaw_distance_gain。*/
 static float Yaw_Distance_Area_Gain(uint16_t dist_cm, uint16_t area)
 {
-    /* 超过启用距离阈值，不调整增益 */
-    if ((float)dist_cm > YAW_GAIN_ENABLE_DIST)
-    {
-        yaw_distance_gain = 1.0f;
-        return 1.0f;
-    }
+    ... (原代码已禁用)
+}
+*/
 
-    float s;
+/* === [旧函数已注释] 末制导 PITCH 距离面积增益 ===
+ * 同上,替换为纯距离版 Pitch_Gain_ByDist()。
+ *
+static float Pitch_Distance_Area_Gain(uint16_t dist_cm, uint16_t area)
+{
+    ... (原代码已禁用)
+}
+*/
+
+/* ============================================================================
+ * Yaw_Gain_ByDist — 纯距离线性增益(YAW 通道)
+ *
+ * 原理:同样像素误差,远处对应更大实际角度→需要更大增益补偿;近处角度误差小→减小增益防过冲。
+ * 只用距离 dist_cm,不用面积,消除面积异常值导致的增益跳变。
+ *
+ * 输入:
+ *   dist_cm  视觉测距(cm),0=无数据
+ *
+ * 输出:
+ *   增益值 ∈ [YAW_GAIN_NEAR, YAW_GAIN_FAR], 全局 yaw_distance_gain 同步更新
+ *
+ * 分段:
+ *   dist > YAW_GAIN_ENABLE_DIST(800cm): 返回 1.0(远处不调整)
+ *   dist == 0:                          返回 1.0(无数据不调整)
+ *   DIST_ACQUIRE_CM(700) → DIST_NEAR_CM(470): 远→近线性插值
+ *   dist < DIST_NEAR_CM(470):           夹到近端增益
+ * ============================================================================ */
+static float Yaw_Gain_ByDist(uint16_t dist_cm)
+{
     float gain;
-    if (dist_cm == 0)                              /* 无 0x5B 距离/面积包 → 退化为默认增益 */
-        // s = 0.0f;
-        gain = 1.0;
-    else if ((float)dist_cm > DIST_NEAR_CM)        /* 远段:距离调度,s 由远(s=0)线性升到切换点 */
-        // gain = 1.3;
-        s = DIVE_SCHED_SWITCH * (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
-    else
-        // gain = 0.85;                                  /* 近段:面积调度,s 由切换点升到近(s=1) */
-        s = DIVE_SCHED_SWITCH + (1.0f - DIVE_SCHED_SWITCH) * ((float)area - AREA_NEAR) / (AREA_IMPACT - AREA_NEAR);
 
-    if (dist_cm != 0)
+    if (dist_cm == 0)
     {
-        if (s < 0.0f) s = 0.0f;
-        if (s > 1.0f) s = 1.0f;
-        /* 增益线性插值:远端小,近端大 */
-        gain = YAW_GAIN_FAR + s * (YAW_GAIN_NEAR - YAW_GAIN_FAR);
+        /* 无距离数据:保持默认增益,不调整 */
+        gain = 1.0f;
     }
+    else if ((float)dist_cm > YAW_GAIN_ENABLE_DIST)
+    {
+        /* 超过启用阈值:远处不调整 */
+        gain = 1.0f;
+    }
+    else if ((float)dist_cm >= DIST_ACQUIRE_CM)
+    {
+        /* 刚识别到但很远(DIST_ACQUIRE ~ ENABLE):用远端增益 */
+        gain = YAW_GAIN_FAR;
+    }
+    else if ((float)dist_cm <= DIST_NEAR_CM)
+    {
+        /* 已很近:用近端增益 */
+        gain = YAW_GAIN_NEAR;
+    }
+    else
+    {
+        /* 中间段:距离从 DIST_ACQUIRE 线性降到 DIST_NEAR,增益从 FAR 线性降到 NEAR */
+        float t = (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
+        /* t ∈ (0,1),t=0→远端,t=1→近端 */
+        gain = YAW_GAIN_FAR + t * (YAW_GAIN_NEAR - YAW_GAIN_FAR);
+    }
+
+    /* 最终硬夹:任何浮点异常都不可能越界 */
+    if (gain < YAW_GAIN_NEAR) gain = YAW_GAIN_NEAR;
+    if (gain > YAW_GAIN_FAR)  gain = YAW_GAIN_FAR;
 
     yaw_distance_gain = gain;
     return gain;
 }
 
-/* === 末制导 PITCH 距离面积增益:随接近度调整 pitch 控制增益 ===
- * 与 YAW 类似但逻辑相反:
- *   远端:增益小(控制保守,避免过早俯冲消耗能量)
- *   近端:增益大(控制激进,确保精准命中)
- * 使用相同的接近度 s 计算方式(距离/面积分段合成):
- *   远段用距离 dist_cm(s:0→DIVE_SCHED_SWITCH),
- *   近段用面积 area(s:DIVE_SCHED_SWITCH→1),
- *   dist_cm 决定走哪段;两包都无(dist_cm=0)退化为默认增益1.0。
+/* ============================================================================
+ * Pitch_Gain_ByDist — 纯距离线性增益(PITCH 通道)
  *
- * 增益线性插值:PITCH_GAIN_FAR(s=0) → PITCH_GAIN_NEAR(s=1)。
- * 超过 PITCH_GAIN_ENABLE_DIST 距离时不调整(返回1.0)。
- * Vofa 观测 pitch_distance_gain。*/
-static float Pitch_Distance_Area_Gain(uint16_t dist_cm, uint16_t area)
+ * 与 Yaw_Gain_ByDist 对称,但插值方向相反:
+ *   远端(FAR)→小增益(保守,保射程);  近端(NEAR)→大增益(激进,精准命中)。
+ *
+ * 输入/输出/分段逻辑同 Yaw_Gain_ByDist,仅增益常量换为 PITCH_GAIN_*。
+ * ============================================================================ */
+static float Pitch_Gain_ByDist(uint16_t dist_cm)
 {
-    /* 超过启用距离阈值，不调整增益 */
-    if ((float)dist_cm > PITCH_GAIN_ENABLE_DIST)
-    {
-        pitch_distance_gain = 1.0f;
-        return 1.0f;
-    }
-
-    float s;
     float gain;
-    if (dist_cm == 0)                              /* 无 0x5B 距离/面积包 → 退化为默认增益 */
-        gain = 1.0f;
-    else if ((float)dist_cm > DIST_NEAR_CM)        /* 远段:距离调度,s 由远(s=0)线性升到切换点 */
-        s = DIVE_SCHED_SWITCH * (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
-    else                                           /* 近段:面积调度,s 由切换点升到近(s=1) */
-        s = DIVE_SCHED_SWITCH + (1.0f - DIVE_SCHED_SWITCH) * ((float)area - AREA_NEAR) / (AREA_IMPACT - AREA_NEAR);
 
-    if (dist_cm != 0)
+    if (dist_cm == 0)
     {
-        if (s < 0.0f) s = 0.0f;
-        if (s > 1.0f) s = 1.0f;
-        /* 增益线性插值:远端小,近端大 */
-        gain = PITCH_GAIN_FAR + s * (PITCH_GAIN_NEAR - PITCH_GAIN_FAR);
+        gain = 1.0f;
     }
+    else if ((float)dist_cm > PITCH_GAIN_ENABLE_DIST)
+    {
+        gain = 1.0f;
+    }
+    else if ((float)dist_cm >= DIST_ACQUIRE_CM)
+    {
+        gain = PITCH_GAIN_FAR;
+    }
+    else if ((float)dist_cm <= DIST_NEAR_CM)
+    {
+        gain = PITCH_GAIN_NEAR;
+    }
+    else
+    {
+        float t = (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
+        gain = PITCH_GAIN_FAR + t * (PITCH_GAIN_NEAR - PITCH_GAIN_FAR);
+    }
+
+    if (gain < PITCH_GAIN_FAR)  gain = PITCH_GAIN_FAR;
+    if (gain > PITCH_GAIN_NEAR) gain = PITCH_GAIN_NEAR;
 
     pitch_distance_gain = gain;
     return gain;
@@ -587,9 +639,13 @@ void Guidance_Terminal(void)//制导段
         taskEXIT_CRITICAL();
         if (v.Vision_recognize_flag == RECOGNIZE_SUCCESS) /* 识别到目标:锁存世界系视线终点(全程用快照 v,避免与视觉中断撕裂读) */
         {
+            /* 半径归一化:消除远近blob大小差异对视线角的影响,写入结构体供Vofa观测 */
+            Vision_Rx_Data.Euler_norm[1] = Vision_Angle_Normalize(v.Euler[NOW][1], v.radius);  /* yaw */
+            Vision_Rx_Data.Euler_norm[0] = Vision_Angle_Normalize(v.Euler[NOW][0], v.radius);  /* pitch */
+
             /* YAW:始终视觉制导,锁存世界系视线终点 */
-            vision_los_final[NOW][YAW]   = v.Euler[NOW][1] + Surface.current_angle_Euler[NOW][YAW];
-            vision_los_final[NOW][PITCH] = v.Euler[NOW][0] + Surface.current_angle_Euler[NOW][PITCH];
+            vision_los_final[NOW][YAW]   = Vision_Rx_Data.Euler_norm[1] + Surface.current_angle_Euler[NOW][YAW];
+            vision_los_final[NOW][PITCH] = Vision_Rx_Data.Euler_norm[0] + Surface.current_angle_Euler[NOW][PITCH];
 
                 
             if (los_rate_init)
@@ -621,26 +677,77 @@ void Guidance_Terminal(void)//制导段
         los_rate_init = 0;
     }
 
-        //距离面积增益
-        float yaw_gain = Yaw_Distance_Area_Gain(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
-        float pitch_gain = Pitch_Distance_Area_Gain(Vision_Rx_Data.dist_cm, Vision_Rx_Data.area);
+    /* =====================================================================
+     * 视觉目标平滑:用一阶低通滤波替代原 Target_Slew 斜坡
+     *
+     * 原理:target = k × vision_los_final + (1−k) × target_last
+     *   k 大(0.5)→跟手快但可能抖;  k 小(0.1)→平滑但滞后。
+     *   比斜坡的优势:无阶跃→不需要超调检测,自然收敛不回弹。
+     *
+     * k 由距离增益缩放:远处(k小,保守)→近处(k大,跟手)。
+     * vision_recognize_flag==FAILURE 时冻结滤波器(保持最后有效目标)。
+     * ===================================================================== */
+    {
+        static float lpf_yaw   = 0.0f;
+        static float lpf_pitch = 0.0f;
+        static uint8_t lpf_inited = 0;
 
+        /* 首拍:用当前角度初始化,避免从零跳变 */
+        if (!lpf_inited)
+        {
+            lpf_yaw   = Surface.current_angle_Euler[NOW][YAW];
+            lpf_pitch = Surface.current_angle_Euler[NOW][PITCH];
+            lpf_inited = 1;
+        }
 
-        //斜坡
-    Surface.target_angle_Euler[NOW][YAW] =
-    // Surface.current_angle_Euler[NOW][YAW];
-        Target_Slew(vision_los_current[YAW], vision_los_final[NOW][YAW], yaw_gain*fabs(vision_los_final[NOW][YAW]-vision_los_current[YAW])/5, 0);
-    Surface.target_angle_Euler[NOW][PITCH] = 
-    // Surface.current_angle_Euler[NOW][PITCH];
-        Target_Slew(vision_los_current[PITCH], vision_los_final[NOW][PITCH], pitch_gain*fabs(vision_los_final[NOW][PITCH]-vision_los_current[PITCH])/10, 0);
+        if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+        {
+            /* 距离增益缩放滤波系数:远处小k(保守),近处大k(跟手) */
+            float yaw_gain   = Yaw_Gain_ByDist(Vision_Rx_Data.dist_cm);
+            float pitch_gain = Pitch_Gain_ByDist(Vision_Rx_Data.dist_cm);
 
-    /* 混合导引超前:在斜坡目标之上叠加 PN 超前(必须在 Target_Slew 之后,否则被覆盖) */
+            float k_max[2],k_min[2];
+            k_max[0] = 0.45;k_min[0] = 0.2;
+            k_max[1] = 0.45;k_min[1] = 0.2;
+            /* k 由增益线性映射:增益大→k大(跟手),增益小→k小(保守)
+             * YAW:远(gain=YAW_GAIN_FAR=1.5)→k_max(0.45),近(gain=YAW_GAIN_NEAR=0.7)→k_min(0.2)
+             * PITCH:远(gain=PITCH_GAIN_FAR=0.6)→k_min(0.2),近(gain=PITCH_GAIN_NEAR=1.5)→k_max(0.45) */
+            float k_yaw   = k_min[0] + (yaw_gain   - YAW_GAIN_NEAR)   * (k_max[0] - k_min[0]) / (YAW_GAIN_FAR   - YAW_GAIN_NEAR);
+            float k_pitch = k_min[1] + (pitch_gain - PITCH_GAIN_FAR)  * (k_max[1] - k_min[1]) / (PITCH_GAIN_NEAR - PITCH_GAIN_FAR);
+
+            /* 低通滤波 */
+            lpf_yaw   = 
+            vision_los_final[NOW][YAW];
+            // Surface.Stable_Euler_Angle[YAW];
+            // Low_Pass_Filter(vision_los_final[NOW][YAW],   lpf_yaw,   0.5);
+            lpf_pitch = 
+            // vision_los_final[NOW][PITCH];
+            Low_Pass_Filter(vision_los_final[NOW][PITCH], lpf_pitch, 0.5);
+        }
+        /* else: 丢失目标 → lpf_yaw/lpf_pitch 保持上一拍值(冻结) */
+
+        /* YAW:直接用滤波后的目标 */
+        Surface.target_angle_Euler[NOW][YAW] = lpf_yaw;
+
+        /* PITCH:仅俯冲到位时才用视觉目标 */
+        if (Surface.current_angle_Euler[NOW][PITCH] <= pitch_control_limit_deg)
+        {
+            Surface.target_angle_Euler[NOW][PITCH] = lpf_pitch;
+        }
+        else
+        {
+            Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+            lpf_pitch = Surface.current_angle_Euler[NOW][PITCH]; /* 同步滤波器状态 */
+        }
+    }
+
+    /* 混合导引超前:在滤波目标之上叠加 PN 超前 */
     if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
-        PNG_Apply_Lead(&Surface, &IMU_Data);
-
-            /* PITCH:仅俯冲到位(<-10°)才视觉制导;否则不控,终点=当前 */
-            if (Surface.current_angle_Euler[NOW][PITCH] > pitch_control_limit_deg)
-                Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+    {
+        PNG_Apply_Lead_Yaw(&Surface, &IMU_Data);
+        if (Surface.current_angle_Euler[NOW][PITCH] <= pitch_control_limit_deg)
+            PNG_Apply_Lead_Pitch(&Surface, &IMU_Data);
+    }
 
 }
 void Guidance_End(void)
@@ -749,32 +856,6 @@ void get_current_State(void)
             Guidance_State = Stable;
             Surface.Guidance_cnt[1] = 0;
         }
-        // if(Dart_Cnt_is_First==1&&Surface.Guidance_cnt[1]>=5)
-        // {
-        //     if (Stable_Cnt<Dart_Cnt_is_First)
-        //     {
-        //         if(imu_is_static==1&&Stable_Cnt==0)
-        //         {
-        //             Surface.Guidance_cnt[1] = 0;
-        //             Stable_Cnt = 1;
-        //         }
-        //     }
-        //     else if(Stable_Cnt>=Dart_Cnt_is_First) 
-        //     {
-        //         Buzzer_Remind();
-        //         Vision_Transmit( Vision_Cmd_Record_Start );
-        //         Guidance_State = Stable;
-        //         Surface.Guidance_cnt[1] = 0;
-        //         Stable_Cnt = 2;
-        //     }
-        // }    
-        // else if(Dart_Cnt_is_First==0&&Surface.Guidance_cnt[1]>=5)   
-        // {
-        //     Buzzer_Remind();
-        //     Vision_Transmit( Vision_Cmd_Record_Start );
-        //     Guidance_State = Stable;
-        //     Surface.Guidance_cnt[1] = 0;
-        // }
     }
     else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=10.0f||Vision_Rx_Data.x[NOW]!=0.0f))
     {
@@ -789,12 +870,10 @@ void get_current_State(void)
     }
     else if (Guidance_State == Terminal &&fabs(IMU_Data.A_Normed[NOW][Y])>= 0.80f&& IMU_Data.A[NOW][Y]<= -0.8f)
     {
-        Vision_Transmit( Vision_Cmd_Work ); 
         if(Surface.Guidance_cnt[3]++>5)
         {
             Buzzer_Remind();
             Guidance_State = End;
-            Vision_Transmit( Vision_Cmd_Record_Stop );
             Surface.Guidance_cnt[3] = 0;
         }
     }

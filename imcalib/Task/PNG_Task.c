@@ -15,10 +15,13 @@
 
 PNG_Data_t PNG_Data;
 
+/* 前向声明:公共 Vc/视线率计算(供 PNG_Apply_Lead_Yaw/Pitch 调用) */
+static void png_common_calc(float *corr_yaw, float *corr_pitch);
+
 /* 速度PN开关默认值:先上 yaw(=1)、pitch 后续(=0)、稳健 Vc 缩放档(Mode0);三者均可 Vofa/调试器在线改 */
 uint8_t PNG_Yaw_Flag   = 1;
 uint8_t PNG_Pitch_Flag = 1;
-uint8_t PNG_Mode       = 0;
+uint8_t PNG_Mode       = 1;
 
 void PNG_Init(PNG_Data_t* PNG_Data)
 {
@@ -110,6 +113,94 @@ void PNG_Apply_Lead(Surface_t* Surface , IMU_DATA_t* IMU_Data)
 
 	/* 4) PITCH:仅俯冲到位(<pitch_control_limit_deg)才主动制导 pitch(与锁存条件一致)。
 	 *    flag=0 时退回原固定增益超前(PN_LEAD_K·λ̇),叠加常值配平 AOA_TRIM → 与改前逐字等价。*/
+	if (Surface->current_angle_Euler[NOW][PITCH] < pitch_control_limit_deg)
+	{
+		float corr_p = PNG_Pitch_Flag ? corr_pitch
+		                              : (PN_LEAD_K * vision_los_rate[PITCH]);
+		abs_limit(&corr_p, PNG_LEAD_LIMIT_DEG);
+		PNG_Data.lead_corr[PITCH] = corr_p;
+		Surface->target_angle_Euler[NOW][PITCH] -= corr_p + AOA_TRIM_DEG;
+	}
+	else
+	{
+		PNG_Data.lead_corr[PITCH] = 0.0f;
+	}
+}
+
+/* ============================================================================
+ * PNG_Apply_Lead_Yaw / PNG_Apply_Lead_Pitch — 拆分接口
+ *
+ * 供 Guidance_Terminal 分别门控:俯冲未到位时只调 Yaw 版,Pitch 不喂。
+ * 公共的 Vc/视线率计算抽取为 png_common_calc(),避免代码重复。
+ * ============================================================================ */
+
+/* 公共计算:Vc + 视线率 + 每轴 corr 值(写 PNG_Data,输出 corr_yaw/corr_pitch) */
+static void png_common_calc(float *corr_yaw, float *corr_pitch)
+{
+	float vc = vins_out.locked ? fabsf(vins_out.vc) : V_NOM_MS;
+	if (vc < PNG_VC_MIN) vc = PNG_VC_MIN;
+	if (vc > PNG_VC_MAX) vc = PNG_VC_MAX;
+	PNG_Data.vc_used = vc;
+
+	if (PNG_Mode == 0)
+	{
+		float rate_yaw   = vision_los_rate[YAW];
+		float rate_pitch = vision_los_rate[PITCH];
+		PNG_Data.los_rate_used[YAW]   = rate_yaw;
+		PNG_Data.los_rate_used[PITCH] = rate_pitch;
+		float k = PNG_K_VC * vc;
+		*corr_yaw   = k * rate_yaw;
+		*corr_pitch = k * rate_pitch;
+	}
+	else
+	{
+		float px = vins_out.p_world[X], py = vins_out.p_world[Y], pz = vins_out.p_world[Z];
+		float vx = vins_out.v_world[X], vy = vins_out.v_world[Y], vz = vins_out.v_world[Z];
+		float p2  = px*px + py*py + pz*pz;
+		float rho = sqrtf(px*px + py*py);
+		float w_yaw = 0.0f, w_pitch = 0.0f;
+		if (p2 > 1e-4f && rho > 1e-4f)
+		{
+			w_yaw   = (px*vy - py*vx) / p2;
+			w_pitch = (vz*rho*rho - pz*(px*vx + py*vy)) / (p2 * rho);
+		}
+		const float YAW_SIGN   = (+1.0f);
+		const float PITCH_SIGN = (+1.0f);
+		w_yaw   *= YAW_SIGN;
+		w_pitch *= PITCH_SIGN;
+		PNG_Data.los_rate_used[YAW]   = w_yaw   * (180.0f / (float)M_PI);
+		PNG_Data.los_rate_used[PITCH] = w_pitch * (180.0f / (float)M_PI);
+		float k = PNG_Data.N_R * vc * (180.0f / (float)M_PI) / (float)K_Dyn;
+		*corr_yaw   = k * w_yaw;
+		*corr_pitch = k * w_pitch;
+	}
+}
+
+void PNG_Apply_Lead_Yaw(Surface_t* Surface, IMU_DATA_t* IMU_Data)
+{
+	(void)IMU_Data;
+	float corr_yaw, corr_pitch;
+	png_common_calc(&corr_yaw, &corr_pitch);
+
+	if (PNG_Yaw_Flag)
+	{
+		abs_limit(&corr_yaw, PNG_LEAD_LIMIT_DEG);
+		PNG_Data.lead_corr[YAW] = corr_yaw;
+		Surface->target_angle_Euler[NOW][YAW] -= corr_yaw;
+	}
+	else
+	{
+		PNG_Data.lead_corr[YAW] = 0.0f;
+	}
+}
+
+void PNG_Apply_Lead_Pitch(Surface_t* Surface, IMU_DATA_t* IMU_Data)
+{
+	(void)IMU_Data;
+	float corr_yaw, corr_pitch;
+	png_common_calc(&corr_yaw, &corr_pitch);
+
+	/* 仅俯冲到位时才叠加 pitch 超前(调用方已做门控,此处再守一道) */
 	if (Surface->current_angle_Euler[NOW][PITCH] < pitch_control_limit_deg)
 	{
 		float corr_p = PNG_Pitch_Flag ? corr_pitch

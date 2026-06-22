@@ -31,7 +31,7 @@
 
 /* ===== 可调参数(全部待台架实测) ===== */
 /* 过程噪声:把 IMU 世界加速度的不确定度(零偏残差+噪声,m/s²)注入 v,再经 dt 传到 p。越大越信视觉、越小越信 IMU 积分。*/
-#define VINS_SIGMA_ACC        2.0f      /* m/s²,1σ。BMX055 去重力后残余等效加速度噪声,先给 2,漂得快就调大 */
+#define VINS_SIGMA_ACC        1.00f      /* m/s²,1σ。BMX055 去重力后残余等效加速度噪声,先给 2,漂得快就调大 */
 /* 视觉量测噪声 */
 #define VINS_SIGMA_BEARING    0.015f    /* rad,1σ。≈像素噪声×每像素角(70°/320≈0.0038rad/px,给几px余量) */
 #define VINS_SIGMA_RANGE      1.5f      /* m,1σ。dist_cm 由 blob 反算,很粗 → 给大,主要靠方位收敛、测距只做弱约束 */

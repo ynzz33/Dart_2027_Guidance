@@ -1,4 +1,4 @@
- #include "pid.h"
+#include "pid.h"
 #include <math.h>
 #include "user_lib.h"
 #include "surface_control_task.h"
@@ -31,18 +31,19 @@ void abs_limit(float *a, float ABS_MAX)
 void pid_init(void)
 {
 // //镖体1
-    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        2.4f,   0.0f,  0.30f                    ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,100,20,                        2.3f,  .00f,   0.18f                    ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,5,                         2.2f,   0.f,  0.1f                      ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        1.1f,   0.0f,  0.3f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,100,50,                        2.3f,   0.4f,  0.15f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,50,                        0.550,   0.2f,  0.35f                      ,0.0f,0.0f);
+
 
     PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,AXIS_LIMIT_PITCH,10,           1.30f,  0.0f,   0.00f                ,0.0f,0.0f);
     PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL,10,            0.2f,   0.0f,   0.00f                 ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW,10,             0.4f,   0.0f,   0.0f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW,10,             0.45f,   0.0f,   0.0f                    ,0.0f,0.0f);
 //镖体2
     // PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,8.0f,0.00f,0.005f,0.3f,0.3f);
     // PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,1200,10,2.00f,0.00f,0.03f,0.3f,0.3f);
     // PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,1200,25,7.0f,0.5f,0.02f,0.3f,0.3f);
-
+                                                                                                                                                               
     // PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,AXIS_LIMIT_PITCH,4,0.800f,0.00f,0.00f,0.3f,0.3f);
     // PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL,10,0.45f,0.0f,0.00f,0.3f,0.3f);
     // PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW,4,0.4f,0.00f,0.0f,0.3f,0.3f);
@@ -56,11 +57,11 @@ void pid_init(void)
     // PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL,5,0.17f,0.001f,0.00f,0.3f,0.3f);
     // PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW,10,0.40f,0.0f,0.0f,0.3f,0.3f);
 
-    surface_control_pid[Angle][PITCH].deadband  = 0.5f;
-    surface_control_pid[Angle][ROLL].deadband   = 0.5f;
-    surface_control_pid[Angle][YAW].deadband    = 0.0f;
-    surface_control_pid[Gyro][PITCH].deadband   = 1.0f;
-    surface_control_pid[Gyro][ROLL].deadband    = 1.0f;//3.0
+    surface_control_pid[Angle][PITCH].deadband  = 1.0f;
+    surface_control_pid[Angle][ROLL].deadband   = 1.0f;
+    surface_control_pid[Angle][YAW].deadband    = 1.0f;
+    surface_control_pid[Gyro][PITCH].deadband   = 0.0f;
+    surface_control_pid[Gyro][ROLL].deadband    = 0.0f;//3.0                    
     surface_control_pid[Gyro][YAW].deadband     = 0.0f;
 
     /* 角度外环 roll/yaw 是 atan2 周期角,误差需环绕到(-180,180];pitch 是 asin∈[-90,90] 不需要。
@@ -74,74 +75,42 @@ void pid_init(void)
 }
 
 /* ============================================================================
- * Euler_pid_Cale — 串级PID：角度外环 + 角速度内环，带坐标系一致性修正
+ * Euler_pid_Cale — 串级PID:角度外环 → 角速度内环 → 力矩输出
  *
- * 关键修正（2026/06/22）：
- *   原代码角度外环输出"世界系欧拉角速率指令"，直接喂给内环，但内环反馈是
- *   "机体轴陀螺测量"。两者坐标系不一致 → 一旦有横滚，俯仰/偏航通道天然耦合。
+ * 陀螺轴映射(IMU.c): gx→PITCH, gy→ROLL, -gz→YAW (机体系原始测量)
+ * 欧拉轴映射:         [0]=PITCH, [1]=ROLL,  [2]=YAW  (世界系四元数导出)
  *
- *   修正：在外环输出与内环输入之间插入欧拉运动学变换 T(φ,θ)，
- *   把 [φ̇, θ̇, ψ̇] 映射为机体角速度 [ωx, ωy, ωz]。
- *   变换后 set(机体角速度) 与 get(机体陀螺) 坐标系一致 → 解耦。
+ * 当前做法:角度外环输出(世界系欧拉角速率)直接喂内环(机体系陀螺)。
+ * 小角度/小滚转时耦合可忽略;大滚转时需加欧拉运动学变换(见下方注释)。
  *
- *   混控输入为机体轴力矩，不再需要外部 Roll_Derotate_PitchYaw 后处理。
- *
- *   ωx = φ̇ − sin(θ)·ψ̇
- *   ωy = cos(φ)·θ̇ + sin(φ)·cos(θ)·ψ̇
- *   ωz = −sin(φ)·θ̇ + cos(φ)·cos(θ)·ψ̇
+ * ★ 坐标系变换(TODO):陀螺轴序非标准ZYX(gx=pitch,gy=roll,gz=yaw),
+ *   需按实际轴序推导变换矩阵后再启用。下方保留框架代码。
  * ============================================================================ */
 void Euler_pid_Cale(float delta_time_z)
 {
-    /* ---- 第1步：角度外环 → 欧拉角速率指令(世界系参考) ---- */
-    if (Guidance_State > Stable)
+    if(Guidance_State>Stable)
     {
-        temp[PITCH] = pid_calc(&surface_control_pid[Angle][PITCH],
-            Surface.current_angle_Euler[NOW][PITCH],
-            Surface.target_angle_Euler[NOW][PITCH], delta_time_z);
+        temp[PITCH] = pid_calc( &surface_control_pid[Angle][PITCH],Surface.current_angle_Euler[NOW][PITCH],Surface.target_angle_Euler[NOW][PITCH],delta_time_z);
+        Surface.output_gyro_Euler[NOW][PITCH] = pid_calc(&surface_control_pid[Gyro][PITCH],Surface.current_gyro_Euler[NOW][PITCH],temp[PITCH],delta_time_z);
     }
-    else
-    {
-        temp[PITCH] = 0.0f;   /* Stable段不控俯仰，保持0不影响后续变换 */
-    }
-    temp[YAW]  = pid_calc(&surface_control_pid[Angle][YAW],
-        Surface.current_angle_Euler[NOW][YAW],
-        Surface.target_angle_Euler[NOW][YAW], delta_time_z);
-    temp[ROLL] = pid_calc(&surface_control_pid[Angle][ROLL],
-        Surface.current_angle_Euler[NOW][ROLL],
-        Surface.target_angle_Euler[NOW][ROLL], delta_time_z);
 
-    /* ---- 第2步：欧拉角速率 → 机体角速度(坐标系变换) ---- */
-    float body_rate_cmd[3];
-    // float roll_r  = DEG2RAD(Surface.current_angle_Euler[NOW][ROLL]);
-    // float pitch_r = DEG2RAD(Surface.current_angle_Euler[NOW][PITCH]);
-    // float sr = sinf(roll_r), cr = cosf(roll_r);
-    // float sp = sinf(pitch_r), cp = cosf(pitch_r);
+        temp[YAW] = pid_calc( &surface_control_pid[Angle][YAW],Surface.current_angle_Euler[NOW][YAW],Surface.target_angle_Euler[NOW][YAW],delta_time_z);
+        Surface.output_gyro_Euler[NOW][YAW] = pid_calc(&surface_control_pid[Gyro][YAW],Surface.current_gyro_Euler[NOW][YAW],temp[YAW],delta_time_z);
 
-    // body_rate_cmd[ROLL]  = temp[ROLL] - sp * temp[YAW];
-    // body_rate_cmd[PITCH] = cr * temp[PITCH] + sr * cp * temp[YAW];
-    // body_rate_cmd[YAW]   = -sr * temp[PITCH] + cr * cp * temp[YAW];
-    body_rate_cmd[ROLL]  = temp[ROLL];
-    body_rate_cmd[PITCH] = temp[PITCH];
-    body_rate_cmd[YAW]   = temp[YAW];
+         temp[ROLL] = pid_calc( &surface_control_pid[Angle][ROLL],Surface.current_angle_Euler[NOW][ROLL],Surface.target_angle_Euler[NOW][ROLL],delta_time_z);
+        Surface.output_gyro_Euler[NOW][ROLL] = pid_calc(&surface_control_pid[Gyro][ROLL],Surface.current_gyro_Euler[NOW][ROLL],temp[ROLL],delta_time_z);
 
-    /* ---- 第3步：角速度内环 → 机体轴力矩(坐标系一致) ---- */
-    if (Guidance_State > Stable)
-    {
-        Surface.output_gyro_Euler[NOW][PITCH] = pid_calc(
-            &surface_control_pid[Gyro][PITCH],
-            Surface.current_gyro_Euler[NOW][PITCH],
-            body_rate_cmd[PITCH], delta_time_z);
-    }
-    /* else: pitch 内环不更新，保持上拍值(与改前行为一致) */
-
-    Surface.output_gyro_Euler[NOW][YAW] = pid_calc(
-        &surface_control_pid[Gyro][YAW],
-        Surface.current_gyro_Euler[NOW][YAW],
-        body_rate_cmd[YAW], delta_time_z);
-    Surface.output_gyro_Euler[NOW][ROLL] = pid_calc(
-        &surface_control_pid[Gyro][ROLL],
-        Surface.current_gyro_Euler[NOW][ROLL],
-        body_rate_cmd[ROLL], delta_time_z);
+    /* ---- 坐标系变换(当前关闭,待轴序标定后启用) ----
+     * 陀螺轴: PITCH=gx, ROLL=gy, YAW=-gz (IMU.c)
+     * 对应机体轴: gx=ω_pitch, gy=ω_roll, gz=-ω_yaw
+     * 逆变换(世界系→机体系),设 φ=roll, θ=pitch:
+     *   ω_pitch = φ̇ − sin(θ)·ψ̇
+     *   ω_roll  = cos(φ)·θ̇ + sin(φ)·cos(θ)·ψ̇
+     *   ω_yaw   = −(−sin(φ)·θ̇ + cos(φ)·cos(θ)·ψ̇)   ← 取负对齐 -gz 约定
+     *
+     * 台架验证:固定 pitch/yaw 目标,手动滚转 20°,观察是否出现意外 yaw 漂移。
+     * 若有→启用变换;若无→当前直通已够用(小角度近似)。
+     * ------------------------------------------------ */
 }
 
 float Near_By_Process(float set , float get , float Near_By_Value)
