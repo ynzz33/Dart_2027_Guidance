@@ -31,14 +31,14 @@ void abs_limit(float *a, float ABS_MAX)
 void pid_init(void)
 {
 // //镖体1
-    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        1.1f,   0.0f,  0.3f                    ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,100,50,                        2.3f,   0.4f,  0.15f                    ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,50,                        0.550,   0.2f,  0.35f                      ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        0.2f,   0.0f,  0.05f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,100,50,                        1.8f,   0.5f,  0.5f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,50,                        0.55,   0.5f,  0.2f                      ,0.0f,0.0f);
 
 
-    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,AXIS_LIMIT_PITCH,10,           1.30f,  0.0f,   0.00f                ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,AXIS_LIMIT_PITCH,10,           0.30f,  0.0f,   0.00f                ,0.0f,0.0f);
     PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL,10,            0.2f,   0.0f,   0.00f                 ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW,10,             0.45f,   0.0f,   0.0f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW,10,             0.5f,   0.0f,   0.0f                    ,0.0f,0.0f);
 //镖体2
     // PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,8.0f,0.00f,0.005f,0.3f,0.3f);
     // PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,1200,10,2.00f,0.00f,0.03f,0.3f,0.3f);
@@ -58,11 +58,11 @@ void pid_init(void)
     // PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW,10,0.40f,0.0f,0.0f,0.3f,0.3f);
 
     surface_control_pid[Angle][PITCH].deadband  = 1.0f;
-    surface_control_pid[Angle][ROLL].deadband   = 1.0f;
-    surface_control_pid[Angle][YAW].deadband    = 1.0f;
+    surface_control_pid[Angle][ROLL].deadband   = 0.5f;
+    surface_control_pid[Angle][YAW].deadband    = 0.0f;
     surface_control_pid[Gyro][PITCH].deadband   = 0.0f;
-    surface_control_pid[Gyro][ROLL].deadband    = 0.0f;//3.0                    
-    surface_control_pid[Gyro][YAW].deadband     = 0.0f;
+    surface_control_pid[Gyro][ROLL].deadband    = 1.0f;//3.0                    
+    surface_control_pid[Gyro][YAW].deadband     = 1.0f;
 
     /* 角度外环 roll/yaw 是 atan2 周期角,误差需环绕到(-180,180];pitch 是 asin∈[-90,90] 不需要。
      * 内环(Gyro)是角速度、不是周期角,保持 0。*/

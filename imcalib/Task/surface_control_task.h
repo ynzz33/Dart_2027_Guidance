@@ -27,28 +27,28 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-// #define  Servo_UL_ZERO      1350
-// #define  Servo_UR_ZERO      1470
-// #define  Servo_DR_ZERO      1400
-// #define  Servo_DL_ZERO      1480 
-// #define  Shot_Pitch 33
-// #define  Dart_Cnt_is_First 1
+#define  Servo_UL_ZERO      1340
+#define  Servo_UR_ZERO      1450
+#define  Servo_DR_ZERO      1510
+#define  Servo_DL_ZERO      1500    
+#define Shot_Pitch 28
+#define  Dart_Cnt_is_First 1
  
 // //镖体2 蓝色
-#define  Servo_UL_ZERO      1660
-#define  Servo_UR_ZERO      1460
-#define  Servo_DR_ZERO      1540
-#define  Servo_DL_ZERO      1380 
-#define Shot_Pitch 28
-#define  Dart_Cnt_is_First 0
+// #define  Servo_UL_ZERO      1540
+// #define  Servo_UR_ZERO      1580
+// #define  Servo_DR_ZERO      1400
+// #define  Servo_DL_ZERO      1500 
+// #define Shot_Pitch 28
+// #define  Dart_Cnt_is_First 0
 
 //镖体3 红色
-// #define  Servo_UL_ZERO      1480
-// #define  Servo_UR_ZERO      1445
-// #define  Servo_DR_ZERO      1480
-// #define  Servo_DL_ZERO      1565    
-// #define Shot_Pitch 22
-// #define  Dart_Cnt_is_First 0
+// #define  Servo_UL_ZERO      1460
+// #define  Servo_UR_ZERO      1440
+// #define  Servo_DR_ZERO      1470
+// #define  Servo_DL_ZERO      1550 
+// #define Shot_Pitch 26
+// #define  Dart_Cnt_is_First 1
 
 
 
@@ -66,9 +66,9 @@
 /* === 控制分配(混控)参数 ===
  * Alloc_Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
-#define  AXIS_LIMIT_PITCH   25.0f   /* 交付A:三轴各自独立限幅(度),可调 */
+#define  AXIS_LIMIT_PITCH   40.0f   /* 交付A:三轴各自独立限幅(度),可调 */
 #define  AXIS_LIMIT_ROLL    15.0f
-#define  AXIS_LIMIT_YAW     35.0f
+#define  AXIS_LIMIT_YAW     25.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
 #define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还 原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
 
@@ -136,8 +136,8 @@
  * 迎角前馈:理论应加迎角 θ−γ,但本工程 γ 取姿态前向≡Euler[PITCH]→θ−γ≡0 不含迎角信息,
  *    无气动配平数据,退化为常值 AOA_TRIM_DEG(机体俯仰比视线高这么多,使速度方向落在视线上)。
  * 全部待台架/试飞实测调:先 PN_LEAD_K 小增益验证方向与稳定性、再逐步加大;AOA_TRIM 有数据再给。*/
-#define  PN_LEAD_K          (0.05f)    /* 视线率超前系数(s):target += K·λ̇;↑更超前/更抗滞后,过大易被视觉噪声激励 */
-#define  LOS_RATE_LIMIT_DPS (30.0f)   /* 视线率λ̇限幅(°/s):丢帧/视觉跳变时防 PN 项爆冲 */
+#define  PN_LEAD_K          (0.5f)    /* 视线率超前系数(s):target += K·λ̇;↑更超前/更抗滞后,过大易被视觉噪声激励 */
+#define  LOS_RATE_LIMIT_DPS (40.0f)   /* 视线率λ̇限幅(°/s):丢帧/视觉跳变时防 PN 项爆冲 */
 #define  AOA_TRIM_DEG       (0.0f)    /* 常值配平迎角前馈(°,默认0=关):正=机头比视线高,使速度方向对准灯;有试飞数据再标定 */
 
  enum

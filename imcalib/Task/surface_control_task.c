@@ -25,6 +25,7 @@
 #include "tim.h"
 #include "filter.h"
 #include "PNG_Task.h"
+#include "vision_ins.h"
 
 /* 头文件 include(s) END */
 /*---------------------------------------------------------------------------*/
@@ -652,8 +653,13 @@ void Guidance_Terminal(void)//制导段
             {
                 float dt_vis = (float)vis_dt_cnt * (CTRL_PERIOD_MS * 0.001f);
                 if (dt_vis < 1e-3f) dt_vis = 1e-3f;
-                vision_los_rate[YAW]   =                (vision_los_final[LAST][YAW]   - vision_los_final[NOW][YAW])/9.5f   / dt_vis;
-                vision_los_rate[PITCH] =                (vision_los_final[LAST][PITCH] - vision_los_final[NOW][PITCH])/9.5f / dt_vis;
+                /* 帧间差分算原始视线率,再用低通滤波压噪声(替代原来的/9.5硬除) */
+                vision_los_rate[YAW]   =                (vision_los_final[LAST][YAW]   - vision_los_final[NOW][YAW])   / dt_vis;
+                vision_los_rate[PITCH] =                (vision_los_final[LAST][PITCH] - vision_los_final[NOW][PITCH]) / dt_vis;
+                // float raw_rate_yaw   = (vision_los_final[LAST][YAW]   - vision_los_final[NOW][YAW])   / dt_vis;
+                // float raw_rate_pitch = (vision_los_final[LAST][PITCH] - vision_los_final[NOW][PITCH]) / dt_vis;
+                // vision_los_rate[YAW]   = Low_Pass_Filter(raw_rate_yaw,   vision_los_rate[YAW],   0.6f);
+                // vision_los_rate[PITCH] = Low_Pass_Filter(raw_rate_pitch, vision_los_rate[PITCH], 0.6f);
                 abs_limit(&vision_los_rate[YAW],   LOS_RATE_LIMIT_DPS);
                 abs_limit(&vision_los_rate[PITCH], LOS_RATE_LIMIT_DPS);
             }
@@ -721,8 +727,8 @@ void Guidance_Terminal(void)//制导段
             // Surface.Stable_Euler_Angle[YAW];
             // Low_Pass_Filter(vision_los_final[NOW][YAW],   lpf_yaw,   0.5);
             lpf_pitch = 
-            // vision_los_final[NOW][PITCH];
-            Low_Pass_Filter(vision_los_final[NOW][PITCH], lpf_pitch, 0.5);
+            vision_los_final[NOW][PITCH];
+            // Low_Pass_Filter(vision_los_final[NOW][PITCH], lpf_pitch, 0.5);
         }
         /* else: 丢失目标 → lpf_yaw/lpf_pitch 保持上一拍值(冻结) */
 
@@ -741,13 +747,16 @@ void Guidance_Terminal(void)//制导段
         }
     }
 
-    /* 混合导引超前:在滤波目标之上叠加 PN 超前 */
-    if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+    /* PN 超前:暂时关闭,先用纯 PID 跟踪视觉目标验证基础跟踪性能。
+     * 后续标定好 K_Dyn 后再打开 Mode1(速度²缩放)。*/
+    #if 0
+    if (vins_out.locked)
     {
         PNG_Apply_Lead_Yaw(&Surface, &IMU_Data);
         if (Surface.current_angle_Euler[NOW][PITCH] <= pitch_control_limit_deg)
             PNG_Apply_Lead_Pitch(&Surface, &IMU_Data);
     }
+    #endif
 
 }
 void Guidance_End(void)
@@ -791,8 +800,8 @@ void get_current_Target(void)
                     {
                         IMU_Data.calib_done = 2;
                         Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
-                        Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
-                        Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
+                        // Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
+                        // Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
                         Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
                         // Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
                     }
@@ -817,7 +826,7 @@ void get_current_Target(void)
 void get_current_State(void)
 { 
     if(
-            0// Surface.Guidance_flag[1] == 1
+            Surface.Guidance_flag[1] == 1
     )
     {
             Buzzer_Remind();
@@ -825,6 +834,7 @@ void get_current_State(void)
     if (Self_Text.Self_Text_Process==Self_Text_OK&&Guidance_State == Self_Text_State)
     {
         if (Surface.Guidance_cnt[0]++>2000)
+        
         {
             Buzzer_Remind();
             Guidance_State = Start;
@@ -842,19 +852,22 @@ void get_current_State(void)
     {
         if(IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch+5.0f&&IMU_Data.Euler[NOW][PITCH]>=Shot_Pitch- 5.0f)
         {
+            Vision_Transmit( Vision_Cmd_Work );
             Surface.Guidance_cnt[1]++;
         }
-        if(Surface.Guidance_cnt[1]>=20)
+        if(Surface.Guidance_cnt[1]>=20&&Surface.Guidance_flag[1]==0)
         {
-            Vision_Transmit( Vision_Cmd_Work );
+            Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
+            Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
             Surface.Guidance_flag[1] = 1;
+            Vision_Transmit( Vision_Cmd_Record_Start );
         }
-        if(Surface.Guidance_flag[1] == 1&&(IMU_Data.Velocity[Body][NOW][Z]<=-0.4f||(IMU_Data.Velocity[Body][NOW][Y]>=0.4f)))
+        if(Surface.Guidance_flag[1] == 1&&(IMU_Data.Velocity[Body][NOW][Z]<=-0.5f||(IMU_Data.Velocity[Body][NOW][Y]>=0.5f)))
         {
             Buzzer_Remind();
-            Vision_Transmit( Vision_Cmd_Record_Start );
             Guidance_State = Stable;
             Surface.Guidance_cnt[1] = 0;
+            Surface.Guidance_flag[1] = 2;
         }
     }
     else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=10.0f||Vision_Rx_Data.x[NOW]!=0.0f))

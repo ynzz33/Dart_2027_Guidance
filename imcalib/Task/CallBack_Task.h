@@ -89,8 +89,8 @@ typedef struct
 	int16_t x[2];                    /* 视觉原始像素 x [NOW,LAST] */
 	int16_t y[2];                    /* 视觉原始像素 y [NOW,LAST] */
 	uint16_t dist_cm;                /* 目标距离 cm(0x5B 包,视觉端 DIST_K/sqrt(blob像素));越小=越近,末制导俯冲调度的剩余距离代理 */
-	uint16_t area;                   /* 当前目标 blob 像素面积(0x5B 包,辅助/观测,不直接进调度) */
-	uint16_t radius;                 /* 当前目标 blob 等效半径(像素,0x5B 包);用于归一化视线角误差:远小近大 */
+	float area;                   /* 当前目标 blob 像素面积(0x5B 包,辅助/观测,不直接进调度) */
+	float radius;                 /* 当前目标 blob 等效半径(像素,0x5B 包);用于归一化视线角误差:远小近大 */
 	float Euler[2][2];  /* 像素→度 后的视线角 [NOW/LAST][0=pitch,1=yaw];供 Guidance_Terminal 锁存世界系视线目标 */
 	float Euler_norm[2];            /* 半径归一化后的视线角 [0=pitch,1=yaw];= Euler × (REF_RADIUS/radius) */
 	uint8_t Vision_Tail;             /* 帧尾 */

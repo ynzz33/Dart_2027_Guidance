@@ -11,7 +11,7 @@
 #define N_rate 5.0f
 #define MAX_PNG_OUT 45
 #define Vc_min 1.0
-#define K_Dyn 8.0
+#define K_Dyn 20.0
 
 /* === 速度比例导引超前(PNG_Apply_Lead)调参 === */
 /* Mode0(Vc缩放,稳健):超前角 corr_deg = PNG_K_VC·Vc·λ̇(deg/s)。设计点:Vc≈15m/s 时 PNG_K_VC·15≈0.05

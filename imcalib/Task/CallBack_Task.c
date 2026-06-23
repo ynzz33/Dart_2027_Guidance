@@ -164,9 +164,9 @@ void Vision_Receive(uint8_t* Buf)
     else if(Buf[0]==0x5B&&Buf[5]==0xA6)        /* 距离+面积扩展包(6字节,独立于识别包):dist_cm/area 均 uint16 大端 */
     {
         Vision_Rx_Data.dist_cm = (uint16_t)(Buf[1]<<8|Buf[2]);   /* 目标距离 cm(视觉端 DIST_K/sqrt(blob像素)) */
-        Vision_Rx_Data.area    = (uint16_t)(Buf[3]<<8|Buf[4]);   /* 当前目标 blob 像素面积 */
+        Vision_Rx_Data.area    = (float)(Buf[3]<<8|Buf[4]);   /* 当前目标 blob 像素面积 */
         /* 由面积算等效半径:r = sqrt(area/π),供视线角归一化用 */
-        Vision_Rx_Data.radius  = (uint16_t)sqrtf(Vision_Rx_Data.area / M_PI);
+        Vision_Rx_Data.radius  = ((float)sqrtf(Vision_Rx_Data.area / M_PI));
     }
     else if(Buf[0]==0x7A&&Buf[5]==0xA7)
     {
@@ -203,7 +203,7 @@ void Vision_Transmit_Debug(void)
     val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.Velocity[Body][NOW][YAW]*10;
     val[3]  = Surface.current_angle_Euler[NOW][YAW];
     val[4]  = Surface.target_angle_Euler[NOW][YAW]; 
-    val[5]  = Vision_Rx_Data.radius;
+    val[5]  = Surface.current_angle_Euler[NOW][PITCH];
     val[6]  = surface_control_pid[Angle][YAW].pout;
     val[7]  = surface_control_pid[Angle][YAW].iout;
     val[8]  = surface_control_pid[Angle][YAW].dout;
