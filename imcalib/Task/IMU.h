@@ -33,9 +33,9 @@
 #define ACC_TRUST_ZERO_DEV  0.50f   /* ||a|-1g| >= 此值:完全不信任(权重=0,纯陀螺) */
 
 #define GYR_KF_Q 1.0f
-#define GYR_KF_R 1000.0f
+#define GYR_KF_R 10.0f
 #define ACC_KF_Q 1.0f
-#define ACC_KF_R 1000.0f
+#define ACC_KF_R 10.0f
 
 /* === 传感器→机体系符号 (机体 X=右/东, Y=前/北, Z=上/天, 右手 ENU) ===
  * 每轴正方向只能台架实测锁定(BMX055 加速度/陀螺两片封装轴向本就不同);默认按当前硬件,
@@ -61,9 +61,9 @@
  * (实测"漂移远大于真实运动"即此)。发射前(状态机 Self_Text/Start、地面静止)用零速观测把速度钉回0
  * (ZUPT=融合、非低通),并把"静止残差 a_raw−R_col3"慢速喂给机体系零偏 A_Offset 在线对准(不依赖标定姿态水平);
  * 发射后冻结零偏、停 ZUPT(防匀速飞行 ‖a‖≈1g 被误判静止而错误归零),靠对准好的零偏 + V_NOM 锚定撑过短俯冲段。*/
-#define ZUPT_ACC_DEV_G   0.08f   /* 静止判据:加速度模长偏离 1g 的容差(g),超出视为运动。0.05→0.08:未在线对准时
+#define ZUPT_ACC_DEV_G   0.3f   /* 静止判据:加速度模长偏离 1g 的容差(g),超出视为运动。0.05→0.08:未在线对准时
                                   * ‖a‖含零偏/安装倾角可达≈1.05g,旧 0.05 卡死→静止永远判不出、ZUPT 不触发、零偏不对准 */
-#define ZUPT_GYR_DPS     3.0f    /* 静止判据:角速度模长阈值(°/s),超出视为运动 */
+#define ZUPT_GYR_DPS     10.0f    /* 静止判据:角速度模长阈值(°/s),超出视为运动 */
 #define ZUPT_HOLD_CNT    100     /* 连续满足判据多少拍(=ms@1kHz)才确认静止,防抖 */
 #define ACC_BIAS_LPF_K   0.002f  /* 静止期零偏在线 refine 的 LPF 系数(时间常数≈1/K ms);初值=标定 A_Offset */
 
@@ -115,6 +115,7 @@ typedef struct
     float A_theory[2][3];   /* 理论重力方向(R_matrix_T 第3列 tx/ty/tz),Mahony 校正基准 */
     float A_World[2][3];    /* 世界系线加速度(已扣重力);→ 速度积分/PNG(当前未接主环) */
     float Velocity[2][2][3];/* 速度 [World/Body][NOW/LAST][X/Y/Z];当前未启用(速度卡尔曼注释掉) */
+    float Vel_Dir[2];       /* 速度方向角(世界系)[PITCH,YAW] (°);EKF 输出后解算,供速度外环 PID */
     float temp[2][3];       /* 暂存(3维加速度卡尔曼用,当前 #if0 禁用) */
     float G_Offset[3];      /* 陀螺零偏(上电2s静态标定均值),IMU_Data_Read 中扣除 */
     float A_Offset[3];      /* 加速度零偏(标定均值,Z 已扣 1g);当前未回扣主环 */

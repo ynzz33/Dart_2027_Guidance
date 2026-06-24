@@ -44,20 +44,27 @@ uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
 int8_t Stable_Cnt = 0;
 uint16_t current_tick;
 
+
+/* === 速度矢量追踪制导:三级串级 ===
+ * 外环:速度方向追目标方向 → 输出 body 目标角
+ * 中环:镖头追 body 目标角 → 输出 rate_cmd (复用角度环 PID)
+ * 内环:角速度追 rate_cmd → 输出舵偏 (复用 gyro 环 PID)
+ * vel_pursuit_mode=0 时退化为原两级 PID。*/
+uint8_t vel_pursuit_mode = 0;
 /* LADRC 控制选择：0=全 PID(安全默认), 1=三轴全 LADRC, 3=仅 Roll 用 LADRC(本次先试)
  * LADRC 旋钮在 ladrc_ctrl[轴].{wc,wo,b0}，可用调试器 Watch 在线改(见 adrc.c)。*/
-uint8_t ladrc_mode = 0;  /* ★ 先在 roll 上试 LADRC，pitch/yaw 仍走 PID；要回全 PID 就改 0 */
+uint8_t ladrc_mode = 0;   /* ★ 先在 roll 上试 LADRC，pitch/yaw 仍走 PID；要回全 PID 就改 0 */
 
 /* === 控制分配(混控)全局 === */
 uint8_t Alloc_Mode = 1;                        /* 默认=交付A三轴限幅(逐级优先级缩放,roll-only 下线性正确);0=旧PitchPriority对照 2=最小能量 */
-uint8_t Alloc_Prio[3] = { YAW   ,  ROLL,PITCH };  /* 交付A 逐级优先级:轴枚举[0]最高,默认 pitch>yaw>roll;调试器 Watch 在线改 */
+uint8_t Alloc_Prio[3] = { YAW, ROLL, PITCH };  /* 交付A 逐级优先级:轴枚举[0]最高,默认 yaw>roll>pitch;调试器 Watch 在线改 */
 float   servo_lat_scale = 1.0f;                /* Vofa:最低优先轴保留比(横侧 k 泛化),1=未饱和 <1=有轴被挤;此前 extern 无定义,补回 */
 /* 舵效矩阵 B (3x4): τ = B·u, 行序[pitch,roll,yaw], 列序[UL,UR,DR,DL]. 默认理想 X 阵(BBᵀ=4I).
  * 台架辨识替换法:固定其余三舵=0,给第 j 舵单位阶跃 Δu_j(如+20°),读三轴力矩响应(可用 output_gyro_Euler
  * 内环输出或 IMU 角加速度作代理)Δτ_p/r/y,令 B[0..2][j]=Δτ_{p,r,y}/Δu_j;四舵各做一次填满12个元素.
  * 单位任意一致(算法只用方向与相对幅值);改这里即可换实测值,无需改算法,奇异自动退回理想阵闭式. */
 float   Alloc_B[3][4] = {
-    { -1.0f, -1.0f, -1.0f, -1.0f },            /* pitch (四片同号,X 翼解算见 Servo_Mix_AxisLimit 的 C 阵) */
+    { -1.0f, -1.0f, -1.0f, -1.0f },            /* pitch (四片同号,逻辑列=−1, SIGN 翻转后=真俯仰;见 C 阵注释) */
     { +1.0f, -1.0f, -1.0f, +1.0f },            /* roll  */
     { -1.0f, +1.0f, -1.0f, +1.0f },            /* yaw   */
 };
@@ -71,10 +78,54 @@ float   vision_los_rate[3] = {0};                    /* 末制导世界系惯性
 float   pitch_dive_floor = 0.0f, closeness_s = 0.0f; /* Vofa:末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1] */
 float   yaw_distance_gain = 1.0f;                   /* Vofa:末制导 yaw 距离面积增益 */
 float   pitch_distance_gain = 1.0f;                  /* Vofa:末制导 pitch 距离面积增益(远端小、近端大) */
-float pitch_control_limit_deg = -5.0f;//开始放开pitch控制的角度限制 
+float pitch_control_limit_deg = -10.0f;//开始放开pitch控制的角度限制 
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
 #if 1
+
+void Velocity_Pursuit_Cale(float delta_time)
+{
+    /* --- 外环:速度方向追目标方向 → body 目标角 --- */
+    float body_cmd_pitch = Surface.target_angle_Euler[NOW][PITCH]; /* 默认直通 */
+    float body_cmd_yaw   = Surface.target_angle_Euler[NOW][YAW];
+
+    if (Guidance_State > Stable)
+    {
+        body_cmd_pitch = pid_calc(&vel_pursuit_pid[PITCH],
+                                  IMU_Data.Vel_Dir[PITCH],
+                                  Surface.target_angle_Euler[NOW][PITCH],
+                                  delta_time);
+    }
+    body_cmd_yaw = pid_calc(&vel_pursuit_pid[YAW],
+                            IMU_Data.Vel_Dir[YAW],
+                            Surface.target_angle_Euler[NOW][YAW],
+                            delta_time);
+
+    /* --- 中环:镖头追外环输出 → rate_cmd --- */
+    if (Guidance_State > Stable)
+    {
+        temp[PITCH] = pid_calc(&surface_control_pid[Angle][PITCH],
+                               Surface.current_angle_Euler[NOW][PITCH],
+                               body_cmd_pitch,
+                               delta_time);
+    }
+    temp[YAW] = pid_calc(&surface_control_pid[Angle][YAW],
+                          Surface.current_angle_Euler[NOW][YAW],
+                          body_cmd_yaw,
+                          delta_time);
+    temp[ROLL] = pid_calc(&surface_control_pid[Angle][ROLL],
+                           Surface.current_angle_Euler[NOW][ROLL],
+                           Surface.target_angle_Euler[NOW][ROLL],
+                           delta_time);
+
+    /* --- 内环:角速度追 rate_cmd → 舵偏 --- */
+    Surface.output_gyro_Euler[NOW][PITCH] = pid_calc(&surface_control_pid[Gyro][PITCH],
+        Surface.current_gyro_Euler[NOW][PITCH], temp[PITCH], delta_time);
+    Surface.output_gyro_Euler[NOW][YAW] = pid_calc(&surface_control_pid[Gyro][YAW],
+        Surface.current_gyro_Euler[NOW][YAW], temp[YAW], delta_time);
+    Surface.output_gyro_Euler[NOW][ROLL] = pid_calc(&surface_control_pid[Gyro][ROLL],
+        Surface.current_gyro_Euler[NOW][ROLL], temp[ROLL], delta_time);
+}
 
 void Euler_Updata(void)
 {
@@ -396,10 +447,11 @@ void Servo_Mix_AxisLimit(float p, float r, float y)
     abs_limit(&y, AXIS_LIMIT_YAW);
     float d[3] = { p, r, y };                       /* 按 PITCH/ROLL/YAW 下标 */
 
-    /* 逻辑符号阵 C(未含物理 SIGN),列序 P/R/Y。pitch 列四片同号 [+1,+1,+1,+1] 是 X 翼解算所需:
+    /* 逻辑符号阵 C(未含物理 SIGN),列序 P/R/Y。pitch 列四片同号 [−1,−1,−1,−1] 是 X 翼解算所需:
      * 4 片成 X(45°,从尾看 UL135/UR45/DR315/DL225),每片切向力对力矩贡献 pitch∝cosθ、yaw∝sinθ、roll=常数;
-     * 配 SIGN=[−1,+1,+1,−1](左右镜像,见.h)后 pitch 落到舵令 u=[−,+,+,−]=真俯仰、与 roll/yaw 正交解耦。
-     * 轴间配对结构由本阵的列决定(SIGN 只修整片装反);同步:Alloc_B pitch 行 / Servo_Mix_PitchPriority 的 P[]。*/
+     * 配 SIGN=[−1,+1,+1,−1](左右镜像,见.h)后 pitch 落到舵令 u=[+,−,−,+]=真俯仰、与 roll/yaw 正交解耦。
+     * 轴间配对结构由本阵的列决定(SIGN 只修整片装反);同步:Alloc_B pitch 行。
+     * 注:pitch 逻辑列用 −1(非 +1)是因为 SIGN 翻转后等效,−1×SIGN=[+1,−1,−1,+1] 与物理舵面对齐。*/
     static const float C[4][3] = {                  /* 列序 P/R/Y */
         { -1.0f, +1.0f, -1.0f },                    /* UP_LEFT    */
         { -1.0f, -1.0f, +1.0f },                    /* UP_RIGHT   */
@@ -599,9 +651,9 @@ void Servo_Mix_MinEnergy(float p, float r, float y)
 #endif
 void Guidance_Start(void)//自检后的判断
 {
-            // Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-            // Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
-            // Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
+            Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+            Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
+            Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
 }
 void Guidance_Stable(void)//自稳
 {
@@ -610,12 +662,8 @@ void Guidance_Stable(void)//自稳
         Surface.current_angle_Euler[NOW][PITCH];
         Surface.target_angle_Euler[NOW][ROLL]  = 
         Surface.Stable_Euler_Angle[ROLL];
-        // Surface.current_angle_Euler[NOW][ROLL]+((Surface.Stable_Euler_Angle[ROLL]-Surface.current_angle_Euler[NOW][ROLL])/2.0f);
         Surface.target_angle_Euler[NOW][YAW]   = 
         Surface.Stable_Euler_Angle[YAW];
-        // Surface.current_angle_Euler[NOW][YAW]+((Surface.Stable_Euler_Angle[YAW]-Surface.current_angle_Euler[NOW][YAW])/2.0f);
-        // Target_Slew(Surface.current_angle_Euler[NOW][YAW], Surface.Stable_Euler_Angle[YAW], fabs(Surface.current_angle_Euler[NOW][YAW]-Surface.Stable_Euler_Angle[YAW])/20, 0);
-        // Buzzer_play_song(song_ni);
 }
 void Guidance_Terminal(void)//制导段
 {
@@ -774,7 +822,7 @@ void Guidance_End(void)
 }
 void Guidance_Process_OK(void)
 {
-    if (Surface.Guidance_cnt[5]++>300)
+    if (Surface.Guidance_cnt[5]++>800)
     {
 		Total_Power_Control(Power_OFF);
         Surface.Guidance_cnt[5] = 0;
@@ -799,10 +847,10 @@ void get_current_Target(void)
                     if(cnt++>1)
                     {
                         IMU_Data.calib_done = 2;
-                        Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
+                        // Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
                         // Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
                         // Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
-                        Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
+                        // Surface.target_angle_Euler[NOW][ROLL]  = Surface.Stable_Euler_Angle[ROLL];
                         // Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
                     }
                 }   
@@ -862,7 +910,7 @@ void get_current_State(void)
             Surface.Guidance_flag[1] = 1;
             Vision_Transmit( Vision_Cmd_Record_Start );
         }
-        if(Surface.Guidance_flag[1] == 1&&(IMU_Data.Velocity[Body][NOW][Z]<=-0.5f||(IMU_Data.Velocity[Body][NOW][Y]>=0.5f)))
+        if(Surface.Guidance_flag[1] == 1&&(IMU_Data.Velocity[Body][NOW][Z]<=-0.5f||(IMU_Data.Velocity[Body][NOW][Y]>=0.8f)))
         {
             Buzzer_Remind();
             Guidance_State = Stable;
@@ -870,7 +918,7 @@ void get_current_State(void)
             Surface.Guidance_flag[1] = 2;
         }
     }
-    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=10.0f||Vision_Rx_Data.x[NOW]!=0.0f))
+    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=10.0f&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
     {
         Vision_Transmit( Vision_Cmd_Work );
         if(Surface.Guidance_cnt[2]++>5)
@@ -881,7 +929,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&fabs(IMU_Data.A_Normed[NOW][Y])>= 0.80f&& IMU_Data.A[NOW][Y]<= -0.8f)
+    else if (Guidance_State == Terminal &&fabs(IMU_Data.A_Normed[NOW][Y])>= 0.90f&& IMU_Data.A[NOW][Y]<= -1.3f)
     {
         if(Surface.Guidance_cnt[3]++>5)
         {
@@ -949,14 +997,17 @@ void surface_control_task(void)
         }
         else
         {
-            /* 原 PID（默认安全档） */
-            Euler_pid_Cale(delta_time);
+            /* 原 PID（默认安全档） 或 速度矢量追踪 */
+            if (vel_pursuit_mode)
+                Velocity_Pursuit_Cale(delta_time);
+            else
+                Euler_pid_Cale(delta_time);
         }
         /* ===================================== */
     }
     // else if(imu_is_static==1)
     // {
-    //     Surface.output_gyro_Euler[NOW][PITCH] = 0;
+    //     Surface.output_gyro_Euler[NOW][PITCH] = 0; 
     //     Surface.output_gyro_Euler[NOW][YAW] = 0;
     //     Surface.output_gyro_Euler[NOW][ROLL] = 0;
     //         LADRC_Reset(&ladrc_ctrl[LADRC_ROLL]);

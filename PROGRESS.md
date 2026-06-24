@@ -3,11 +3,11 @@
 > 项目进度的单一入口。详细技术方案见文末「[详细方案文档](#详细方案文档)」。
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
-> 最后更新：2026-06-14（末制导比例化逼近替固定斜坡 + PN 视线率超前补偿。前次：2026-06-13 速度预测/弹道角 γ 单位量纲修复；2026-06-12 末制导俯仰能量管理）
+> 最后更新：2026-06-23（全量代码审计 v2：新增 vision_ins EKF / LADRC / ZUPT / 距离增益 / LPF 目标平滑 / 速度矢量追踪；修正增益表/分配器符号/D 项描述等文档与代码不一致项。前次：2026-06-14 末制导比例化逼近+PN）
 
 ## 项目简介
 
-STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（4 舵机，TIM4 CH1–CH4 / PB6–PB9），串级 PID 自稳（角度环 → 角速度环），Mahony 姿态融合。磁力计不启用（场景磁干扰大），PNG 视觉暂不接入主控制环。
+STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（4 舵机，TIM3 CH2 + TIM4 CH2–CH4），串级 PID 自稳（角度环 → 角速度环）+ 可选 LADRC 单环二阶自抗扰（`ladrc_mode` 切档），Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度。磁力计不启用（场景磁干扰大），PNG 比例导引暂未接主环（`#if 0`）。
 
 ---
 
@@ -152,6 +152,52 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **遗留留痕（未动代码，记录待清）**：λ̇ 差分含裸魔数 `/9.5f`（[.c:218-219](imcalib/Task/surface_control_task.c#L218-L219)，经验压噪、含义未注明）；`Target_Slew` 上方注释 [.c:244-247](imcalib/Task/surface_control_task.c#L244-L247) 仍按旧"恒速率斜坡"描述、**已过时**；pitch 门控 `pitch_control_limit_deg=-8°`（[.c:186](imcalib/Task/surface_control_task.c#L186)）与 [.c:205](imcalib/Task/surface_control_task.c#L205) 注释"<-10°"对不上。
 - **未编译**(Keil/MDK)。**待 Vofa/试飞验证**：① 比例化——误差大快速逼近不过冲、误差小平滑收敛不抖，调 N 看跟手/平滑权衡；② PN——`vision_los_rate` 随视线转动有值、丢帧/丢目标归零不爆冲，小 `PN_LEAD_K` 先验超前方向（应提前于纯追尾命中）再加大；③ 回归：丢目标(FAILURE)/未俯冲到位仍就地保持（目标=当前）。
 
+### 视觉/IMU 紧耦合 EKF（vision_ins.c/.h，2026-06-15+）
+- **动机**：纯积分速度无外部观测必线性发散；旧 `Kalman_Vel_Calc`（filter.c 二阶卡尔曼）已 `#if 0` 停用；ZUPT 只在地面静止时成立，飞行段没有零速时刻。唯一能在飞行中钉住速度的外部观测是视觉（看固定靶，给方位+距离）。
+- **方案**：6 态线性 KF `x=[p(3),v(3)]`，世界系 ENU，相对固定靶。IMU 加速度做输入预测（1kHz）、视觉笛卡尔位置量测更新（~30Hz）、静止零速更新。姿态不进状态（沿用 Mahony 松耦合），加速度零偏不进状态（靠地面标定+ZUPT refine）。
+- **量测**：视觉帧识别成功时，像素→机体系视线单位向量 + dist_cm→距离，合成 `z=−range·u_world` 作 3 维位置量测。量测噪声各向异性：`R=σ⊥²·I+(σr²−σ⊥²)·u·uᵀ`（方位准、测距粗）。零速更新：物理静止时量测 v=0。
+- **落地**：[vision_ins.c](imcalib/Tool/vision_ins.c) / [.h](imcalib/Tool/vision_ins.h)（新文件）。[IMU.c](imcalib/Task/IMU.c) 内调用：predict 每拍 + 视觉新帧位置更新 + 静止零速更新，单任务零竞争。EKF 输出回写 `IMU_Data.Velocity[World]`，供机体速度映射/弹道角 γ/Vofa。
+- **取代**：旧 `Kalman_Vel_Calc/Set/Init`（filter.c）已 `#if 0` 禁用；`gamma_pitch_fwd_deg`（姿态前向估计）取代会漂的速度版 `gamma_pitch_deg` 供末制导用。
+
+### LADRC 线性自抗扰控制器（adrc.c/.h 重写，2026-06-21+）
+- **动机**：原非线性 ADRC 用 fal/fst + α/δ 参数，每轴 2 环 ×(TD+ESO+NLSEF+b0+α/δ) 十几个旋钮，没法系统地调。
+- **方案**：全部换成高志强(Gao)带宽法 LADRC：单环二阶 = 三阶线性扩张状态观测器(LESO) + 线性状态误差反馈(LSEF) + 扰动补偿。整轴只剩 3 个旋钮：wc(控制带宽)、wo(观测带宽≈3~5×wc)、b0(控制增益估计)。
+- **阻尼源**：默认用实测陀螺（`use_gyro_damp`），而非 LESO 估的 z2——相位准、不依赖 b0，roll 不易高频抖。
+- **落地**：[adrc.c](imcalib/Tool/adrc.c) / [.h](imcalib/Tool/adrc.h)（文件名不变，内部全换）。`LADRC_Init` 按通道给默认参数；`LADRC_Calc` 单拍计算；`Euler_LADRC_Cale` 三轴并行。[surface_control_task.c](imcalib/Task/surface_control_task.c) 新增 `ladrc_mode` 运行时切档（0=全PID/1=三轴LADRC/3=仅Roll LADRC）。
+- **Roll 已标定**：wc=10.5, wo=52.5, b0=55, deadband=1°, max_output=±15°。pitch/yaw 占位默认待启用。
+
+### ZUPT 零速更新 + 地面零偏在线对准（IMU.c，2026-06-15+）
+- **问题**：纯积分速度无外部观测→任何加速度零偏/姿态残差都被无限积分而漂（实测"漂移远大于真实运动"）。
+- **方案**：发射前（状态机 Self_Text/Start、地面静止）用零速观测把速度钉回 0（ZUPT=融合，非低通），并把"静止残差 a_raw−R_col3"慢速喂给机体系零偏 `A_Offset` 在线对准（不依赖标定时是否水平）；发射后冻结零偏、停 ZUPT（防匀速飞行 ‖a‖≈1g 被误判静止而错误归零）。
+- **判据**：|‖a‖−1g|（用去零偏模长）与角速度双小、持续 `ZUPT_HOLD_CNT`(100) 拍才确认静止。`imu_is_static` 全局标志供 Vofa 观测。
+- **落地**：[IMU.c](imcalib/Task/IMU.c) `IMU_Attitude_Algorithm` 内 ZUPT 段 + [IMU.h](imcalib/Task/IMU.h) 新增宏 `ZUPT_*` / `ACC_BIAS_LPF_K`。
+
+### 视线角半径归一化 + 距离增益调度（surface_control_task.c/.h，2026-06-15+）
+- **视线角归一化**：远处引导灯 blob 半径小（~5px），同样像素偏移对应更大实际角度；近处 blob 大（~30px），偏移对应更小角度。`Vision_Angle_Normalize(angle, radius)` 归一化到 `REF_RADIUS`(15px)，使控制增益不随距离变化。
+- **距离增益**：`Yaw_Gain_ByDist(dist_cm)` / `Pitch_Gain_ByDist(dist_cm)` 纯距离线性插值增益，取代旧的面积+距离双段合成（已注释）。YAW 远处增益大（补偿视觉距离效应）、近处小（防过冲）；PITCH 反向。
+- **落地**：[surface_control_task.c](imcalib/Task/surface_control_task.c) 新增 3 个静态函数 + [.h](imcalib/Task/surface_control_task.h) 新增宏 `REF_RADIUS*` / `YAW_GAIN_*` / `PITCH_GAIN_*`。
+
+### 视觉目标 LPF 平滑（替 Target_Slew 主路径，surface_control_task.c，2026-06-15+）
+- **动机**：06-14 比例化逼近用 `Target_Slew`（每拍斜坡），实测仍有抖动。改用一阶低通滤波 `target = k×final + (1−k)×target_last`，更平滑、无阶跃、自然收敛。
+- **方案**：`Guidance_Terminal` 内 LPF 代替 `Target_Slew` 主路径。k 由距离增益缩放（远处小 k 保守、近处大 k 跟手）。`Target_Slew` 函数保留但不再主路径调用。
+- **落地**：[surface_control_task.c](imcalib/Task/surface_control_task.c) `Guidance_Terminal` 重写为 LPF 路径。
+
+### 速度矢量追踪三级串级（surface_control_task.c，2026-06-15+）
+- **方案**：外环速度方向追目标方向→输出 body 目标角；中环镖头追 body 目标角→输出 rate_cmd（复用角度环 PID）；内环角速度追 rate_cmd→输出舵偏（复用 gyro 环 PID）。`vel_pursuit_mode=0` 时退化为原两级 PID。
+- **落地**：[surface_control_task.c](imcalib/Task/surface_control_task.c) 新增 `Velocity_Pursuit_Cale()` + `vel_pursuit_pid[2]`（[pid.c](imcalib/Tool/pid.c)）。当前 `vel_pursuit_mode=0`（未启用）。
+
+### 参数勘误（2026-06-23 审计核对代码）
+以下参数代码实际值与旧文档不一致，**以代码为准**：
+- `PN_LEAD_K` = **0.5**（旧记 0.05）
+- `LOS_RATE_LIMIT_DPS` = **40**°/s（旧记 30）
+- `pitch_control_limit_deg` = **−5.0**°（旧记 −8.0）
+- `Alloc_Prio` 默认 = **{YAW, ROLL, PITCH}**（旧记 {PITCH,YAW,ROLL}）
+- Alloc_B pitch 行 / C 阵 pitch 列 = **[−1,−1,−1,−1]**（旧记 [+1,+1,+1,+1]，SIGN 翻转后等效）
+- PID 增益：Angle PITCH=0.2/ROLL=1.8/YAW=0.55；Gyro PITCH=0.30/ROLL=0.2/YAW=0.5（CODE_OVERVIEW 表过时）
+- 死区：Angle PITCH=1.0/ROLL=0.5/YAW=0.0；Gyro PITCH=0.0/ROLL=1.0/YAW=1.0
+- angle_wrap：ROLL/YAW 外环均 **=0**（旧记 =1，实际未启用环绕）
+- D 项：pid.c:188 测量微分被注释，:189 用**误差微分** `d*(e_now-e_last)/dt`（PROGRESS 06-10 记的"对测量微分"已不成立）
+
 ---
 
 ### 全量代码审计 + 大问题修复（2026-06-07）
@@ -179,7 +225,12 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **内环角速度 pitch/roll 轴配对（方案B，2026-06-07）**：**roll 自稳已正常**（git「roll 调稳了很多」）——方案B 源头+四元数同步对调生效，roll 能阻尼自旋、不再渐进发散，yaw 不变、PNG 行为不变。pitch/yaw 通道已放开（清零行已注释），pitch 解算几何已对齐（见时间线 2026-06-08 条）。
 
 ### ⏳ 待 Vofa 台架验证
-- **末制导比例化逼近 + PN 视线率超前补偿（2026-06-14）**：① 比例化逼近——Vofa 拉 `vision_los_final[NOW]`（终点，仅新帧阶跃）与 `Surface.target_angle_Euler[NOW]`（目标），目标应＝当前姿态+LOS误差/N、误差大快速逼近不过冲、误差小平滑收敛不抖；调 N（YAW 15 / PITCH 25，写在 .c 调用点）看跟手/平滑权衡。② PN——`vision_los_rate[YAW/PITCH]` 随视线转动有值、丢帧/丢目标归零不爆冲、被 `LOS_RATE_LIMIT_DPS` 限住；`PN_LEAD_K` 先小增益验超前方向对（命中应提前于纯追尾）再加大，`AOA_TRIM_DEG` 默认 0 暂不引入。③ 回归——丢目标(FAILURE)/pitch 未俯冲到位(≥-8°) 仍就地保持（目标=当前、不打舵）。
+- **LADRC roll 自稳（2026-06-21+）**：`ladrc_mode=3` 仅 roll 用 LADRC、pitch/yaw 仍 PID。Vofa 拉 `ladrc_ctrl[LADRC_ROLL].z1`(角度估计)/`z2`(角速度估计)/`z3`(总扰动)/`u`(输出)；roll 自稳应与 PID 同级或更好（无超调、无高频抖）。调参：先定 wc(10.5)→wo=5×wc(52.5)→调 b0(55)。`ladrc_mode=1` 三轴全 LADRC 待 pitch/yaw 参数标定后再试。
+- **vision_ins EKF 速度验证（2026-06-15+）**：① 静置 `vins_out.v_world` 应≈0（ZUPT 钉死）；② 手持移动后停→速度应快速回零；③ 俯冲入段 `Vel_Reanchor_Flag` 锚定后 `gamma_pitch_fwd_deg` 应≈机体俯仰且不漂；④ `vins_out.range_m` 应随距离减小单调递减。调参：`VINS_SIGMA_ACC`(1.0) 控制 IMU/视觉信任比，漂得快就调大。
+- **ZUPT + 零偏在线对准（2026-06-15+）**：上电静置→`imu_is_static` 应在 ~100ms 内变 1、`A_Offset` 慢速收敛；拿起移动→`imu_is_static` 应变 0、零偏冻结。发射后不应误判静止。
+- **视线角半径归一化 + 距离增益（2026-06-15+）**：① `Vision_Rx_Data.Euler_norm` 应随 blob 半径变化而归一化（远处小 blob→放大、近处大 blob→缩小）；② `yaw_distance_gain` 远处>近处、`pitch_distance_gain` 近处>远处；③ 远近切换应平滑无台阶。
+- **LPF 视觉目标平滑（2026-06-15+）**：`Surface.target_angle_Euler[NOW]` 应平滑跟踪 `vision_los_final`、无阶跃跳变；k 由距离增益缩放（远处小 k 保守、近处大 k 跟手）。丢目标时冻结滤波器（保持最后有效目标）。
+- **末制导比例化逼近 + PN 视线率超前补偿（2026-06-14）**：① 比例化逼近——Vofa 拉 `vision_los_final[NOW]`（终点，仅新帧阶跃）与 `Surface.target_angle_Euler[NOW]`（目标），目标应＝当前姿态+LOS误差/N、误差大快速逼近不过冲、误差小平滑收敛不抖；调 N（YAW 15 / PITCH 25，写在 .c 调用点）看跟手/平滑权衡。② PN——`vision_los_rate[YAW/PITCH]` 随视线转动有值、丢帧/丢目标归零不爆冲、被 `LOS_RATE_LIMIT_DPS`(40) 限住；`PN_LEAD_K`(0.5) 先小增益验超前方向对（命中应提前于纯追尾）再加大，`AOA_TRIM_DEG` 默认 0 暂不引入。③ 回归——丢目标(FAILURE)/pitch 未俯冲到位(≥-5°) 仍就地保持（目标=当前、不打舵）。**注：PN 超前当前 `#if 0` 关闭，先用纯 PID 跟踪验证基础性能。**
 - **末制导俯仰能量管理 + 速度预测（2026-06-12）**：① γ 对不对——静置 `gamma_pitch_deg`≈0;手持鼻先下压 γ 应变负且≈机体俯仰;纯横滚不应大改 γ。② 限幅起作用——`closeness_s` 随距离变小(远段)/面积变大(近段)从 0→1,`pitch_dive_floor` 从≈-8 平滑放开到≈-27;给一个很低的视觉 LOS,俯仰目标应被钳在 θ_floor 不下探。③ 正向撞击——末段 `gamma_pitch_deg` 与 `current_angle_Euler[PITCH]` 收敛(迎角→0)。④ 协议——`Vision_Rx_Data.dist_cm/area` 在 0x5B 包到达时更新且随远近变化;0x5A/0x7A/0x9A 仍正常、不串包。⑤ 标定宏 `DIST_ACQUIRE_CM/DIST_NEAR_CM/AREA_NEAR/AREA_IMPACT/V_NOM_MS` 打靶实测;远/近段在切换点 s=`DIVE_SCHED_SWITCH` 应平滑衔接(若有台阶调 `AREA_NEAR`↔`DIST_NEAR_CM` 对应)。⑥ 回归:roll/yaw 自稳与既有视觉视线锁定不变。
 - **D 项对测量微分 / ~~视觉目标斜坡~~（2026-06-10）**：① 末制导段重新给 D 一个小阻尼值，应**不再**出现 20Hz 抖动（原微分冲击已消）；纯陀螺自稳段 D 阻尼行为正常。② ~~视觉目标斜坡~~ **已被 2026-06-14 比例化逼近替代**（`VISION_TARGET_SLEW_DPS` 废弃），验证改看上面 06-14 条。③ 丢目标(FAILURE) 目标=当前、误差≈0 不打舵。
 - **角度环绕（2026-06-07）**：roll/yaw 目标设在接近 ±180° 处、令当前姿态跨边界，输出不应出现 ~360° 假误差导致的反向猛打；±0 附近常规自稳行为不变（wrap 不触发）。
@@ -189,8 +240,11 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **roll→世界 pitch/yaw 反旋 SIGN**（pitch/yaw 已放开，可验）：`Roll_World_Comp_Flag=0` 行为同旧版（直通对照）；置 1 且 Δ≈0 时恒等（`roll_world_delta`≈0、pb≈Pw、yb≈Yw）；横滚 +90° 给纯世界 pitch（Pw>0,Yw=0）应得 pb≈0、yb≈±Pw 且机头朝**正确**世界方向修正，反了则把 `ROLL_WORLD_COMP_SIGN` 翻成 −1 重编。
 
 ### 🔜 下一步（待 Vofa 验证后）
-- **串级内外环增益拉开**：目前外环 P=0.7 > 内环 P=0.2，与「内环>外环」偏好相反，需重标。
-- **输出加速率限制**（输出端 rate limit，非环内低通）。注：**setpoint 端**速率限制已于 2026-06-10 对视觉目标做了（方案3 视觉目标斜坡）；此处指对最终舵量/力矩输出再加 rate limit，位置不同、可独立。
+- **LADRC pitch/yaw 标定**：roll 验证通过后，逐步启用 pitch(`ladrc_mode` 扩展) / yaw LADRC，替代串级 PID。
+- **速度矢量追踪启用**：`vel_pursuit_mode=1` 三级串级（速度方向→角度→角速度），待 EKF 速度验证准后试。
+- **PN 超前补偿启用**：当前 `#if 0`，待基础视觉跟踪验证通过后打开 `PNG_Apply_Lead`。
+- **串级内外环增益拉开**：目前外环 P=0.2~1.8、内环 P=0.2~0.5，部分轴外环>内环，需重标。
+- **输出加速率限制**（输出端 rate limit，非环内低通）。注：setpoint 端已用 LPF 平滑视觉目标；此处指对最终舵量/力矩输出再加 rate limit。
 - 🚫 **前馈 FFC 暂不做**（2026-06-08 决定）：实际效果不大、且不好验证是否有效，先不用前馈。代码已是关闭态（[pid.c](imcalib/Tool/pid.c) `Euler_pid_Cale` 里 `+=` 调用已注释、`num1/num2=0`），结构保留备用，需要时再启用。
 
 ### 💤 后续（暂缓，有需求再做）

@@ -91,6 +91,7 @@ void abs_limit(float *a, float ABS_MAX);
 float Near_By_Process(float set , float get , float Near_By_Value);
 
 extern pid_t surface_control_pid[2][3], mahony_pid[3];
+extern pid_t vel_pursuit_pid[2];  /* [PITCH,YAW] 速度方向外环 PID */
 extern float temp[3];
 #endif
 

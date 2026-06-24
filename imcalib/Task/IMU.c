@@ -229,6 +229,13 @@ void IMU_Attitude_Algorithm(void)
     IMU_Data.Velocity[Body][NOW][Z] = IMU_Data.R_matrix_T[2][0] * IMU_Data.Velocity[World][NOW][X] +
                                       IMU_Data.R_matrix_T[2][1] * IMU_Data.Velocity[World][NOW][Y] +
                                       IMU_Data.R_matrix_T[2][2] * IMU_Data.Velocity[World][NOW][Z];
+    /* 6) 速度方向角(世界系):供速度外环 PID 使用 */
+    {
+        float vx = vins_out.v_world[X], vy = vins_out.v_world[Y], vz = vins_out.v_world[Z];
+        float v_horiz = sqrtf(vx*vx + vy*vy);
+        IMU_Data.Vel_Dir[PITCH] = RAD2DEG(atan2f(vz, v_horiz));   /* 仰角 */
+        IMU_Data.Vel_Dir[YAW]   = RAD2DEG(atan2f(vx, vy));        /* 方位角 */
+    }
 
 #endif
     /* === 弹道角 γ:姿态前向估计(新变量 gamma_pitch_fwd_deg,不动旧速度版 gamma_pitch_deg) ===

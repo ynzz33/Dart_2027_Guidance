@@ -4,8 +4,10 @@
 #include "surface_control_task.h"
 #include "IMU.h"
 #include "common_defs.h"
+#include "CallBack_Task.h"
 
 pid_t surface_control_pid[2][3], mahony_pid[3];
+pid_t vel_pursuit_pid[2];  /* [PITCH,YAW] 速度方向外环 PID */
 
 float temp[3];
 /**********************************************************************************************************************
@@ -31,14 +33,24 @@ void abs_limit(float *a, float ABS_MAX)
 void pid_init(void)
 {
 // //镖体1
-    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        0.2f,   0.0f,  0.05f                    ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,100,50,                        1.8f,   0.5f,  0.5f                    ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,50,                        0.55,   0.5f,  0.2f                      ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        0.20f,    0.0f,  0.00f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,200,50,                        0.25f,   0.0f,  0.003f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,20,                        0.35f,   0.0f,  0.005f                    ,0.0f,0.0f);
 
 
-    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,AXIS_LIMIT_PITCH,10,           0.30f,  0.0f,   0.00f                ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL,10,            0.2f,   0.0f,   0.00f                 ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW,10,             0.5f,   0.0f,   0.0f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,AXIS_LIMIT_PITCH ,0,          0.60f,    0.0f,   0.00f                ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL  ,0,          0.75f,    0.0f,   0.00f                ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW   ,0,          0.90f,    0.0f,   0.0f                 ,0.0f,0.0f);
+//
+// // //镖体1
+//     PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        0.2f,   0.0f,  0.05f                    ,0.0f,0.0f);
+//     PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,100,50,                        1.8f,   0.5f,  0.5f                    ,0.0f,0.0f);
+//     PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,50,                        0.55,   0.5f,  0.2f                      ,0.0f,0.0f);
+
+
+//     PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,AXIS_LIMIT_PITCH,10,           0.30f,  0.0f,   0.00f                ,0.0f,0.0f);
+//     PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL,10,            0.2f,   0.0f,   0.00f                 ,0.0f,0.0f);
+//     PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW ,10,             0.5f,   0.0f,   0.0f                    ,0.0f,0.0f);
 //镖体2
     // PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,8.0f,0.00f,0.005f,0.3f,0.3f);
     // PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,1200,10,2.00f,0.00f,0.03f,0.3f,0.3f);
@@ -58,20 +70,27 @@ void pid_init(void)
     // PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW,10,0.40f,0.0f,0.0f,0.3f,0.3f);
 
     surface_control_pid[Angle][PITCH].deadband  = 1.0f;
-    surface_control_pid[Angle][ROLL].deadband   = 0.5f;
-    surface_control_pid[Angle][YAW].deadband    = 0.0f;
+    surface_control_pid[Angle][ROLL].deadband   = 1.0f;
+    surface_control_pid[Angle][YAW].deadband    = 1.0f;
     surface_control_pid[Gyro][PITCH].deadband   = 0.0f;
-    surface_control_pid[Gyro][ROLL].deadband    = 1.0f;//3.0                    
-    surface_control_pid[Gyro][YAW].deadband     = 1.0f;
+    surface_control_pid[Gyro][ROLL].deadband    = 0.0f;//3.0                    
+    surface_control_pid[Gyro][YAW].deadband     = 0.0f;
 
     /* 角度外环 roll/yaw 是 atan2 周期角,误差需环绕到(-180,180];pitch 是 asin∈[-90,90] 不需要。
-     * 内环(Gyro)是角速度、不是周期角,保持 0。*/
-    surface_control_pid[Angle][ROLL].angle_wrap = 0;
-    surface_control_pid[Angle][YAW].angle_wrap  = 0;
+     * 内环(Gyro)是角速度、不是周期角,保持 0。
+     * 当前 angle_wrap=0(未启用环绕):跨 ±180° 边界时可能出现假误差,但实际飞镖不太会转到那里。
+     * 需要时置 1 即开(函数 Angle_Wrap_180 已就绪)。*/
+    surface_control_pid[Angle][ROLL].angle_wrap = 0;   /* 0=未启用,需要时改 1 */
+    surface_control_pid[Angle][YAW].angle_wrap  = 0;   /* 0=未启用,需要时改 1 */
 
     PID_struct_init(&mahony_pid[X]  ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
     PID_struct_init(&mahony_pid[Y]  ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
     PID_struct_init(&mahony_pid[Z]  ,POSITION_PID,mahony_MAXOUT,mahony_i_maxout,mahony_Kp,mahony_Ki,mahony_Kd,0.0f,0.0f);
+
+    /* 速度方向外环 PID: 速度方向追目标方向 → 输出 body 目标角
+     * MaxOutput=45°(body 目标角限幅), 参数先保守起步,台架微调 */
+    PID_struct_init(&vel_pursuit_pid[PITCH], POSITION_PID, 45, 10, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    PID_struct_init(&vel_pursuit_pid[YAW],   POSITION_PID, 45, 10, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 /* ============================================================================
@@ -88,7 +107,7 @@ void pid_init(void)
  * ============================================================================ */
 void Euler_pid_Cale(float delta_time_z)
 {
-    if(Guidance_State>Stable)
+    if(Guidance_State>Stable&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS)
     {
         temp[PITCH] = pid_calc( &surface_control_pid[Angle][PITCH],Surface.current_angle_Euler[NOW][PITCH],Surface.target_angle_Euler[NOW][PITCH],delta_time_z);
         Surface.output_gyro_Euler[NOW][PITCH] = pid_calc(&surface_control_pid[Gyro][PITCH],Surface.current_gyro_Euler[NOW][PITCH],temp[PITCH],delta_time_z);
@@ -168,18 +187,17 @@ float pid_calc(pid_t* pid, float get, float set , float delta_time)
     {
         pid->pout  = pid->p * e_now;
         pid->iout += pid->i * e_now*delta_time;
-        /* D 项对"测量(反馈)"微分,而非对"误差"微分:误差 e=set−get,对 e 微分时 set 的阶跃
-         * (视觉~20Hz 锁存、目标每 50ms 跳一次)会被 ÷dt(=1e-3) 放大成巨大脉冲(微分冲击 derivative kick),
-         * 正是"制导段一加 D 就抖、纯陀螺自稳段不抖"的根因。改为只对 get 微分(姿态/角速度是物理连续量、
-         * 不会瞬跳),D 只对真实运动求导=纯阻尼;符号取负(de/dt 中的 −d(get)/dt 项)。
-         * 不经死区软化:死区内 P 不拉、保留 D 阻尼压住残余运动(目标附近"只阻尼不硬推"更稳)。零额外延迟、非低通。*/
+        /* D 项:当前用误差微分 d*(e_now−e_last)/dt。
+         * 注:原设计(2026-06-10)是对测量(反馈)微分 −d*(get[NOW]−get[LAST])/dt(消除目标阶跃的微分冲击 kick),
+         * 但调试中切回了误差微分。当前视觉目标已用 LPF 平滑(非阶跃),微分冲击被源头消解,暂无抖动。
+         * 测量微分代码保留注释,需要时可切回。*/
         if (pid->d == 0.0f || delta_time < 1e-6f)
         {
             pid->dout = 0.0f;
         }
         else
         {
-            // pid->dout = -pid->d * (pid->get[NOW] - pid->get[LAST]) / delta_time;
+            // 测量微分(对 feedback 求导,目标阶跃不进 D): pid->dout = -pid->d * (pid->get[NOW] - pid->get[LAST]) / delta_time;
             pid->dout = pid->d * (e_now - e_last)/delta_time;
         }
 

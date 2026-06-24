@@ -1,4 +1,4 @@
-//
+  //
 // Created by ynz on 2025/12/3.
 //
 #include "ADC_Battery.h"
@@ -201,25 +201,31 @@ void Vision_Transmit_Debug(void)
     val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
     val[1]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
     val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.Velocity[Body][NOW][YAW]*10;
-    val[3]  = Surface.current_angle_Euler[NOW][YAW];
-    val[4]  = Surface.target_angle_Euler[NOW][YAW]; 
-    val[5]  = Surface.current_angle_Euler[NOW][PITCH];
-    val[6]  = surface_control_pid[Angle][YAW].pout;
-    val[7]  = surface_control_pid[Angle][YAW].iout;
-    val[8]  = surface_control_pid[Angle][YAW].dout;
-    val[9]  = Surface.current_gyro_Euler[NOW][YAW];
-    val[10] = temp[YAW];
-    val[11] = Surface.output_Body_Euler[NOW][YAW];
+    // val[3]  = Surface.current_angle_Euler[NOW][YAW];
+    // val[4]  = Surface.target_angle_Euler[NOW][YAW]; 
+    // val[5]  = Surface.current_angle_Euler[NOW][PITCH];
+    // val[6]  = surface_control_pid[Angle][YAW].pout;
+    // val[7]  = surface_control_pid[Angle][YAW].iout;
+    // val[8]  = surface_control_pid[Angle][YAW].dout;
+    // val[9]  = Surface.current_gyro_Euler[NOW][YAW];
+    // val[10] = temp[YAW];
+    // val[11] = Surface.output_Body_Euler[NOW][YAW];
 
 
 
-    // val[3]  = Surface.output_Body_Euler[NOW][PITCH];
-    // val[4]  = Surface.output_Body_Euler[NOW][ROLL];
-    // val[5]  = Surface.output_Body_Euler[NOW][YAW];
+    val[3]  = Surface.target_angle_Euler[NOW][PITCH]-Surface.current_angle_Euler[NOW][PITCH];
+    val[4]  = Surface.target_angle_Euler[NOW][ROLL] -Surface.current_angle_Euler[NOW][ROLL];
+    val[5]  = Surface.target_angle_Euler[NOW][YAW]  -Surface.current_angle_Euler[NOW][YAW];
 
     // val[3]  = IMU_Data.Velocity[Body][NOW][PITCH];
     // val[4]  = IMU_Data.Velocity[Body][NOW][ROLL];
     // val[5]  = IMU_Data.Velocity[Body][NOW][YAW];
+    val[6]  = Surface.output_Body_Euler[NOW][PITCH];
+    val[7]  = Surface.output_Body_Euler[NOW][ROLL];
+    val[8]  = Surface.output_Body_Euler[NOW][YAW];
+    val[9]  = IMU_Data.Velocity[Body][NOW][PITCH];
+    val[10] = IMU_Data.Velocity[Body][NOW][ROLL];
+    val[11] = IMU_Data.Velocity[Body][NOW][YAW];
     
     // val[0]  = IMU_Data.A_Normed[NOW][Y];
     // val[1]  = IMU_Data.A[NOW][Y];
@@ -243,9 +249,6 @@ void Vision_Transmit_Debug(void)
     // val[9]  = Surface.current_gyro_Euler[NOW][PITCH];
     // val[10] = Surface.current_gyro_Euler[NOW][ROLL];
     // val[11] = Surface.current_gyro_Euler[NOW][YAW];
-    // val[9]  = Surface.target_angle_Euler[NOW][PITCH];
-    // val[10] = Surface.target_angle_Euler[NOW][ROLL];
-    // val[11] = Surface.target_angle_Euler[NOW][YAW];
 
     /* 帧头0x57 + 12×float(大端,MSB先,每个4字节) + 帧尾0x75, 共50字节(Vision_TxDebug_Buf[50])。
      * 视觉端定长收50字节,校验首0x57/尾0x75后大端解析,如 Python: struct.unpack('>12f', buf[1:49])。 */

@@ -64,6 +64,7 @@ void Short_Press_Process(void)
                         // ==================视觉自检，内录==============
                         Vision_Self_Text();
                         Guidance_State = Start;
+                        Total_Power_Control(Power_OFF);
                         // Vision_Transmit(Vision_Cmd_Work);
                         // Vision_Transmit( Vision_Cmd_Record_Start );
 

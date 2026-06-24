@@ -11,7 +11,7 @@
 #define  Vertical_fin_Channel TIM_CHANNEL_4
 
 #define  ZERO_POINT 1500
-
+ 
 #define  Wing_left_ZERO_POINT      1400  //变大向上，变小向下
 #define  Wing_right_ZERO_POINT     1480  //变小向上，变大向下
 #define  Vertical_fin_ZERO_POINT   1520
@@ -27,28 +27,28 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-#define  Servo_UL_ZERO      1340
-#define  Servo_UR_ZERO      1450
+#define  Servo_UL_ZERO      1360
+#define  Servo_UR_ZERO      1490
 #define  Servo_DR_ZERO      1510
-#define  Servo_DL_ZERO      1500    
+#define  Servo_DL_ZERO      1480    
 #define Shot_Pitch 28
 #define  Dart_Cnt_is_First 1
  
 // //镖体2 蓝色
 // #define  Servo_UL_ZERO      1540
 // #define  Servo_UR_ZERO      1580
-// #define  Servo_DR_ZERO      1400
+// #define  Servo_DR_ZERO      1400 
 // #define  Servo_DL_ZERO      1500 
 // #define Shot_Pitch 28
 // #define  Dart_Cnt_is_First 0
 
 //镖体3 红色
 // #define  Servo_UL_ZERO      1460
-// #define  Servo_UR_ZERO      1440
-// #define  Servo_DR_ZERO      1470
-// #define  Servo_DL_ZERO      1550 
-// #define Shot_Pitch 26
-// #define  Dart_Cnt_is_First 1
+// #define  Servo_UR_ZERO      1450
+// #define  Servo_DR_ZERO      1480
+// #define  Servo_DL_ZERO      1540    
+// #define Shot_Pitch 28
+// #define  Dart_Cnt_is_First 0
 
 
 
@@ -68,7 +68,7 @@
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
 #define  AXIS_LIMIT_PITCH   40.0f   /* 交付A:三轴各自独立限幅(度),可调 */
 #define  AXIS_LIMIT_ROLL    15.0f
-#define  AXIS_LIMIT_YAW     25.0f
+#define  AXIS_LIMIT_YAW     35.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
 #define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还 原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
 
@@ -127,7 +127,7 @@
  * 近处 blob 大(半径~30px),同样像素偏移对应更小实际角度。
  * 归一化到参考半径:normalized_angle = angle × (REF_RADIUS / radius),
  * 使控制增益不随距离变化。REF_RADIUS 按典型标定距离的 blob 半径设定。*/
-#define  REF_RADIUS             (15.0f)   /* 参考半径(像素):标定距离处的 blob 等效半径 */
+#define  REF_RADIUS             (30.0f)   /* 参考半径(像素):标定距离处的 blob 等效半径 */
 #define  REF_RADIUS_MIN         (3.0f)    /* 半径下限(像素):防 radius=0/异常除零 */
 
 /* === 末制导混合导引:视线率PN超前 + 配平迎角前馈(均不依赖会漂的IMU积分速度) ===
@@ -229,7 +229,7 @@ extern uint8_t Guidance_State;
 extern uint8_t Wing_Servo_Control_Flag;
 extern float servo_lat_scale;   /* Vofa 可观测:最低优先轴保留比(横侧 k 泛化),1=未饱和,<1=有轴被挤缩 */
 extern uint8_t Alloc_Mode;                     /* 控制分配档:0=旧pitch优先对照 1=三轴限幅 2=最小能量 */
-extern uint8_t Alloc_Prio[3];                  /* 交付A 逐级优先级:轴枚举[0]最高,默认{PITCH,YAW,ROLL};调试器在线改 */
+extern uint8_t Alloc_Prio[3];                  /* 交付A 逐级优先级:轴枚举[0]最高,默认{YAW,ROLL,PITCH};调试器在线改 */
 extern float   Alloc_B[3][4];                  /* 舵效矩阵 τ=B·u,行[p,r,y]列[UL,UR,DR,DL];默认理想阵,可台架辨识替换 */
 extern float   alloc_u0[4], alloc_u_out[4];    /* Vofa:分配解(投影/降级后,×SIGN前) / 最终写舵值(×SIGN限幅后) */
 extern float   alloc_alpha, alloc_u0_span, alloc_v_scale, alloc_p_scale; /* Vofa:零空间投影α / u0极差 / 降级横侧缩放比 / pitch缩放比 */
@@ -244,6 +244,8 @@ extern float LOOKING_DATA[10];
 
 extern uint16_t current_tick;
 void surface_control_task(void);
+extern uint8_t vel_pursuit_mode;   /* 0=原Euler_pid 1=速度矢量追踪三级串级 */
+void Velocity_Pursuit_Cale(float delta_time);
 void Roll_Derotate_PitchYaw(float Pw, float Yw, float *Pb, float *Yb);
 void Servo_Mix_AxisLimit(float p, float r, float y);
 void Servo_Mix_MinEnergy(float p, float r, float y);
