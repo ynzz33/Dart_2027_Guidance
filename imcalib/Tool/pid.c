@@ -7,7 +7,7 @@
 #include "CallBack_Task.h"
 
 pid_t surface_control_pid[2][3], mahony_pid[3];
-pid_t vel_pursuit_pid[2];  /* [PITCH,YAW] 速度方向外环 PID */
+pid_t vel_pursuit_pid[3];  /* 索引[PITCH,ROLL(未用),YAW];必须[3]不能[2]——YAW=2,vel_pursuit_pid[YAW]即下标2,[2]会越界踩到 temp[] */
 
 float temp[3];
 /**********************************************************************************************************************
@@ -33,16 +33,17 @@ void abs_limit(float *a, float ABS_MAX)
 void pid_init(void)
 {
 // //镖体1
-    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        0.20f,    0.0f,  0.00f                    ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,200,50,                        0.25f,   0.0f,  0.003f                    ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,20,                        0.35f,   0.0f,  0.005f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        0.25f,   0.0f,  0.00f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,200,50,                        0.45f,   0.0f,  0.00000f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,20,                        0.45f,   0.0f,  0.00000f                    ,0.0f,0.0f);
 
 
-    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,AXIS_LIMIT_PITCH ,0,          0.60f,    0.0f,   0.00f                ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL  ,0,          0.75f,    0.0f,   0.00f                ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW   ,0,          0.90f,    0.0f,   0.0f                 ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,AXIS_LIMIT_PITCH ,0,          0.80f,    0.0f,   0.00f                ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL  ,0,          0.90f,   0.0f,   0.00f                ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW   ,0,          1.10f,    0.0f,   0.0f                 ,0.0f,0.0f);
 //
 // // //镖体1
+
 //     PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        0.2f,   0.0f,  0.05f                    ,0.0f,0.0f);
 //     PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,100,50,                        1.8f,   0.5f,  0.5f                    ,0.0f,0.0f);
 //     PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,50,                        0.55,   0.5f,  0.2f                      ,0.0f,0.0f);
@@ -111,13 +112,20 @@ void Euler_pid_Cale(float delta_time_z)
     {
         temp[PITCH] = pid_calc( &surface_control_pid[Angle][PITCH],Surface.current_angle_Euler[NOW][PITCH],Surface.target_angle_Euler[NOW][PITCH],delta_time_z);
         Surface.output_gyro_Euler[NOW][PITCH] = pid_calc(&surface_control_pid[Gyro][PITCH],Surface.current_gyro_Euler[NOW][PITCH],temp[PITCH],delta_time_z);
-    }
 
+        
         temp[YAW] = pid_calc( &surface_control_pid[Angle][YAW],Surface.current_angle_Euler[NOW][YAW],Surface.target_angle_Euler[NOW][YAW],delta_time_z);
         Surface.output_gyro_Euler[NOW][YAW] = pid_calc(&surface_control_pid[Gyro][YAW],Surface.current_gyro_Euler[NOW][YAW],temp[YAW],delta_time_z);
-
+    }
+    else
+    {
+               
+        temp[YAW] = pid_calc( &surface_control_pid[Angle][YAW],Surface.current_angle_Euler[NOW][YAW],Surface.target_angle_Euler[NOW][YAW],delta_time_z);
+        Surface.output_gyro_Euler[NOW][YAW] = pid_calc(&surface_control_pid[Gyro][YAW],Surface.current_gyro_Euler[NOW][YAW],temp[YAW],delta_time_z);
+ 
+    }
          temp[ROLL] = pid_calc( &surface_control_pid[Angle][ROLL],Surface.current_angle_Euler[NOW][ROLL],Surface.target_angle_Euler[NOW][ROLL],delta_time_z);
-        Surface.output_gyro_Euler[NOW][ROLL] = pid_calc(&surface_control_pid[Gyro][ROLL],Surface.current_gyro_Euler[NOW][ROLL],temp[ROLL],delta_time_z);
+        Surface.output_gyro_Euler[NOW][ROLL] = pid_calc(&surface_control_pid[Gyro][ROLL],Surface.current_gyro_Euler[NOW][ROLL]/2.0f,temp[ROLL],delta_time_z);
 
     /* ---- 坐标系变换(当前关闭,待轴序标定后启用) ----
      * 陀螺轴: PITCH=gx, ROLL=gy, YAW=-gz (IMU.c)

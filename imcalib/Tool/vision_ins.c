@@ -4,6 +4,7 @@
 // 结构固定、手写显式矩阵运算(只有 3x3 求逆借 arm_math),单实例静态、单任务调用、零竞争。
 //
 #include "vision_ins.h"
+#include "pid.h"
 #include <math.h>
 
 /* ===== 模块内部状态(单实例) ===== */
@@ -15,7 +16,11 @@ VinsOut_t vins_out = {0};
 
 static void publish(void)
 {
-    for (int i = 0; i < 3; i++) { vins_out.p_world[i] = X[i]; vins_out.v_world[i] = X[3+i]; }
+    for (int i = 0; i < 3; i++) {
+        abs_limit(&X[3+i], VEL_MAX_MS);           /* 钳位 EKF 内部速度,防积分发散 */
+        vins_out.p_world[i] = X[i];
+        vins_out.v_world[i] = X[3+i];
+    }
     float r2 = X[0]*X[0] + X[1]*X[1] + X[2]*X[2];
     vins_out.range_m = sqrtf(r2);
     /* 接近速度 V_c = −d|p|/dt = −(p·v)/|p|;靠近(|p|减小)时为正 */
@@ -33,10 +38,13 @@ void VisInsEKF_Init(void)
 }
 
 /* 通用量测更新:量测的是状态从 m0 起的 3 个分量(m0=0→位置, m0=3→速度)。
- * H = 在 m0 处的 3x3 单位、其余 0。标准 KF:S=HPHᵀ+R; K=PHᵀS⁻¹; x+=K(z−Hx); P=(I−KH)P。*/
+ * H = 在 m0 处的 3x3 单位、其余 0。
+ * 标准 KF:S=HPHᵀ+R; K=PHᵀS⁻¹; x+=K(z−Hx);
+ * Joseph 形式 P=(I−KH)P(I−KH)ᵀ+KRKᵀ(保正定,防数值发散)。
+ * 新息门控:yᵀS⁻¹y > χ²阈值时丢弃(防视觉异常帧污染状态)。*/
 static void ekf_update(int m0, const float z[3], const float R[3][3])
 {
-    /* S = P[m0..][m0..] + R  (3x3) */      //新息协方差
+    /* S = P[m0..][m0..] + R  (3x3) */
     float Sd[9], Sinvd[9];
     for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++)
@@ -47,6 +55,20 @@ static void ekf_update(int m0, const float z[3], const float R[3][3])
     arm_mat_init_f32(&Sim, 3, 3, Sinvd);
     if (arm_mat_inverse_f32(&Sm, &Sim) != ARM_MATH_SUCCESS) return;  /* 奇异则跳过本次更新 */
 
+    /* 新息 y = z − x[m0..] */
+    float y[3];
+    for (int i = 0; i < 3; i++) y[i] = z[i] - X[m0+i];
+
+    /* 新息门控:yᵀ·S⁻¹·y ≤ χ² 阈值才更新(防视觉异常帧) */
+    if(VINS_INNO_GATE_CHI2)
+        {
+            float chi2 = 0.0f;
+            for (int i = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++)
+                    chi2 += y[i] * Sinvd[i*3+j] * y[j];
+            if (chi2 > VINS_INNO_GATE_CHI2) return;   /* 新息过大 → 丢弃本帧 */
+        }
+
     /* K = P·Hᵀ·S⁻¹,P·Hᵀ = P 的第 m0..m0+2 列 (6x3) */
     float K[6][3];
     for (int r = 0; r < 6; r++)
@@ -56,33 +78,53 @@ static void ekf_update(int m0, const float z[3], const float R[3][3])
             K[r][c] = s;
         }
 
-    /* x += K·(z − x[m0..]) */
-    float y[3];
-    for (int i = 0; i < 3; i++) y[i] = z[i] - X[m0+i];
+    /* x += K·y */
     for (int r = 0; r < 6; r++) {
         float s = 0.0f;
         for (int c = 0; c < 3; c++) s += K[r][c] * y[c];
         X[r] += s;
     }
+    /* 视觉量测更新后立刻钳位速度:防单帧大新息把 X[3..5] 推飞 */
+    for (int i = 0; i < 3; i++) abs_limit(&X[3+i], VEL_MAX_MS);
 
-    /* P −= K·(H·P),H·P = P 的第 m0..m0+2 行 (3x6);全部用更新前的 P 计算 */
+    /* Joseph 形式:P = (I−KH)·P·(I−KH)ᵀ + K·R·Kᵀ(保正定,比 (I−KH)P 数值更稳)
+     * 等价展开:tmp = (I−KH)·P_old; P_new = tmp·tmpᵀ + K·R·Kᵀ
+     * 但 6×6 矩阵乘法开销大,用对称 Joseph 展开:
+     *   P_new = P_old − K·S·Kᵀ  (与 (I−KH)P 等价,但显式保证对称)
+     *   再加 KRKᵀ 补偿:         P_new += K·R·Kᵀ
+     * 合并: P_new = P_old − K·(S−R)·Kᵀ + K·R·Kᵀ = P_old − K·(HP) − (HP)ᵀ·Kᵀ + K·S·Kᵀ
+     * 最简实现:先算 dP = K·(H·P),再 P = P − dP − dPᵀ + K·S·Kᵀ(强制对称) */
+    /* H·P = P 的第 m0..m0+2 行 (3x6) */
+    float HP[6][6];
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 6; c++)
+            HP[r][c] = P[m0+r][c];
+    /* dP = K·(H·P)  (6x6) */
     float dP[6][6];
     for (int r = 0; r < 6; r++)
         for (int c = 0; c < 6; c++) {
             float s = 0.0f;
-            for (int m = 0; m < 3; m++) s += K[r][m] * P[m0+m][c];
+            for (int m = 0; m < 3; m++) s += K[r][m] * HP[m][c];
             dP[r][c] = s;
         }
+    /* KSKᵀ (6x6,只算上三角再镜像) */
+    float KSK[6][6];
     for (int r = 0; r < 6; r++)
-        for (int c = 0; c < 6; c++)
-            P[r][c] -= dP[r][c];
-
-    /* 数值对称化,防止协方差因舍入失对称发散 */
-    for (int r = 0; r < 6; r++)
-        for (int c = r+1; c < 6; c++) {
-            float a = 0.5f * (P[r][c] + P[c][r]);
-            P[r][c] = P[c][r] = a;
+        for (int c = r; c < 6; c++) {
+            float s = 0.0f;
+            for (int i = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++)
+                    s += K[r][i] * Sd[i*3+j] * K[c][j];
+            KSK[r][c] = s;
+            if (r != c) KSK[c][r] = s;
         }
+    /* P = P − dP − dPᵀ + KSKᵀ(强制对称) */
+    for (int r = 0; r < 6; r++)
+        for (int c = r; c < 6; c++) {
+            float val = P[r][c] - dP[r][c] - dP[c][r] + KSK[r][c];
+            P[r][c] = P[c][r] = val;
+        }
+
     publish();
 }
 

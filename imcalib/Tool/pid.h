@@ -91,7 +91,7 @@ void abs_limit(float *a, float ABS_MAX);
 float Near_By_Process(float set , float get , float Near_By_Value);
 
 extern pid_t surface_control_pid[2][3], mahony_pid[3];
-extern pid_t vel_pursuit_pid[2];  /* [PITCH,YAW] 速度方向外环 PID */
+extern pid_t vel_pursuit_pid[3];  /* 索引[PITCH,ROLL(未用),YAW] 速度方向外环 PID;必须[3]不能[2]——YAW=2,vel_pursuit_pid[YAW]即下标2,[2]会越界踩到 temp[] */
 extern float temp[3];
 #endif
 

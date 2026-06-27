@@ -22,6 +22,8 @@ float   gamma_pitch_deg = 0.0f;   /* 弹道角(速度方向俯仰角,速度积�
 float   gamma_pitch_fwd_deg = 0.0f; /* 弹道角γ的姿态前向估计°(机体纵轴前向仰角,不漂):取代会漂的速度版,供末制导俯冲限幅/Vofa 用 */
 uint8_t Vel_Reanchor_Flag = 0;    /* 俯冲入段置1:本拍 IMU 用"姿态前向×V_NOM"锚定世界速度后清0(见下) */
 uint8_t imu_is_static = 0;        /* Vofa:1=发射前判定静止、正 ZUPT 归零速度+对准零偏,0=运动(见下 ZUPT 段) */
+uint8_t Yaw_Zero_Req = 0;         /* 制导窗口置1:本拍 IMU 以当前绝对航向为新原点(yaw 归零)后清0(见欧拉角段) */
+float   Yaw_Zero_Offset = 0.0f;   /* 绝对航向归零偏移°:Euler[YAW] 减它再±180环绕,使归零时刻后 yaw 从0起算 */
 void IMU_Attitude_Algorithm(void)
 {
 #if 0 /*对加速度的一阶三维卡尔曼滤波*/
@@ -116,8 +118,8 @@ void IMU_Attitude_Algorithm(void)
     /* 方案B:发射后整个飞行段无"干净重力相"(推力→气动减速→冲击),气动减速幅度有时≈1g却方向朝后
      * 会骗过幅度门控;故状态机一旦判出已发射(Start→Stable 用 A_Normed[Y]≥0.8),全程硬置0、纯靠
      * (已去零偏的)陀螺 coast。Guidance_State/枚举见 surface_control_task.h(IMU.c 已 include)。*/
-    if ((Guidance_State == Stable || Guidance_State == Terminal || Guidance_State == End)&&imu_is_static==0)
-        acc_trust = 0.0f;
+    // if ((Guidance_State == Stable || Guidance_State == Terminal || Guidance_State == End)&&imu_is_static==0)
+    //     acc_trust = 0.0f;
     // acc_trust = 1.0f;
     /* 计算误差(误差先乘可信度:trust=0 时 err=0 → 比例项=0 且 pid 积分停止累加=冻结零偏估计不被污染,
      * 同时 pid 内 iout 保留发射前学到的好零偏值继续补偿陀螺,正是 coast 想要的)*/
@@ -156,8 +158,8 @@ void IMU_Attitude_Algorithm(void)
     float azc = a_raw_z - IMU_Data.A_Offset[Z];
     float acc_dev_zupt = fabsf(sqrtf(axc*axc + ayc*ayc + azc*azc) - 1.0f);
     static uint16_t zupt_cnt = 0;
-    uint8_t pre_launch = (Guidance_State == Self_Text_State || Guidance_State == Start);
-    if (pre_launch && acc_dev_zupt < ZUPT_ACC_DEV_G && g_norm_dps < ZUPT_GYR_DPS)  /* 用去零偏模长,见上 */
+    // uint8_t pre_launch = (Guidance_State == Self_Text_State || Guidance_State == Start);
+    if (acc_dev_zupt < ZUPT_ACC_DEV_G && g_norm_dps < ZUPT_GYR_DPS)  /* 用去零偏模长,见上 */
     {
         if (zupt_cnt < ZUPT_HOLD_CNT) zupt_cnt++;
     }
@@ -182,7 +184,7 @@ void IMU_Attitude_Algorithm(void)
         IMU_Data.A_World[NOW] [i]  =  ( IMU_Data.R_matrix_T[0][i]*ax_no_gravity +
                                         IMU_Data.R_matrix_T[1][i]*ay_no_gravity +
                                         IMU_Data.R_matrix_T[2][i]*az_no_gravity );
-        IMU_Data.A_World[NOW] [i] = KalmanFilter( &ACC_WORLD_Kalman_Filter[i],IMU_Data.A_World[NOW][i],0.1f,5.0f );
+        IMU_Data.A_World[NOW] [i] = KalmanFilter( &ACC_WORLD_Kalman_Filter[i],IMU_Data.A_World[NOW][i],0.5f,3.0f );
     }
     /* === 视觉/IMU 紧耦合 EKF:取代纯积分,给不漂的世界/机体速度(见 Tool/vision_ins.c) ===
      * 全部在本任务(IMUTask)内调用:predict 每拍 + 视觉新帧位置更新 + 静止零速更新,单任务零竞争。*/
@@ -191,15 +193,19 @@ void IMU_Attitude_Algorithm(void)
         float a_w[3] = { IMU_Data.A_World[NOW][X], IMU_Data.A_World[NOW][Y], IMU_Data.A_World[NOW][Z] };
         VisInsEKF_Predict(a_w, dT);
     }
-    /* 2) 俯冲入段锚定初速(姿态前向×V_NOM) */
-    if (Vel_Reanchor_Flag)
-    {
-        float fwd_x = IMU_Data.R_matrix_T[1][0];
-        float fwd_y = IMU_Data.R_matrix_T[1][1];
-        float fwd_z = IMU_Data.R_matrix_T[1][2];
-        VisInsEKF_SetVel(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
-        Vel_Reanchor_Flag = 0;
-    }
+    /* 2) 俯冲入段锚定初速(姿态前向×V_NOM)
+     * 【暂时注释掉:先验证 EKF 速度方向本身是否正确,不被锚定初值干扰】
+     * 【bug 修复】原来传参把 Y/Z 写反了(…fwd_z, …fwd_y),世界系 ENU 下应是
+     *   SetVel(vx=fwd_x, vy=fwd_y, vz=fwd_z) —— 与 A_World/Vel_Dir/γ 同一 ENU 约定。
+     *   回头解开注释时用下面这行(已修正)。 */
+//    if (Vel_Reanchor_Flag)
+//    {
+//        float fwd_x = IMU_Data.R_matrix_T[1][0];
+//        float fwd_y = IMU_Data.R_matrix_T[1][1];
+//        float fwd_z = IMU_Data.R_matrix_T[1][2];
+//        VisInsEKF_SetVel(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
+//        Vel_Reanchor_Flag = 0;
+//    }
     /* 3) 视觉新帧(识别成功且有距离包)→ 笛卡尔位置量测更新。用 Vision_Recog_Cnt 跳变判新帧,
      *    不抢 TotalControlTask 的 Vision_New_Data_flag;本任务读 Vision_Rx_Data(ISR 写,字段小). */
     {
@@ -283,6 +289,11 @@ void IMU_Attitude_Algorithm(void)
     IMU_Data.Euler[NOW][PITCH]  =   RAD2DEG(IMU_Data.Euler[NOW][PITCH]);
     IMU_Data.Euler[NOW][ROLL]   =   RAD2DEG(IMU_Data.Euler[NOW][ROLL]);
     IMU_Data.Euler[NOW][YAW]    =   RAD2DEG(IMU_Data.Euler[NOW][YAW]);
+    /* 绝对航向归零:制导窗口请求时,以此刻原始航向为新原点;此后 yaw 减偏移再环绕到(-180,180] */
+    if (Yaw_Zero_Req) { Yaw_Zero_Offset = IMU_Data.Euler[NOW][YAW]; Yaw_Zero_Req = 0; }
+    IMU_Data.Euler[NOW][YAW] -= Yaw_Zero_Offset;
+    if (IMU_Data.Euler[NOW][YAW] >  180.0f) IMU_Data.Euler[NOW][YAW] -= 360.0f;
+    if (IMU_Data.Euler[NOW][YAW] < -180.0f) IMU_Data.Euler[NOW][YAW] += 360.0f;
 #endif
 #if 1   /*历史值记录，数据更新*/
     // if (IMU_Data.Euler[NOW][PITCH] < 0)
@@ -297,7 +308,11 @@ void IMU_Attitude_Algorithm(void)
     // {
     //     IMU_Data.Euler[NOW][YAW]   += 360;
     // }
-    IMU_Data.Q[NOW][0]  = q0 ;
+    for (int i = 0; i < 3; i++) {
+        abs_limit(&IMU_Data.Velocity[World][NOW][i], VEL_MAX_MS);
+        abs_limit(&IMU_Data.Velocity[Body][NOW][i], VEL_MAX_MS);
+    }
+    IMU_Data.Q[NOW][0]  = q0 ;  
     IMU_Data.Q[NOW][1]  = q1 ;
     IMU_Data.Q[NOW][2]  = q2 ;
     IMU_Data.Q[NOW][3]  = q3 ;
@@ -317,10 +332,11 @@ void IMU_Attitude_Algorithm(void)
         Surface.current_angle_Euler[NOW][i]=IMU_Data.Euler[NOW][i];
         IMU_Data.Euler   [LAST][i]=IMU_Data.Euler[NOW][i];
         IMU_Data.A_theory[LAST][i] = IMU_Data.A_theory[NOW][i];
-        // IMU_Data.Velocity[World][LAST][i] = IMU_Data.Velocity[World][NOW][i];   /* 速度链路 #if 0 停用,历史拷贝一并注释省算力 */
-        // IMU_Data.Velocity[Body][LAST][i] = IMU_Data.Velocity[Body][NOW][i];
-        // IMU_Data.A_World [LAST][i] = IMU_Data.A_World[NOW][i];
+        IMU_Data.Velocity[World][LAST][i] = IMU_Data.Velocity[World][NOW][i];
+        IMU_Data.Velocity[Body][LAST][i] = IMU_Data.Velocity[Body][NOW][i];
+        IMU_Data.A_World [LAST][i] = IMU_Data.A_World[NOW][i];
     }
+    /* 速度全局限幅:防无视觉校正时IMU积分漂移导致速度无限增长 */
 #endif
 }
 #if 1

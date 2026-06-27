@@ -213,9 +213,9 @@ void Vision_Transmit_Debug(void)
 
 
 
-    val[3]  = Surface.target_angle_Euler[NOW][PITCH]-Surface.current_angle_Euler[NOW][PITCH];
-    val[4]  = Surface.target_angle_Euler[NOW][ROLL] -Surface.current_angle_Euler[NOW][ROLL];
-    val[5]  = Surface.target_angle_Euler[NOW][YAW]  -Surface.current_angle_Euler[NOW][YAW];
+    val[3]  = surface_control_pid[Angle][PITCH].err[NOW]; 
+    val[4]  = Surface.target_angle_Euler[NOW][ROLL];   
+    val[5]  = surface_control_pid[Angle][YAW].err[NOW];    
 
     // val[3]  = IMU_Data.Velocity[Body][NOW][PITCH];
     // val[4]  = IMU_Data.Velocity[Body][NOW][ROLL];

@@ -30,17 +30,23 @@
 #include "common_defs.h"
 
 /* ===== 可调参数(全部待台架实测) ===== */
-/* 过程噪声:把 IMU 世界加速度的不确定度(零偏残差+噪声,m/s²)注入 v,再经 dt 传到 p。越大越信视觉、越小越信 IMU 积分。*/
-#define VINS_SIGMA_ACC        50.00f      /* m/s²,1σ。BMX055 去重力后残余等效加速度噪声,先给 2,漂得快就调大 */
+/* 过程噪声:IMU 世界加速度的不确定度(零偏残差+测量噪声,m/s²)。越大越信视觉、越小越信 IMU 积分。
+ * 注:A_World 进 EKF 前已过标量 Kalman(Q=0.1,R=5.0)平滑,残余噪声约 0.3~1 m/s²;
+ * σ_a=3 对应"信 IMU 积分但允许少量零偏漂移",视觉仍能在 ~0.5s 内把速度拉回。*/
+#define VINS_SIGMA_ACC        3.0f       /* m/s²,1σ。原 50 过大→EKF 不信预测→速度跳视觉;改为 3 信 IMU 积分 */
 /* 视觉量测噪声 */
-#define VINS_SIGMA_BEARING    0.015f    /* rad,1σ。≈像素噪声×每像素角(70°/320≈0.0038rad/px,给几px余量) */
-#define VINS_SIGMA_RANGE      0.5f      /* m,1σ。dist_cm 由 blob 反算,很粗 → 给大,主要靠方位收敛、测距只做弱约束 */
-#define VINS_RANGE_MIN        0.30f     /* m。range 下限,防 dist_cm=0/异常 */
-/* 零速更新噪声 */
-#define VINS_SIGMA_ZUPT       0.02f     /* m/s,1σ。静止时速度量测=0 的可信度,给很小=强约束 */
+#define VINS_SIGMA_BEARING    0.012f     /* rad,1σ。≈0.69°,像素噪声×每像素角(70°/320≈0.0038rad/px,~3px 余量) */
+#define VINS_SIGMA_RANGE      0.5f       /* m,1σ。dist_cm 由 blob 反算,很粗 → 给大,主要靠方位收敛、测距只做弱约束 */
+#define VINS_RANGE_MIN        0.30f      /* m。range 下限,防 dist_cm=0/异常 */
+/* 零速更新噪声 */ 
+#define VINS_SIGMA_ZUPT       0.02f      /* m/s,1σ。静止时速度量测=0 的可信度,给很小=强约束 */
+/* VEL_MAX_MS 见 common_defs.h */
 /* 初始协方差 */
-#define VINS_P0_POS           100.0f    /* m²。锁定首帧视觉前位置完全未知 → 大 */
-#define VINS_P0_VEL           25.0f     /* (m/s)²。初速不确定度 */
+#define VINS_P0_POS           100.0f     /* m²。锁定首帧视觉前位置完全未知 → 大 */
+#define VINS_P0_VEL           25.0f      /* (m/s)²。初速不确定度 */
+/* 新息门控:视觉量测的归一化新息平方 yᵀS⁻¹y 超过此阈值时丢弃该帧(防 blob 检测异常污染状态)。
+ * 3 自由度 χ² 99.9% 分位≈16.3,给余量到 20;设 0 关闭门控。*/
+#define VINS_INNO_GATE_CHI2   20.0f
 /* 像素→角(与 PNG 一致:SENSOR_FOV/SENSOR_TOTAL_PIXEL_WIDTH);此处直接用 rad/像素 */
 #define VINS_RAD_PER_PIXEL    (DEG2RAD(70.0f) / 320.0f)
 /* 相机像素符号 → 机体系视线角(台架按"目标在右/在上时 u_body 指向是否正确"翻号) */

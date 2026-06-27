@@ -27,19 +27,21 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-#define  Servo_UL_ZERO      1360
-#define  Servo_UR_ZERO      1490
-#define  Servo_DR_ZERO      1510
-#define  Servo_DL_ZERO      1480    
-#define Shot_Pitch 28
-#define  Dart_Cnt_is_First 1
+// #define  Servo_UL_ZERO      1360
+// #define  Servo_UR_ZERO      1630
+// #define  Servo_DR_ZERO      1510
+// #define  Servo_DL_ZERO      1560    
+// #define Shot_Pitch 32
+// #define Shot_Roll 0
+// #define  Dart_Cnt_is_First 1
  
 // //镖体2 蓝色
-// #define  Servo_UL_ZERO      1540
-// #define  Servo_UR_ZERO      1580
-// #define  Servo_DR_ZERO      1400 
-// #define  Servo_DL_ZERO      1500 
-// #define Shot_Pitch 28
+// #define  Servo_UL_ZERO      1530
+// #define  Servo_UR_ZERO      1450
+// #define  Servo_DR_ZERO      1510
+// #define  Servo_DL_ZERO      1500    
+// #define Shot_Pitch 28 
+// #define Shot_Roll -3
 // #define  Dart_Cnt_is_First 0
 
 //镖体3 红色
@@ -48,8 +50,17 @@
 // #define  Servo_DR_ZERO      1480
 // #define  Servo_DL_ZERO      1540    
 // #define Shot_Pitch 28
+// #define Shot_Roll -3
 // #define  Dart_Cnt_is_First 0
 
+//镖体4 红色
+#define  Servo_UL_ZERO      1350
+#define  Servo_UR_ZERO      1430
+#define  Servo_DR_ZERO      1560
+#define  Servo_DL_ZERO      1630    
+#define Shot_Pitch 23
+#define Shot_Roll 4
+// #define  Dart_Cnt_is_First 0
 
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
@@ -66,9 +77,9 @@
 /* === 控制分配(混控)参数 ===
  * Alloc_Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
-#define  AXIS_LIMIT_PITCH   40.0f   /* 交付A:三轴各自独立限幅(度),可调 */
+#define  AXIS_LIMIT_PITCH   20.0f   /* 交付A:三轴各自独立限幅(度),可调 */
 #define  AXIS_LIMIT_ROLL    15.0f
-#define  AXIS_LIMIT_YAW     35.0f
+#define  AXIS_LIMIT_YAW     30.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
 #define  ALLOC_GAIN         4.0f   /* 交付B:伪逆解标称增益。理想阵(BBᵀ=4I)下令最小能量解 Bᵀv/4 还 原成与三轴限幅/旧版同幅度(Bᵀv),复用 PID 标定;辨识非理想 B 后可重调 */
 
@@ -127,7 +138,7 @@
  * 近处 blob 大(半径~30px),同样像素偏移对应更小实际角度。
  * 归一化到参考半径:normalized_angle = angle × (REF_RADIUS / radius),
  * 使控制增益不随距离变化。REF_RADIUS 按典型标定距离的 blob 半径设定。*/
-#define  REF_RADIUS             (30.0f)   /* 参考半径(像素):标定距离处的 blob 等效半径 */
+#define  REF_RADIUS             (50.0f)   /* 参考半径(像素):标定距离处的 blob 等效半径 */
 #define  REF_RADIUS_MIN         (3.0f)    /* 半径下限(像素):防 radius=0/异常除零 */
 
 /* === 末制导混合导引:视线率PN超前 + 配平迎角前馈(均不依赖会漂的IMU积分速度) ===
