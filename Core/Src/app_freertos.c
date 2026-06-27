@@ -33,6 +33,7 @@
 #include "Init_Config.h"
 #include "TotalControl.h"
 #include "surface_control_task.h"
+#include "user_lib.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/

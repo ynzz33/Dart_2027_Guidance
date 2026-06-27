@@ -3,11 +3,16 @@
 > 项目进度的单一入口。详细技术方案见文末「[详细方案文档](#详细方案文档)」。
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
-> 最后更新：2026-06-23（全量代码审计 v2：新增 vision_ins EKF / LADRC / ZUPT / 距离增益 / LPF 目标平滑 / 速度矢量追踪；修正增益表/分配器符号/D 项描述等文档与代码不一致项。前次：2026-06-14 末制导比例化逼近+PN）
+> 🌐 跨 AI 工作规则/约束见 [AGENTS.md](AGENTS.md)（任何 AI 接手前先读：沟通方式、改动哲学、文档/验证纪律、红线）。
+> 最后更新：2026-06-27（分配器散落全局整合为 `Alloc` 结构体；清理末制导 LPF/距离增益死代码 + `#if 0` 封存增益调度函数；三维→二维直通 + 调参哲学转向「内环>外环纯P串级」+ 末制导主动滑翔→扎 + PNG 拆分接口；新建跨 AI [AGENTS.md](AGENTS.md)；修复已删 plan 文件链接。前次：2026-06-23 全量审计 v2）
+>
+> ⚠️ **本项目处于高频调参期**（几乎每个 commit 都在改 PID 增益/分配档/门控）。本文档**只记结构、方案与"为什么"，不追具体数值**——所有增益/阈值/默认档**以代码为准**（pid.c `pid_init`、surface_control_task.c/.h 顶部全局与宏）。文中出现的数值均为"某时刻快照"，可能已变。
 
 ## 项目简介
 
-STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（4 舵机，TIM3 CH2 + TIM4 CH2–CH4），串级 PID 自稳（角度环 → 角速度环）+ 可选 LADRC 单环二阶自抗扰（`ladrc_mode` 切档），Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度。磁力计不启用（场景磁干扰大），PNG 比例导引暂未接主环（`#if 0`）。
+STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（4 舵机，TIM3 CH2 + TIM4 CH2–CH4），串级 PID 自稳（角度环 → 角速度环）+ 可选 LADRC 单环二阶自抗扰（`ladrc_mode` 切档），Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度。磁力计不启用（场景磁干扰大），PNG 比例导引拆分接口已就绪但主环仍 `#if 0`。
+
+> **当前实际在飞的链路（2026-06-27 快照，以代码为准）**：三轴**直通**串级 PID（`ladrc_mode=0`、`vel_pursuit_mode=0`，06-22 试的欧拉运动学耦合变换已于 06-23「三维转二维」撤回，作 TODO 留注释）→ 控制分配 `Alloc_Mode=2`（最小能量）→ X 翼 4 舵。调参哲学已转向「**内环>外环、I/D≈0 的纯 P 串级**」（Gyro 0.8~1.1 > Angle 0.25~0.45）。末制导 pitch 用**主动滑翔→扎**（`pitch_glide_mode=1`）。
 
 ---
 
@@ -32,7 +37,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - SPI 通信正常；舵面解算极性标定完成（极性已对）。
 - 控制输出平稳化；yaw 自稳初步有效果，手持已明显稳定。
 
-### 飞控三模块优化（详见 [plan-flight-control-overhaul.md](plan-flight-control-overhaul.md)）
+### 飞控三模块优化（原 `plan-flight-control-overhaul.md`，已删除→内容并入本时间线 / git 历史）
 4-Phase 总方案，多数随 X 翼改造落地（逐条改动以代码为准）：
 - **Phase 0** 公共宏统一（`common_defs.h`）。
 - **Phase 1** 关键 Bug 修复：`prev_tick` 重置致 dt≡0（I/D 失效）、四元数积分系数 `0.125`→`0.5`、FFC 空指针、重力常数、Mahony 改回标准 PI、float 全 `f` 后缀、数据有效性守卫、Vision 读侧临界区。
@@ -50,7 +55,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **FFC 前馈接入**：按偏好**与 `pid_calc` 解耦**，不内嵌进 PID。在 [pid.c](imcalib/Tool/pid.c) `Euler_pid_Cale` 里用独立 `FeedForwardController` 对每环目标算前馈再 `+=` 叠加；顺带修了 `FeedForwardController` 更新顺序 bug（二阶项失效）、`num1/num2` double→float。**默认 num1/num2=0 时前馈恒为 0，已接入但未启用**，需在 `pid_init` 给对应轴设非零值才生效。
 - **死区软化**：新增 `Deadband_Soften`（连续减区，C0 连续），`pid_calc` 删掉死区 `return 0` 硬切断改走完整流程；附带修了原 `return 0` 致 err 历史/积分不更新、出死区瞬间 D 项尖刺的问题。
 
-### 控制分配解耦（2026-05-31，详见 [plan-pitch-priority-mixing.md](plan-pitch-priority-mixing.md)）
+### 控制分配解耦（2026-05-31，原 `plan-pitch-priority-mixing.md`，已删除→见本时间线后续「控制分配重写」「交付A 升级」条 / git 历史）
 - 实现 **Pitch 优先最小能量控制分配** `Servo_Mix_PitchPriority(p,r,y)`。诊断：X 翼混控矩阵本身线性解耦（AᵀA=4I），pitch 耦合的真正来源是每片舵独立 `abs_limit` 饱和会连带砍掉该片的 pitch 分量。
 - 方案：pitch 先限幅全额保留，roll/yaw 横侧分量统一乘 `k=min(1, minᵢ(LIMIT−sgn(Lᵢ)·Pᵢ)/|Lᵢ|)` 缩进舵机余量；反解 pitch 恒=p、与 k 无关（已独立数学核验）。
 - 配套：[surface_control_task.h](imcalib/Task/surface_control_task.h) 新增 `SERVO_ANGLE_LIMIT 60.0f` + `servo_lat_scale`（Vofa 观测 k）。下游 Wing/PID/SIGN_xx 标定全不变。
@@ -166,6 +171,13 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **落地**：[adrc.c](imcalib/Tool/adrc.c) / [.h](imcalib/Tool/adrc.h)（文件名不变，内部全换）。`LADRC_Init` 按通道给默认参数；`LADRC_Calc` 单拍计算；`Euler_LADRC_Cale` 三轴并行。[surface_control_task.c](imcalib/Task/surface_control_task.c) 新增 `ladrc_mode` 运行时切档（0=全PID/1=三轴LADRC/3=仅Roll LADRC）。
 - **Roll 已标定**：wc=10.5, wo=52.5, b0=55, deadband=1°, max_output=±15°。pitch/yaw 占位默认待启用。
 
+### LQR 状态反馈控制器（lqr.c/.h 新建，2026-06-27，**未编译/待台架**）
+- **动机**：尝试用 LQR 一步 6态→4舵替代「PID 算三轴力矩 + 混控器分配」两步链路（K 已含 X 翼混控几何）。移植自 [lqr_czn/dart_attitude_LQR_v1.m](lqr_czn/dart_attitude_LQR_v1(1)(1).m) + [移植指南](lqr_czn/MCU_LQR_PORTING_GUIDE(1).md)。
+- **方案**：状态 `x=[roll,pitch,yaw 误差(rad), p,q,r(rad/s)]`（err=测量−期望），控制律 `u=-K_d·x`，4 舵偏(rad)；`K_d[4][6]` 由 MATLAB `dlqr` 算出（连续双积分器 A + `B=I⁻¹·G·k_aero`，c2d 离散）。
+- **落地**：[lqr.c](imcalib/Tool/lqr.c) / [.h](imcalib/Tool/lqr.h)。`LQR_Update` 纯解算（与 MATLAB 对拍用）；`Euler_LQR_Cale` 桥接：取 Surface 姿态/角速度→组 x→解算→换序+×SIGN+转度，**直接写 `output_angle_Servo`、绕过 `output_gyro_Euler` 与 `Servo_Mix_*`**。[surface_control_task.c](imcalib/Task/surface_control_task.c) 新增 `lqr_mode` 切档（0=关默认/1=LQR；优先级高于 ladrc/vel_pursuit，混控分派加 `lqr_mode!=1` 跳过）。`LQR_Init` 已挂 TotalInitTask。
+- **K 矩阵粘贴区**：`dart_lqr_K[4][6]` 与 MATLAB 同名同形；调好 Q/R/惯量/速度后跑脚本 Step5，把打印的 4 行整块覆盖粘贴即可。当前是脚本**占位参数**导出值，台架前必须用真实惯量/气动/速度重跑更新。
+- **⚠ 上车前必做**：① 新增 `lqr.c` 手动加入 Keil/eIDE 工程编译列表（AI 编不了）；② 按指南 §9 逐轴阶跃验符号——MATLAB 舵号(delta1=右上/2=左上/3=左下/4=右下)≠工程索引(UL/UR/DR/DL)，已在 `K_ROW_TO_SERVO[]` 换序，符号反了在 `SIGN_xx`/`gyro_sign[]` 翻，**别改 K 行序**（飞镖一次性，G 符号反=正反馈）。
+
 ### ZUPT 零速更新 + 地面零偏在线对准（IMU.c，2026-06-15+）
 - **问题**：纯积分速度无外部观测→任何加速度零偏/姿态残差都被无限积分而漂（实测"漂移远大于真实运动"）。
 - **方案**：发射前（状态机 Self_Text/Start、地面静止）用零速观测把速度钉回 0（ZUPT=融合，非低通），并把"静止残差 a_raw−R_col3"慢速喂给机体系零偏 `A_Offset` 在线对准（不依赖标定时是否水平）；发射后冻结零偏、停 ZUPT（防匀速飞行 ‖a‖≈1g 被误判静止而错误归零）。
@@ -198,6 +210,37 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - angle_wrap：ROLL/YAW 外环均 **=0**（旧记 =1，实际未启用环绕）
 - D 项：pid.c:188 测量微分被注释，:189 用**误差微分** `d*(e_now-e_last)/dt`（PROGRESS 06-10 记的"对测量微分"已不成立）
 
+### 三维耦合控制 →「二维直通」回退（2026-06-23，控制器结构）
+- **背景**：06-22（commit d38ef2d）曾在 `Euler_pid_Cale` 外环与内环之间插入**欧拉运动学变换 T(φ,θ)**，把外环输出的「世界系欧拉角速率 `[φ̇,θ̇,ψ̇]`」映射成机体角速度 `[ωx,ωy,ωz]` 再喂内环（内环反馈是机体陀螺），意图消除有横滚时 pitch/yaw 的天然耦合，并省掉外部 `Roll_Derotate_PitchYaw`。
+- **回退（commit e5b9778「将三维转化为2维」）**：变换**整段注释、改回直通** `body_rate_cmd[axis]=temp[axis]`。原因：① 本工程陀螺轴序非标准 ZYX（`gx=PITCH, gy=ROLL, gz=YAW`，见 [IMU.c](imcalib/Task/IMU.c)），标准 T(φ,θ) 套不上、需按实际轴序重推；② 飞镖小角度/小滚转下耦合可忽略，直通已够用且更稳（"yaw 也稳定了一点"）。变换公式作 **TODO 框架代码**留在 [pid.c](imcalib/Tool/pid.c) `Euler_pid_Cale` 注释里，待轴序标定后再启用（台架判据：固定 pitch/yaw 目标手动滚转 20°，看是否出现意外 yaw 漂移）。
+- **同 commit 连带**：① PID 增益 + 死区大改（死区 Angle→1.0、Gyro→0.0）；② **PNG 拆分接口** `PNG_Apply_Lead_Yaw/Pitch`（[PNG_Task.c](imcalib/Task/PNG_Task.c)）+ `PNG_Mode=1`（用 vision_ins EKF 世界系 p/v 叉乘**直接算视线率** ω_yaw/ω_pitch，替代纯视觉帧差分），供 `Guidance_Terminal` 分轴门控（俯冲未到位只喂 yaw）——**但主路径仍 `#if 0` 关闭**，先验证纯 PID 基础跟踪。
+
+### 调参哲学转向「内环>外环纯 P 串级」（2026-06-24~25，commit 4d46d01/4f605eb「改变了调参方式」）
+- **变化**：增益整体拍平，**内环 P 反超外环**、I/D 基本归零——Angle(外环) PITCH/ROLL/YAW≈`0.25/0.45/0.45`，Gyro(内环)≈`0.80/0.90/1.10`（**快照，以代码为准**）。呼应既有 TODO「串级内外环增益拉开」与控制偏好「纯 P 串级=单环 PD+陀螺阻尼」。
+- **roll 内环陀螺反馈 ÷2**：[pid.c](imcalib/Tool/pid.c) `Euler_pid_Cale` 内环 roll 喂 `current_gyro_Euler[NOW][ROLL]/2.0f`（经验压抖/降 roll 内环等效增益，留痕待解释）。
+- **pitch 外环门控收紧**：pitch 外环+内环仅在 `Guidance_State>Stable && 视觉识别成功` 时更新，否则内环保持上拍（Stable 段不控俯仰）；yaw/roll 每拍都算。
+- **分配器默认 `Alloc_Mode` 1→2**（最小能量 `Servo_Mix_MinEnergy` 为默认；Mode0 `Servo_Mix_PitchPriority` 调用点已注释，仅留 1/2 两档）。
+
+### 末制导 pitch「主动滑翔→扎」（2026-06-27，commit a13f2b4 + 未提交，setpoint 端）
+- **动机**：纯追尾/门限放开 pitch 易过早扎下、大负迎角掉升力损能、射程不够（与 06-12 能量管理同一痛点，换更简洁的实现）。
+- **方案**：新增 `pitch_glide_mode`（默认 **1**，可调试器 Watch 切回 0 做 A/B）。`Guidance_Terminal` 里按**世界系看灯视线俯角 φ**(`vision_los_final[NOW][PITCH]`) 在两段间插值：远端（视线浅，φ≥`GLIDE_LOS_HI_DEG`=−12°）`blend=0` → pitch 目标住 `THETA_GLIDE_DEG`(+2° 抬头)**压平轨迹增程**；近端（视线陡，φ≤`GLIDE_LOS_LO_DEG`=−25°）`blend=1` → 平滑过渡到追视觉 pitch 目标**扎下去**（与 `PITCH_INCIDENT_DEG≈−27°` 衔接）。`pitch_glide_target=(1−blend)·THETA_GLIDE + blend·视觉目标`。
+- **落地**：[surface_control_task.c](imcalib/Task/surface_control_task.c) `Guidance_Terminal`（`pitch_glide_mode` 分支，旧 `pitch_control_limit_deg` 门限逻辑保留作 `=0` 对照）+ [.h](imcalib/Task/surface_control_task.h) 新宏 `THETA_GLIDE_DEG/GLIDE_LOS_HI_DEG/GLIDE_LOS_LO_DEG`、新全局 `pitch_glide_mode/target/blend`（Vofa/Watch 可观测）。`AXIS_LIMIT_PITCH` 20→30。
+- **未编译**(Keil/MDK)。**待台架/试飞**：远端是否真压平增程、过渡是否平滑无台阶、`THETA_GLIDE_DEG` 过大是否失速反掉得更快；blend 随接近度 0→1。
+
+### 末制导 LPF/距离增益死代码清理 + 增益调度函数 `#if 0` 封存（2026-06-27，未提交）
+- **动机**：LPF 早已被旁路（`Low_Pass_Filter` 调用注释、`lpf_yaw/pitch` 直接 `=vision_los_final[NOW]`），距离增益 `k_yaw/k_pitch` 算了不用——一堆死中间变量留在主控制路径。按「少建变量、不留垃圾全局」清掉。
+- **清理（[surface_control_task.c](imcalib/Task/surface_control_task.c) `Guidance_Terminal`）**：删 `lpf_yaw/lpf_pitch/lpf_inited` 及首拍初始化、`yaw_gain/pitch_gain/k_max/k_min/k_yaw/k_pitch` 全部死变量；YAW/PITCH 目标直接取 `vision_los_final[NOW]`（航位推算保留、无额外平滑、glide→扎逻辑不变）；删过时的「一阶低通原理」大段注释及各处注释掉的调用行（`Vision_Angle_Normalize`/`Low_Pass_Filter`/`raw_rate`）。
+- **封存（[.c](imcalib/Task/surface_control_task.c) 240–416 整块 `#if 1`→`#if 0`）**：随之无人调用的 5 函数 `Vision_Angle_Normalize`/`Target_Slew`/`Pitch_Dive_Floor`/`Yaw_Gain_ByDist`/`Pitch_Gain_ByDist` 整块封存（保留可回退）；连带只被它们写的 4 个 Vofa 全局 `pitch_dive_floor`/`closeness_s`/`yaw_distance_gain`/`pitch_distance_gain` 定义注释、[.h](imcalib/Task/surface_control_task.h) 对应 extern 注释。`vision_los_rate` **保留**（PNG_Task.c 仍引用，删了会链接错）。
+- **行为等价性**：识别成功(SUCCESS)主路径**完全不变**（清理前 `lpf_*` 在 SUCCESS 即恒等于 `vision_los_final[NOW]`）。**唯一细微变化**：丢目标(FAILURE)时 YAW 目标从「保持上一拍锁存视线」改为「就地保持当前姿态」——与 PITCH、与上方 FAILURE 分支、与文档「丢目标就地保持」一致（原 `static lpf_yaw` 的冻结副作用本就与 FAILURE 分支矛盾）。
+- **未编译**(Keil/MDK)。纯死代码清理，不动控制律/增益/分配/状态机；要恢复增益调度把 `#if 0` 改回 `#if 1` 并接回调用即可。
+
+### 控制分配散落全局整合为 `Alloc` 结构体（2026-06-27，未提交）
+- **动机**：分配器相关 15 个散落全局（`Alloc_Mode`/`Alloc_Prio`/`Alloc_B` + `alloc_u0/u_out/alpha/u0_span/v_scale/p_scale/infeasible/singular_flag` + `servo_lat_scale`）散在文件顶部，按「少建变量、相关变量归 typedef」整合。
+- **落地**：[surface_control_task.h](imcalib/Task/surface_control_task.h) 新增 `Alloc_t`（风格同 `Surface_t`），那批 extern 收成单条 `extern Alloc_t Alloc`；[.c](imcalib/Task/surface_control_task.c) 定义区合成一个 `Alloc_t Alloc = {…}`（C99 指定初始化，默认值不变：Mode=2、Prio={ROLL,YAW,PITCH}、B=理想阵、v/p/lat_scale=1），全部引用点 `Alloc_Mode→Alloc.Mode`、`alloc_u0→Alloc.u0`… 机械改名。
+- **零牵连**：grep 确认仅 surface_control_task.c/.h 引用，PNG_Task/TotalControl/Vofa 打包都不碰；分配器内部静态函数名（`alloc_minnorm_solve`/`alloc_try` 等）不在改名范围、未受影响。**纯重命名重构，无行为变化**。
+- **顺带修文档勘误**：CODE_OVERVIEW `Alloc.Prio` 默认以代码为准＝`{ROLL,YAW,PITCH}`（旧文档误记 `{YAW,ROLL,PITCH}`）。
+- **未编译**(Keil/MDK)。
+
 ---
 
 ### 全量代码审计 + 大问题修复（2026-06-07）
@@ -225,25 +268,28 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **内环角速度 pitch/roll 轴配对（方案B，2026-06-07）**：**roll 自稳已正常**（git「roll 调稳了很多」）——方案B 源头+四元数同步对调生效，roll 能阻尼自旋、不再渐进发散，yaw 不变、PNG 行为不变。pitch/yaw 通道已放开（清零行已注释），pitch 解算几何已对齐（见时间线 2026-06-08 条）。
 
 ### ⏳ 待 Vofa 台架验证
-- **LADRC roll 自稳（2026-06-21+）**：`ladrc_mode=3` 仅 roll 用 LADRC、pitch/yaw 仍 PID。Vofa 拉 `ladrc_ctrl[LADRC_ROLL].z1`(角度估计)/`z2`(角速度估计)/`z3`(总扰动)/`u`(输出)；roll 自稳应与 PID 同级或更好（无超调、无高频抖）。调参：先定 wc(10.5)→wo=5×wc(52.5)→调 b0(55)。`ladrc_mode=1` 三轴全 LADRC 待 pitch/yaw 参数标定后再试。
+- **🆕 末制导 pitch 主动滑翔→扎（2026-06-27）**：`pitch_glide_mode=1`。Vofa/Watch 拉 `pitch_glide_blend`（应随接近 0→1）、`pitch_glide_target`、`vision_los_final[NOW][PITCH]`(视线俯角 φ)。验：① 远端（φ 浅）pitch 目标住 `THETA_GLIDE_DEG`(+2°) 压平、滑翔增程不过早扎；② 近端（φ≤−25°）平滑过渡到追视觉目标扎下、与入射角 −27° 衔接、无台阶；③ `THETA_GLIDE_DEG` 过大是否失速反掉得更快（保守起步往上调）；④ 切 `pitch_glide_mode=0` 退回旧 `pitch_control_limit_deg` 门限对照。
+- **🆕 二维直通 vs 三维耦合变换（2026-06-23 回退）**：当前直通（变换 `#if`/注释关）。台架判据——固定 pitch/yaw 目标、手动滚转 ±20°，看是否出现**意外 yaw/pitch 漂移**：若明显→说明需按本工程陀螺轴序（gx=pitch/gy=roll/gz=yaw）重推 T(φ,θ) 并启用；若可忽略→直通够用，保持。
+- **🆕 调参哲学转向「内环>外环纯 P」（2026-06-24~25）**：确认拍平后的纯 P 串级 roll/yaw/pitch 自稳质量（无超调、无低频摇摆、无高频抖）；roll 内环 `÷2` 是否仍需要（去掉看是否更抖）。**增益以 [pid.c](imcalib/Tool/pid.c) `pid_init` 为准，文档不追数值。**
+- **LADRC roll 自稳（2026-06-21+，当前 `ladrc_mode=0` 全 PID，需切 3 验证）**：`ladrc_mode=3` 仅 roll 用 LADRC、pitch/yaw 仍 PID。Vofa 拉 `ladrc_ctrl[LADRC_ROLL].z1`(角度估计)/`z2`(角速度估计)/`z3`(总扰动)/`u`(输出)；roll 自稳应与 PID 同级或更好（无超调、无高频抖）。调参：先定 wc(10.5)→wo=5×wc(52.5)→调 b0(55)。`ladrc_mode=1` 三轴全 LADRC 待 pitch/yaw 参数标定后再试。
 - **vision_ins EKF 速度验证（2026-06-15+）**：① 静置 `vins_out.v_world` 应≈0（ZUPT 钉死）；② 手持移动后停→速度应快速回零；③ 俯冲入段 `Vel_Reanchor_Flag` 锚定后 `gamma_pitch_fwd_deg` 应≈机体俯仰且不漂；④ `vins_out.range_m` 应随距离减小单调递减。调参：`VINS_SIGMA_ACC`(1.0) 控制 IMU/视觉信任比，漂得快就调大。
 - **ZUPT + 零偏在线对准（2026-06-15+）**：上电静置→`imu_is_static` 应在 ~100ms 内变 1、`A_Offset` 慢速收敛；拿起移动→`imu_is_static` 应变 0、零偏冻结。发射后不应误判静止。
 - **视线角半径归一化 + 距离增益（2026-06-15+）**：① `Vision_Rx_Data.Euler_norm` 应随 blob 半径变化而归一化（远处小 blob→放大、近处大 blob→缩小）；② `yaw_distance_gain` 远处>近处、`pitch_distance_gain` 近处>远处；③ 远近切换应平滑无台阶。
-- **LPF 视觉目标平滑（2026-06-15+）**：`Surface.target_angle_Euler[NOW]` 应平滑跟踪 `vision_los_final`、无阶跃跳变；k 由距离增益缩放（远处小 k 保守、近处大 k 跟手）。丢目标时冻结滤波器（保持最后有效目标）。
+- **LPF 视觉目标平滑（2026-06-15+，⚠️ 当前主路径被旁路）**：设计是 `target = k×vision_los_final + (1−k)×target_last`（k 由距离增益缩放：远小 k 保守、近大 k 跟手），丢目标冻结。**但 2026-06-27 核对：`Low_Pass_Filter` 调用已注释、`lpf_yaw/pitch` 直接 `=vision_los_final[NOW]`、k 算了未用**（调试期临时态）。需要平滑时把注释切回再验：`Surface.target_angle_Euler[NOW]` 平滑跟踪 `vision_los_final`、无阶跃。
 - **末制导比例化逼近 + PN 视线率超前补偿（2026-06-14）**：① 比例化逼近——Vofa 拉 `vision_los_final[NOW]`（终点，仅新帧阶跃）与 `Surface.target_angle_Euler[NOW]`（目标），目标应＝当前姿态+LOS误差/N、误差大快速逼近不过冲、误差小平滑收敛不抖；调 N（YAW 15 / PITCH 25，写在 .c 调用点）看跟手/平滑权衡。② PN——`vision_los_rate[YAW/PITCH]` 随视线转动有值、丢帧/丢目标归零不爆冲、被 `LOS_RATE_LIMIT_DPS`(40) 限住；`PN_LEAD_K`(0.5) 先小增益验超前方向对（命中应提前于纯追尾）再加大，`AOA_TRIM_DEG` 默认 0 暂不引入。③ 回归——丢目标(FAILURE)/pitch 未俯冲到位(≥-5°) 仍就地保持（目标=当前、不打舵）。**注：PN 超前当前 `#if 0` 关闭，先用纯 PID 跟踪验证基础性能。**
 - **末制导俯仰能量管理 + 速度预测（2026-06-12）**：① γ 对不对——静置 `gamma_pitch_deg`≈0;手持鼻先下压 γ 应变负且≈机体俯仰;纯横滚不应大改 γ。② 限幅起作用——`closeness_s` 随距离变小(远段)/面积变大(近段)从 0→1,`pitch_dive_floor` 从≈-8 平滑放开到≈-27;给一个很低的视觉 LOS,俯仰目标应被钳在 θ_floor 不下探。③ 正向撞击——末段 `gamma_pitch_deg` 与 `current_angle_Euler[PITCH]` 收敛(迎角→0)。④ 协议——`Vision_Rx_Data.dist_cm/area` 在 0x5B 包到达时更新且随远近变化;0x5A/0x7A/0x9A 仍正常、不串包。⑤ 标定宏 `DIST_ACQUIRE_CM/DIST_NEAR_CM/AREA_NEAR/AREA_IMPACT/V_NOM_MS` 打靶实测;远/近段在切换点 s=`DIVE_SCHED_SWITCH` 应平滑衔接(若有台阶调 `AREA_NEAR`↔`DIST_NEAR_CM` 对应)。⑥ 回归:roll/yaw 自稳与既有视觉视线锁定不变。
 - **D 项对测量微分 / ~~视觉目标斜坡~~（2026-06-10）**：① 末制导段重新给 D 一个小阻尼值，应**不再**出现 20Hz 抖动（原微分冲击已消）；纯陀螺自稳段 D 阻尼行为正常。② ~~视觉目标斜坡~~ **已被 2026-06-14 比例化逼近替代**（`VISION_TARGET_SLEW_DPS` 废弃），验证改看上面 06-14 条。③ 丢目标(FAILURE) 目标=当前、误差≈0 不打舵。
 - **角度环绕（2026-06-07）**：roll/yaw 目标设在接近 ±180° 处、令当前姿态跨边界，输出不应出现 ~360° 假误差导致的反向猛打；±0 附近常规自稳行为不变（wrap 不触发）。
 - **视线锁存（方向A）**：末制导对静止/缓动目标，镖体应单调转向并稳定指向、不再同线首振；Vofa 拉 `Surface.target_angle_Euler[NOW][YAW]` 应为帧间水平台阶（保持不变）、仅识别成功新帧到达瞬间阶跃更新；丢目标(FAILURE) 每 tick 回中、重新捕获到 SUCCESS 帧立即重锁。
 - ✅ **视觉单位核验（方向C，已确认）**：视觉发的是**像素**，已在 `Vision_Receive` 接收时转成度（`Euler[YAW]=y/160*72`、`Euler[PITCH]=x/120*54`），`Guidance_Terminal` 锁存即为度、量纲一致，无需再 ×FOV。
-- **控制分配三档对照（含 Pitch 优先）**：Vofa 切 `Alloc_Mode` 0/1/2 输出都不超 ±`SERVO_ANGLE_LIMIT`(60)、roll 现接 PID 输出无突跳；**Mode1 优先级缩放（Pitch 优先即在此：`Alloc_Prio` 默认 {PITCH,YAW,ROLL}，不另设单独验证项）**：调试器改 `Alloc_Prio` 排列，高优先轴力矩应保住、低优先轴逐级让步，填非法排列(如{0,0,1})自动退默认不崩，`servo_lat_scale` 未饱和≡1/饱和<1；Mode2 零空间自检 `n=[4,4,-4,-4]`、`alloc_singular_flag≡0`、可达区能量 Σu² ≤ Mode1、强制大 v 看 `alloc_infeasible`/pitch 保住；长跑无 NaN。台架辨识 `Alloc_B` 后把调用点经验系数 `0.85/1.05` 设 1。
+- **控制分配档对照（当前默认 `Alloc_Mode=2` 最小能量；Mode0 调用点已注释，仅 1/2 可选）**：Vofa 切 `Alloc_Mode` 1/2 输出都不超 ±`SERVO_ANGLE_LIMIT`(60)、roll 接 PID 输出无突跳；**Mode1**（`Servo_Mix_AxisLimit` 逐级优先级缩放，`Alloc_Prio` 默认 **{YAW,ROLL,PITCH}**，调试器在线改）：高优先轴力矩保住、低优先轴逐级让步，填非法排列自动退默认不崩，`servo_lat_scale` 未饱和≡1/饱和<1；**Mode2**（默认）零空间自检 `n=[4,4,-4,-4]`、`alloc_singular_flag≡0`、可达区能量 Σu² ≤ Mode1、强制大 v 看 `alloc_infeasible`/pitch 保住；长跑无 NaN。台架辨识 `Alloc_B` 后把调用点经验系数设 1。
 - **roll→世界 pitch/yaw 反旋 SIGN**（pitch/yaw 已放开，可验）：`Roll_World_Comp_Flag=0` 行为同旧版（直通对照）；置 1 且 Δ≈0 时恒等（`roll_world_delta`≈0、pb≈Pw、yb≈Yw）；横滚 +90° 给纯世界 pitch（Pw>0,Yw=0）应得 pb≈0、yb≈±Pw 且机头朝**正确**世界方向修正，反了则把 `ROLL_WORLD_COMP_SIGN` 翻成 −1 重编。
 
 ### 🔜 下一步（待 Vofa 验证后）
 - **LADRC pitch/yaw 标定**：roll 验证通过后，逐步启用 pitch(`ladrc_mode` 扩展) / yaw LADRC，替代串级 PID。
 - **速度矢量追踪启用**：`vel_pursuit_mode=1` 三级串级（速度方向→角度→角速度），待 EKF 速度验证准后试。
-- **PN 超前补偿启用**：当前 `#if 0`，待基础视觉跟踪验证通过后打开 `PNG_Apply_Lead`。
-- **串级内外环增益拉开**：目前外环 P=0.2~1.8、内环 P=0.2~0.5，部分轴外环>内环，需重标。
+- **PN 超前补偿启用**：当前 `#if 0`（`Guidance_Terminal` 内）。拆分接口 `PNG_Apply_Lead_Yaw/Pitch` 已就绪（`PNG_Mode=1` 用 vision_ins EKF 世界系 p/v 叉乘直接算视线率，分轴门控：俯冲未到位只喂 yaw）；待基础视觉跟踪验证通过、标定好 `K_Dyn` 后打开。
+- ✅ **串级内外环增益拉开（2026-06-24~25 已落地，待验收）**：调参哲学已转向「内环>外环、I/D≈0 纯 P 串级」（Gyro 0.8~1.1 > Angle 0.25~0.45）。验收并入上面「调参哲学转向」验证项；如仍有低频摇摆/高频抖再继续重标。
 - **输出加速率限制**（输出端 rate limit，非环内低通）。注：setpoint 端已用 LPF 平滑视觉目标；此处指对最终舵量/力矩输出再加 rate limit。
 - 🚫 **前馈 FFC 暂不做**（2026-06-08 决定）：实际效果不大、且不好验证是否有效，先不用前馈。代码已是关闭态（[pid.c](imcalib/Tool/pid.c) `Euler_pid_Cale` 里 `+=` 调用已注释、`num1/num2=0`），结构保留备用，需要时再启用。
 
@@ -257,17 +303,18 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 
 | 文档 | 内容 | 状态 |
 |---|---|---|
-| [CODE_OVERVIEW.md](CODE_OVERVIEW.md) | **全项目代码地图**：环境/构建、RTOS 任务、数据流水线、坐标系约定、制导状态机、串级PID、控制分配三档、关键全局、已知陷阱。答题/接手前速查 | ✅ 2026-06-07 新建 |
-| [plan-flight-control-overhaul.md](plan-flight-control-overhaul.md) | 飞控三模块优化总方案（IMU 解算 / 控制算法 / X 翼输出 / 精修，4 Phase，逐条改前→改后 + 验证流程） | 多数已落地 |
-| [plan-pitch-priority-mixing.md](plan-pitch-priority-mixing.md) | X 翼三轴解耦 + Pitch 优先最小能量控制分配（含数学核验、落地代码、验证清单） | ✅ 已实现，待台架验证 |
+| [CODE_OVERVIEW.md](CODE_OVERVIEW.md) | **全项目代码地图**：环境/构建、RTOS 任务、数据流水线、坐标系约定、制导状态机、串级PID、控制分配三档、关键全局、已知陷阱。答题/接手前速查 | ✅ 持续维护 |
+| [AGENTS.md](AGENTS.md) | **跨 AI 工作规则/约束**：沟通方式、改动哲学、控制方案偏好、文档/验证纪律、红线、跨项目适配。任何 AI（含本项目外）接手前先读 | ✅ 2026-06-27 新建 |
+| ~~plan-flight-control-overhaul.md~~ | 飞控三模块优化总方案（4 Phase）——**已删除**，内容并入「进度时间线」与 git 历史 | 🗑️ 已删 |
+| ~~plan-pitch-priority-mixing.md~~ | X 翼三轴解耦 + Pitch 优先控制分配——**已删除**，见时间线「控制分配重写」「交付A 升级」条 | 🗑️ 已删 |
 
 ---
 
-## 与 Claude memory 的同步
+## 与 Claude memory / AGENTS.md 的同步
 
-本文件是项目内（git 可同步）的进度镜像，对应 Claude 的两条 memory：
+本文件是项目内（git 可同步）的进度镜像。三处保持一致：
 
-- `control-tuning-progress`（project）← → 本文件「进度时间线」+「当前 TODO」
-- `control-approach-preferences`（feedback）← → 本文件「控制方案偏好」
+- **本文件**「进度时间线」+「当前 TODO」← → Claude memory 的项目/进度类条目。
+- **[AGENTS.md](AGENTS.md)**「§4 控制方案偏好」← → 本文件「控制方案偏好」← → Claude memory 的偏好/反馈类条目（[[user-profile]] 等）。
 
-更新任一侧时同步另一侧，保持一致。
+更新任一侧时同步其它侧。memory 实际条目以 memory 目录为准（高频调参期，数值一律以代码为准）。

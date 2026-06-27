@@ -241,29 +241,53 @@ else
     fprintf('Servo saturation check: OK\n');
 end
 
-%% Step 5: 导出 C 增益
+%% Step 5: 导出 C 增益（一键复制到 lqr.c 的 dart_lqr_K 粘贴区）
 
 % C 端实时链路：
 %   x = [roll_err, pitch_err, yaw_err, p, q, r]
-%   u = -K_d * x
-%   u 为四个舵机目标偏转角，单位 rad。
-fprintf('\n/* K_d, row-major, 4 servos x 6 states */\n');
-fprintf('static const float dart_lqr_K[4][6] = {\n');
-for row = 1:size(K_d, 1)
-    fprintf('    {');
-    fprintf('%.17g', K_d(row, 1));
-    for col = 2:size(K_d, 2)
-        fprintf(', %.17g', K_d(row, col));
-    end
-    if row < size(K_d, 1)
-        fprintf('},\n');
+%   u = -K_d * x，u 为四个舵机目标偏转角，单位 rad。
+%
+% 旧写法逐个 fprintf 长行，命令行窗口会软换行('{' 单独一行、数字又换行)，框选复制易乱。
+% 本写法把 K_d 拼成单一字符串后：
+%   1) 直接放进系统剪贴板 → 跑完脚本按 Ctrl+V 即可粘到 lqr.c；
+%   2) 写入同目录 dart_lqr_K_paste.txt → 剪贴板不便时打开它复制；
+%   3) 仍打印到命令行供核对。
+% 注意：lqr.c 的 dart_lqr_K[4][6] 是非 const(需在线观测/调)，故这里只导出 4 行数值，
+% 整块覆盖 lqr.c "粘贴区" 的那 4 行即可，不要带 static const 声明头。
+
+n_row = size(K_d, 1);
+n_col = size(K_d, 2);
+K_lines = strings(n_row, 1);
+for row = 1:n_row
+    nums = sprintf('%.17gf, ', K_d(row, :));   % 每个数加 f 后缀(C float 字面量)
+    nums = nums(1:end-2);                       % 去掉行尾多余的 ', '
+    if row < n_row
+        K_lines(row) = sprintf('    {%s},', nums);
     else
-        fprintf('}\n');
+        K_lines(row) = sprintf('    {%s}', nums);  % 末行不加逗号
     end
 end
-fprintf('};\n');
+K_block = strjoin(K_lines, newline);
 
-% 额外保留一个 MATLAB 字符串，方便手动复制或对拍。
-print_K_d = sprintf([strjoin(repmat({'%.17g'}, 1, size(K_d, 2)), ',  ') '\n'], K_d.');
+fprintf('\n==== 复制下面 4 行，整块覆盖 lqr.c 的 dart_lqr_K 粘贴区 ====\n');
+fprintf('%s\n', K_block);
+fprintf('============================================================\n');
+
+% 一键进剪贴板：跑完直接 Ctrl+V
+try
+    clipboard('copy', char(K_block));
+    fprintf('✓ 已复制到剪贴板，直接 Ctrl+V 粘贴即可。\n');
+catch
+    fprintf('! clipboard 不可用(无桌面环境?)，请改用下面的 txt 文件。\n');
+end
+
+% 落地到文本文件兜底
+fid = fopen('dart_lqr_K_paste.txt', 'w');
+if fid > 0
+    fprintf(fid, '%s\n', K_block);
+    fclose(fid);
+    fprintf('✓ 同时已写入 dart_lqr_K_paste.txt\n');
+end
 
 toc
+

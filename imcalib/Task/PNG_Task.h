@@ -29,15 +29,15 @@
 typedef struct
 {
 	float FOV;
-	float los_GYRO[2][2];
-	float los_ANGLE[2][2];
+	float los_GYRO[2][3];
+	float los_ANGLE[2][3];
 	float los_vector[3];
 	float V_c;
 	float N_R;
 	/* === PNG_Apply_Lead 的 Vofa 观测(索引[PITCH,YAW]) === */
 	float vc_used;          /* 实际用于 PN 的接近速度(钳位后,m/s) */
-	float los_rate_used[2]; /* 实际用的视线率(deg/s) */
-	float lead_corr[2];     /* PN 超前角输出(deg,限幅后) */
+	float los_rate_used[3]; /* 实际用的视线率(deg/s) */
+	float lead_corr[3];     /* PN 超前角输出(deg,限幅后) */
 }PNG_Data_t;
 
 

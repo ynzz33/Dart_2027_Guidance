@@ -97,6 +97,8 @@ virtualFolder:
         - path: imcalib/Tool/vision_ins.h
         - path: imcalib/Tool/adrc.c
         - path: imcalib/Tool/adrc.h
+        - path: imcalib/Tool/lqr.c
+        - path: imcalib/Tool/lqr.h
       folders: []
     - name: User
       files:

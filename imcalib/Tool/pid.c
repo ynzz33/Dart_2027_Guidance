@@ -34,13 +34,13 @@ void pid_init(void)
 {
 // //镖体1
     PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        0.25f,   0.0f,  0.00f                    ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,200,50,                        0.45f,   0.0f,  0.00000f                    ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,20,                        0.45f,   0.0f,  0.00000f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,200,50,                        0.35f,   0.0f,  0.00000f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,20,                        0.5f,   0.0f,  0.00000f                    ,0.0f,0.0f);
 
 
     PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,AXIS_LIMIT_PITCH ,0,          0.80f,    0.0f,   0.00f                ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL  ,0,          0.90f,   0.0f,   0.00f                ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW   ,0,          1.10f,    0.0f,   0.0f                 ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL  ,0,          1.0f,   0.0f,   0.00f                ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW   ,0,          1.30f,    0.0f,   0.0f                 ,0.0f,0.0f);
 //
 // // //镖体1
 
@@ -71,11 +71,11 @@ void pid_init(void)
     // PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW,10,0.40f,0.0f,0.0f,0.3f,0.3f);
 
     surface_control_pid[Angle][PITCH].deadband  = 1.0f;
-    surface_control_pid[Angle][ROLL].deadband   = 1.0f;
-    surface_control_pid[Angle][YAW].deadband    = 1.0f;
+    surface_control_pid[Angle][ROLL].deadband   = 2.0f;
+    surface_control_pid[Angle][YAW].deadband    = 0.5f;
     surface_control_pid[Gyro][PITCH].deadband   = 0.0f;
     surface_control_pid[Gyro][ROLL].deadband    = 0.0f;//3.0                    
-    surface_control_pid[Gyro][YAW].deadband     = 0.0f;
+    surface_control_pid[Gyro][YAW].deadband     = 2.0f;
 
     /* 角度外环 roll/yaw 是 atan2 周期角,误差需环绕到(-180,180];pitch 是 asin∈[-90,90] 不需要。
      * 内环(Gyro)是角速度、不是周期角,保持 0。
@@ -110,6 +110,8 @@ void Euler_pid_Cale(float delta_time_z)
 {
     if(Guidance_State>Stable&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS)
     {
+        
+        surface_control_pid[Angle][YAW].deadband    = 0.0f;
         temp[PITCH] = pid_calc( &surface_control_pid[Angle][PITCH],Surface.current_angle_Euler[NOW][PITCH],Surface.target_angle_Euler[NOW][PITCH],delta_time_z);
         Surface.output_gyro_Euler[NOW][PITCH] = pid_calc(&surface_control_pid[Gyro][PITCH],Surface.current_gyro_Euler[NOW][PITCH],temp[PITCH],delta_time_z);
 

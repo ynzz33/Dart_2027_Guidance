@@ -19,6 +19,7 @@
 #include "CallBack_Task.h"
 #include "pid.h"
 #include "adrc.h"           /* LADRC 线性自抗扰控制器(文件名仍 adrc.*) */
+#include "lqr.h"            /* LQR 姿态控制器(6态→4舵一步解算，含混控)；未编译需手动加入工程 */
 #include "cmsis_os.h"
 #include "FreeRTOS.h"
 #include "IMU.h"
@@ -55,30 +56,36 @@ uint8_t vel_pursuit_mode = 0;
  * LADRC 旋钮在 ladrc_ctrl[轴].{wc,wo,b0}，可用调试器 Watch 在线改(见 adrc.c)。*/
 uint8_t ladrc_mode = 0;   /* ★ 先在 roll 上试 LADRC，pitch/yaw 仍走 PID；要回全 PID 就改 0 */
 
-/* === 控制分配(混控)全局 === */
-uint8_t Alloc_Mode = 2;                        /* 2=交付B最小能量(默认);1=交付A三轴限幅(逐级优先级缩放);0=旧PitchPriority对照 */
-uint8_t Alloc_Prio[3] = { ROLL, YAW,  PITCH };  /* 交付A(Mode1)逐级优先级:[0]最高=roll>yaw>pitch;调试器 Watch 在线改。注:Mode2 不读此数组,其饱和优先级硬编码 pitch>横侧 */
-float   servo_lat_scale = 1.0f;                /* Vofa:最低优先轴保留比(横侧 k 泛化),1=未饱和 <1=有轴被挤;此前 extern 无定义,补回 */
-/* 舵效矩阵 B (3x4): τ = B·u, 行序[pitch,roll,yaw], 列序[UL,UR,DR,DL]. 默认理想 X 阵(BBᵀ=4I).
- * 台架辨识替换法:固定其余三舵=0,给第 j 舵单位阶跃 Δu_j(如+20°),读三轴力矩响应(可用 output_gyro_Euler
- * 内环输出或 IMU 角加速度作代理)Δτ_p/r/y,令 B[0..2][j]=Δτ_{p,r,y}/Δu_j;四舵各做一次填满12个元素.
- * 单位任意一致(算法只用方向与相对幅值);改这里即可换实测值,无需改算法,奇异自动退回理想阵闭式. */
-float   Alloc_B[3][4] = {
-    { -1.0f, -1.0f, -1.0f, -1.0f },            /* pitch (四片同号,逻辑列=−1, SIGN 翻转后=真俯仰;见 C 阵注释) */
-    { +1.0f, -1.0f, -1.0f, +1.0f },            /* roll  */
-    { -1.0f, +1.0f, -1.0f, +1.0f },            /* yaw   */
+/* LQR 控制选择：0=关(走 PID/LADRC，安全默认), 1=用 LQR 一步解算(6态→4舵，含混控，绕过 PID 与 Servo_Mix_*)
+ * K 矩阵在 lqr.c 的 dart_lqr_K[4][6](MATLAB 粘贴区)；符号/换序见 lqr.c。优先级高于 ladrc_mode/vel_pursuit_mode。
+ * ★ 未编译/待台架：上车前务必按指南 §9 逐轴阶跃验符号(飞镖一次性，G 符号反=正反馈)。*/
+uint8_t lqr_mode = 1;
+
+/* === 控制分配(混控)状态:整合为单一结构体 Alloc(原 Alloc_Mode/Prio/B、alloc_*、servo_lat_scale 散落全局) === */
+Alloc_t Alloc = {
+    .Mode = 2,                                 /* 默认最小能量;1=三轴限幅 0=旧PitchPriority对照 */
+    .Prio = { ROLL, YAW, PITCH },              /* 交付A(Mode1)逐级优先级:[0]最高=roll>yaw>pitch;Mode2 不读、其饱和优先级硬编码 pitch>横侧 */
+    /* 舵效矩阵 B (3x4): τ=B·u, 行[pitch,roll,yaw] 列[UL,UR,DR,DL]. 默认理想 X 阵(BBᵀ=4I).
+     * 台架辨识替换法:固定其余三舵=0,给第 j 舵单位阶跃 Δu_j,读三轴力矩响应 Δτ_p/r/y,
+     * 令 B[0..2][j]=Δτ_{p,r,y}/Δu_j;改这里即可换实测值,无需改算法,奇异自动退回理想阵闭式. */
+    .B = {
+        { -1.0f, -1.0f, -1.0f, -1.0f },        /* pitch (四片同号,逻辑列=−1, SIGN 翻转后=真俯仰) */
+        { +1.0f, -1.0f, -1.0f, +1.0f },        /* roll  */
+        { -1.0f, +1.0f, -1.0f, +1.0f },        /* yaw   */
+    },
+    .v_scale = 1.0f, .p_scale = 1.0f, .lat_scale = 1.0f,   /* 其余(u0/u_out/alpha/u0_span/infeasible/singular_flag)默认 0 */
 };
-float   alloc_u0[4] = {0}, alloc_u_out[4] = {0};
-float   alloc_alpha = 0.0f, alloc_u0_span = 0.0f, alloc_v_scale = 1.0f, alloc_p_scale = 1.0f;
-uint8_t alloc_infeasible = 0, alloc_singular_flag = 0;
 
 
 float   vision_los_final[2][3],vision_los_current[3];   /* 末制导世界系视线终点:视觉新帧锁存,target 每 tick 斜坡逼近(方案3) */
 float   vision_los_rate[3] = {0};                    /* 末制导世界系惯性视线率λ̇(°/s):视觉帧间差分,PN超前用;丢帧保持/丢目标清0 */
-float   pitch_dive_floor = 0.0f, closeness_s = 0.0f; /* Vofa:末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1] */
-float   yaw_distance_gain = 1.0f;                   /* Vofa:末制导 yaw 距离面积增益 */
-float   pitch_distance_gain = 1.0f;                  /* Vofa:末制导 pitch 距离面积增益(远端小、近端大) */
-float pitch_control_limit_deg = -0.0f;//开始放开pitch控制的角度限制 
+/* ★封存:下列 4 个 Vofa 观测全局随末制导增益调度/俯冲下限函数(本文件 #if 0 块)一并停用,确认无其它消费者 */
+// float   pitch_dive_floor = 0.0f, closeness_s = 0.0f; /* Vofa:末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1] */
+// float   yaw_distance_gain = 1.0f;                   /* Vofa:末制导 yaw 距离面积增益 */
+// float   pitch_distance_gain = 1.0f;                  /* Vofa:末制导 pitch 距离面积增益(远端小、近端大) */
+float pitch_control_limit_deg = -0.0f;//开始放开pitch控制的角度限制
+uint8_t pitch_glide_mode = 1;   /* 0=旧 pitch_control_limit 门限;1=主动滑翔→扎(本次新增),可 Watch 在线切回 0 做 A/B */
+float   pitch_glide_target = 0.0f, pitch_glide_blend = 0.0f;
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
 #if 1
@@ -235,7 +242,7 @@ void Wing_Control(void)
     }
 }
 
-#if 1
+#if 0   /* ★封存:末制导视线角归一化/目标斜坡/俯冲下限/距离增益——LPF段简化为直接用锁存视线后,主路径已不再调用这些函数;保留可回退(改回 #if 1 即恢复) */
 /* === 视线角半径归一化 ===
  * 远处引导灯 blob 半径小(~5px),同样像素偏移对应更大实际角度;
  * 近处 blob 半径大(~30px),同样像素偏移对应更小实际角度。
@@ -433,12 +440,12 @@ void Roll_Derotate_PitchYaw(float Pw, float Yw, float *Pb, float *Yb)
 }
 /* ===== 控制分配(混控)重写:可调三轴限幅(交付A) + 最小能量分配(交付B) =====
  * 三者输出约定一致:写 Surface.output_angle_Servo[NOW][0..3](度,含SIGN,±SERVO_ANGLE_LIMIT 内),
- * 下标 0/1/2/3 = UP_LEFT/UP_RIGHT/DOWN_RIGHT/DOWN_LEFT。由调用点按 Alloc_Mode 分派。*/
+ * 下标 0/1/2/3 = UP_LEFT/UP_RIGHT/DOWN_RIGHT/DOWN_LEFT。由调用点按 Alloc.Mode 分派。*/
 
 /* 交付A(重写):完全可配置的逐级(字典序)优先级缩放分配。
- * Alloc_Prio[0..2] 指定三轴优先级(轴枚举,[0]最高)。最高优先轴在前置限幅内全额保障;
+ * Alloc.Prio[0..2] 指定三轴优先级(轴枚举,[0]最高)。最高优先轴在前置限幅内全额保障;
  * 次级/三级各在每片剩余舵机余量内最大化保留,绝不回削高优先轴 → 高优先轴不被低优先轴污染。
- * 写 Surface.output_angle_Servo[NOW][0..3](度,含SIGN,±SERVO_ANGLE_LIMIT 内) 与 alloc_u_out[]。*/
+ * 写 Surface.output_angle_Servo[NOW][0..3](度,含SIGN,±SERVO_ANGLE_LIMIT 内) 与 Alloc.u_out[]。*/
 void Servo_Mix_AxisLimit(float p, float r, float y)
 {
     /* 1) 前置轴级限幅(各轴独立),保证 |d[a]| ≤ AXIS_LIMIT(应≤SERVO_ANGLE_LIMIT) */
@@ -450,7 +457,7 @@ void Servo_Mix_AxisLimit(float p, float r, float y)
     /* 逻辑符号阵 C(未含物理 SIGN),列序 P/R/Y。pitch 列四片同号 [−1,−1,−1,−1] 是 X 翼解算所需:
      * 4 片成 X(45°,从尾看 UL135/UR45/DR315/DL225),每片切向力对力矩贡献 pitch∝cosθ、yaw∝sinθ、roll=常数;
      * 配 SIGN=[−1,+1,+1,−1](左右镜像,见.h)后 pitch 落到舵令 u=[+,−,−,+]=真俯仰、与 roll/yaw 正交解耦。
-     * 轴间配对结构由本阵的列决定(SIGN 只修整片装反);同步:Alloc_B pitch 行。
+     * 轴间配对结构由本阵的列决定(SIGN 只修整片装反);同步:Alloc.B pitch 行。
      * 注:pitch 逻辑列用 −1(非 +1)是因为 SIGN 翻转后等效,−1×SIGN=[+1,−1,−1,+1] 与物理舵面对齐。*/
     static const float C[4][3] = {                  /* 列序 P/R/Y */
         { -1.0f, +1.0f, -1.0f },                    /* UP_LEFT    */
@@ -459,17 +466,17 @@ void Servo_Mix_AxisLimit(float p, float r, float y)
         { -1.0f, +1.0f, +1.0f },                    /* DOWN_LEFT  */
     };
 
-    /* 2) Alloc_Prio 合法性校验:必须是 {0,1,2} 的排列,否则退回默认 {PITCH,YAW,ROLL} */
+    /* 2) Alloc.Prio 合法性校验:必须是 {0,1,2} 的排列,否则退回默认 {PITCH,YAW,ROLL} */
     uint8_t prio[3];
     {
         uint8_t seen = 0, ok = 1;
         for (int rank = 0; rank < 3; rank++)
         {
-            uint8_t a = Alloc_Prio[rank];
+            uint8_t a = Alloc.Prio[rank];
             if (a > 2 || (seen & (1u << a))) { ok = 0; break; }
             seen |= (1u << a);
         }
-        if (ok) { prio[0]=Alloc_Prio[0]; prio[1]=Alloc_Prio[1]; prio[2]=Alloc_Prio[2]; }
+        if (ok) { prio[0]=Alloc.Prio[0]; prio[1]=Alloc.Prio[1]; prio[2]=Alloc.Prio[2]; }
         else    { prio[0]=PITCH;         prio[1]=YAW;           prio[2]=ROLL;          }
     }
 
@@ -495,7 +502,7 @@ void Servo_Mix_AxisLimit(float p, float r, float y)
             base[i] += C[i][a] * k * d[a];          /* 叠加本级,永不回削前级 */
         k_last = k;
     }
-    servo_lat_scale = k_last;                       /* Vofa:最低优先轴保留比(横侧 k 的泛化) */
+    Alloc.lat_scale = k_last;                       /* Vofa:最低优先轴保留比(横侧 k 的泛化) */
 
     /* 4) ×物理装配 SIGN + 每片兜底限幅(消 FP 误差) → 写出 */
     float SGN[4];
@@ -506,7 +513,7 @@ void Servo_Mix_AxisLimit(float p, float r, float y)
         float v = SGN[i] * base[i];
         abs_limit(&v, SERVO_ANGLE_LIMIT);
         Surface.output_angle_Servo[NOW][i] = v;
-        alloc_u_out[i] = v;
+        Alloc.u_out[i] = v;
     }
 }
 /* 1 维零空间 n:n_j=(-1)^j·det(B 删去第 j 列的 3x3 子阵)。理想阵应得 n=[4,4,-4,-4]∝[1,1,-1,-1]。*/
@@ -569,7 +576,7 @@ static uint8_t alloc_project_nullspace(float u0[4], const float n[4], float u_ma
     float a = (ndotn > 1e-9f) ? -(u0dn / ndotn) : 0.0f; /* 最小能量 α* = -(u0·n)/(n·n) */
     if (a < a_lo) a = a_lo;
     if (a > a_hi) a = a_hi;
-    alloc_alpha = a;
+    Alloc.alpha = a;
     for (int i = 0; i < 4; i++) u0[i] += a * n[i];
     return 1;
 }
@@ -578,7 +585,7 @@ static uint8_t alloc_project_nullspace(float u0[4], const float n[4], float u_ma
 static int alloc_try(float p, float r, float y, const float n[4], float u0[4])
 {
     float v[3] = { p, r, y };
-    if (!alloc_minnorm_solve(Alloc_B, v, u0)) return -1;
+    if (!alloc_minnorm_solve(Alloc.B, v, u0)) return -1;
     for (int i = 0; i < 4; i++) u0[i] *= ALLOC_GAIN;
     return alloc_project_nullspace(u0, n, ALLOC_U_MAX) ? 1 : 0;
 }
@@ -586,11 +593,11 @@ static int alloc_try(float p, float r, float y, const float n[4], float u0[4])
 /* 交付B:真正的最小能量控制分配。min‖u‖² s.t. B·u=v(×ALLOC_GAIN),|u_i|≤u_max(=ALLOC_U_MAX)。
  * 可达→精确实现该力矩的最小能量解;不可达→优先级 pitch>yaw>roll:先保 pitch 二分缩横侧,横侧缩尽仍
  * 不可达(pitch 力矩超单舵极限)再二分缩 pitch(等效 Mode1 饱和截断);(BBᵀ)奇异→退回三轴限幅。
- * B 默认理想阵,可台架辨识替换(见 Alloc_B 注释)。*/
+ * B 默认理想阵,可台架辨识替换(见 Alloc.B 注释)。*/
 void Servo_Mix_MinEnergy(float p, float r, float y)
 {
     float n[4];
-    alloc_compute_nullspace(Alloc_B, n);
+    alloc_compute_nullspace(Alloc.B, n);
 
     float u0[4] = {0};
     float s_lat = 1.0f, s_pit = 1.0f;
@@ -598,7 +605,7 @@ void Servo_Mix_MinEnergy(float p, float r, float y)
 
     /* 先判 pitch 单独(横侧全关)可达性:决定走"保 pitch 缩横侧"还是"缩 pitch" */
     rc = alloc_try(p, 0.0f, 0.0f, n, u0);
-    if (rc < 0) { alloc_singular_flag = 1; Servo_Mix_AxisLimit(p, r, y); return; }
+    if (rc < 0) { Alloc.singular_flag = 1; Servo_Mix_AxisLimit(p, r, y); return; }
 
     if (rc == 1)
     {
@@ -622,11 +629,11 @@ void Servo_Mix_MinEnergy(float p, float r, float y)
             if (rc != 0) break;
         }
     }
-    if (rc < 0) { alloc_singular_flag = 1; Servo_Mix_AxisLimit(p, r, y); return; }
-    alloc_singular_flag = 0;
-    alloc_v_scale = s_lat;
-    alloc_p_scale = s_pit;
-    alloc_infeasible = (s_pit < 0.999f) ? 2 : ((s_lat < 0.999f) ? 1 : 0);  /* 0可达 1缩横侧 2连pitch也缩 */
+    if (rc < 0) { Alloc.singular_flag = 1; Servo_Mix_AxisLimit(p, r, y); return; }
+    Alloc.singular_flag = 0;
+    Alloc.v_scale = s_lat;
+    Alloc.p_scale = s_pit;
+    Alloc.infeasible = (s_pit < 0.999f) ? 2 : ((s_lat < 0.999f) ? 1 : 0);  /* 0可达 1缩横侧 2连pitch也缩 */
 
     /* 输出 ×SIGN + 兜底限幅,记录 Vofa */
     float SGN[4];
@@ -635,15 +642,15 @@ void Servo_Mix_MinEnergy(float p, float r, float y)
     float lo = 1e30f, hi = -1e30f;
     for (int i = 0; i < 4; i++)
     {
-        alloc_u0[i] = u0[i];
+        Alloc.u0[i] = u0[i];
         if (u0[i] < lo) lo = u0[i];
         if (u0[i] > hi) hi = u0[i];
         float out = SGN[i] * u0[i];
         abs_limit(&out, SERVO_ANGLE_LIMIT);
         Surface.output_angle_Servo[NOW][i] = out;
-        alloc_u_out[i] = out;
+        Alloc.u_out[i] = out;
     }
-    alloc_u0_span = hi - lo;
+    Alloc.u0_span = hi - lo;
 }
 #endif
 
@@ -682,10 +689,6 @@ void Guidance_Terminal(void)//制导段
         taskEXIT_CRITICAL() ;
         if (v.Vision_recognize_flag == RECOGNIZE_SUCCESS) /* 识别到目标:锁存世界系视线终点(全程用快照 v,避免与视觉中断撕裂读) */
         {
-            /* 半径归一化:消除远近blob大小差异对视线角的影响,写入结构体供Vofa观测 */
-            // Vision_Rx_Data.Euler_norm[1] = Vision_Angle_Normalize(v.Euler[NOW][1], v.radius);  /* yaw */
-            // Vision_Rx_Data.Euler_norm[0] = Vision_Angle_Normalize(v.Euler[NOW][0], v.radius);  /* pitch */
-
             /* YAW:始终视觉制导,锁存世界系视线终点 */
             vision_los_final[NOW][YAW]   = v.Euler[NOW][1] + Surface.current_angle_Euler[NOW][YAW];
             vision_los_final[NOW][PITCH] = v.Euler[NOW][0] + Surface.current_angle_Euler[NOW][PITCH];
@@ -695,13 +698,9 @@ void Guidance_Terminal(void)//制导段
             {
                 float dt_vis = (float)vis_dt_cnt * (CTRL_PERIOD_MS * 0.001f);
                 if (dt_vis < 1e-3f) dt_vis = 1e-3f;
-                /* 帧间差分算原始视线率,再用低通滤波压噪声(替代原来的/9.5硬除) */
-                vision_los_rate[YAW]   =                (vision_los_final[LAST][YAW]   - vision_los_final[NOW][YAW])   / dt_vis;
-                vision_los_rate[PITCH] =                (vision_los_final[LAST][PITCH] - vision_los_final[NOW][PITCH]) / dt_vis;
-                // float raw_rate_yaw   = (vision_los_final[LAST][YAW]   - vision_los_final[NOW][YAW])   / dt_vis;
-                // float raw_rate_pitch = (vision_los_final[LAST][PITCH] - vision_los_final[NOW][PITCH]) / dt_vis;
-                // vision_los_rate[YAW]   = Low_Pass_Filter(raw_rate_yaw,   vision_los_rate[YAW],   0.6f);
-                // vision_los_rate[PITCH] = Low_Pass_Filter(raw_rate_pitch, vision_los_rate[PITCH], 0.6f);
+                /* 帧间差分算原始世界系视线率(PN 超前用) */
+                vision_los_rate[YAW]   = (vision_los_final[LAST][YAW]   - vision_los_final[NOW][YAW])   / dt_vis;
+                vision_los_rate[PITCH] = (vision_los_final[LAST][PITCH] - vision_los_final[NOW][PITCH]) / dt_vis;
                 abs_limit(&vision_los_rate[YAW],   LOS_RATE_LIMIT_DPS);
                 abs_limit(&vision_los_rate[PITCH], LOS_RATE_LIMIT_DPS);
             }
@@ -725,67 +724,35 @@ void Guidance_Terminal(void)//制导段
         los_rate_init = 0;
     }
 
-    /* =====================================================================
-     * 视觉目标平滑:用一阶低通滤波替代原 Target_Slew 斜坡
-     *
-     * 原理:target = k × vision_los_final + (1−k) × target_last
-     *   k 大(0.5)→跟手快但可能抖;  k 小(0.1)→平滑但滞后。
-     *   比斜坡的优势:无阶跃→不需要超调检测,自然收敛不回弹。
-     *
-     * k 由距离增益缩放:远处(k小,保守)→近处(k大,跟手)。
-     * vision_recognize_flag==FAILURE 时冻结滤波器(保持最后有效目标)。
-     * ===================================================================== */
+    /* 视觉目标 = 锁存的世界系视线终点(无额外平滑) */
     {
-        static float lpf_yaw   = 0.0f;
-        static float lpf_pitch = 0.0f;
-        static uint8_t lpf_inited = 0;
+        /* 视觉目标 = 锁存的世界系视线终点 vision_los_final(新帧阶跃更新,帧间靠航位推算)。
+         * 原 LPF / 距离增益缩放(Yaw/Pitch_Gain_ByDist)已停用,此处直接取用,不再有中间滤波量。
+         * 丢目标(FAILURE)时 vision_los_final[NOW] 已在上方被置为当前姿态 → 自然就地保持。*/
 
-        /* 首拍:用当前角度初始化,避免从零跳变 */
-        if (!lpf_inited)
+        /* YAW:直接追锁存视线终点 */
+        Surface.target_angle_Euler[NOW][YAW] = vision_los_final[NOW][YAW];
+
+        /* PITCH:主动滑翔→扎(pitch_glide_mode=1) / 旧门限逻辑(=0) */
+        if (pitch_glide_mode)
         {
-            lpf_yaw   = Surface.current_angle_Euler[NOW][YAW];
-            lpf_pitch = Surface.current_angle_Euler[NOW][PITCH];
-            lpf_inited = 1;
+            /* phi=世界系看灯视线俯角(越负=越近越陡)。blend 0→1:
+             * 远端住 THETA_GLIDE 压平轨迹增程,近了平滑过渡到追视觉目标扎下去。*/
+            float phi   = vision_los_final[NOW][PITCH];
+            float blend = (GLIDE_LOS_HI_DEG - phi) / (GLIDE_LOS_HI_DEG - GLIDE_LOS_LO_DEG);
+            if (blend < 0.0f) blend = 0.0f;
+            if (blend > 1.0f) blend = 1.0f;
+            pitch_glide_blend  = blend;
+            pitch_glide_target = (1.0f - blend) * THETA_GLIDE_DEG + blend * vision_los_final[NOW][PITCH];
+            Surface.target_angle_Euler[NOW][PITCH] = pitch_glide_target;
         }
-
-        if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+        else if (Surface.current_angle_Euler[NOW][PITCH] <= pitch_control_limit_deg)
         {
-            /* 距离增益缩放滤波系数:远处小k(保守),近处大k(跟手) */
-            float yaw_gain   = Yaw_Gain_ByDist(Vision_Rx_Data.dist_cm);
-            float pitch_gain = Pitch_Gain_ByDist(Vision_Rx_Data.dist_cm);
-
-            float k_max[2],k_min[2];
-            k_max[0] = 0.45;k_min[0] = 0.2;
-            k_max[1] = 0.45;k_min[1] = 0.2;
-            /* k 由增益线性映射:增益大→k大(跟手),增益小→k小(保守)
-             * YAW:远(gain=YAW_GAIN_FAR=1.5)→k_max(0.45),近(gain=YAW_GAIN_NEAR=0.7)→k_min(0.2)
-             * PITCH:远(gain=PITCH_GAIN_FAR=0.6)→k_min(0.2),近(gain=PITCH_GAIN_NEAR=1.5)→k_max(0.45) */
-            float k_yaw   = k_min[0] + (yaw_gain   - YAW_GAIN_NEAR)   * (k_max[0] - k_min[0]) / (YAW_GAIN_FAR   - YAW_GAIN_NEAR);
-            float k_pitch = k_min[1] + (pitch_gain - PITCH_GAIN_FAR)  * (k_max[1] - k_min[1]) / (PITCH_GAIN_NEAR - PITCH_GAIN_FAR);
-
-            /* 低通滤波 */
-            lpf_yaw   = 
-            vision_los_final[NOW][YAW];
-            // Surface.Stable_Euler_Angle[YAW];
-            // Low_Pass_Filter(vision_los_final[NOW][YAW],   lpf_yaw,   0.5);
-            lpf_pitch = 
-            vision_los_final[NOW][PITCH];
-            // Low_Pass_Filter(vision_los_final[NOW][PITCH], lpf_pitch, 0.5);
-        }
-        /* else: 丢失目标 → lpf_yaw/lpf_pitch 保持上一拍值(冻结) */
-
-        /* YAW:直接用滤波后的目标 */
-        Surface.target_angle_Euler[NOW][YAW] = lpf_yaw;
-
-        /* PITCH:仅俯冲到位时才用视觉目标 */
-        if (Surface.current_angle_Euler[NOW][PITCH] <= pitch_control_limit_deg)
-        {
-            Surface.target_angle_Euler[NOW][PITCH] = lpf_pitch;
+            Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
         }
         else
         {
             Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-            lpf_pitch = Surface.current_angle_Euler[NOW][PITCH]; /* 同步滤波器状态 */
         }
     }
 
@@ -827,9 +794,6 @@ void get_current_Target(void)
 {
         // Guidance_State = Stable;
         Stable_Flag = 0;
-        /* ROLL 始终自稳(与视觉新数据无关),每 tick 刷新 */
-        Surface.target_angle_Euler[NOW][ROLL]  =  
-        Surface.Stable_Euler_Angle[ROLL];
         switch(Guidance_State)
         {
             case Start:
@@ -867,6 +831,15 @@ void get_current_Target(void)
                 Guidance_Process_OK();
             }break;
         }
+        
+        /* ROLL 始终自稳(与视觉新数据无关),每 tick 刷新 */
+        Surface.target_angle_Euler[NOW][ROLL]  =  
+        Surface.Stable_Euler_Angle[ROLL];
+        Surface.target_angle_Euler[NOW][YAW]  =  
+        Surface.Stable_Euler_Angle[YAW];
+        Surface.target_angle_Euler[NOW][YAW]  =  
+        Surface.current_angle_Euler[NOW][PITCH];
+
 }
 void get_current_State(void)
 {
@@ -980,11 +953,14 @@ void surface_control_task(void)
     {
         Surface.pid_cale_flag = 1;
 
-        /* ========== LADRC / PID 控制选择 ==========
-         * ladrc_mode: 0=全 PID(安全默认)  1=三轴全 LADRC  3=仅 Roll 用 LADRC(本次先试)
-         * LADRC 单环二阶：目标角度→力矩需求，直接写 output_gyro_Euler(与 PID 同一条链路进混控)。
-         * 旋钮在 ladrc_ctrl[轴].{wc,wo,b0}，调试器在线改即可(见 adrc.c)。*/
-        if (ladrc_mode == 1)
+        /* ========== LQR / LADRC / PID 控制选择 ==========
+         * 三者输出口径一致：都写 output_gyro_Euler(三轴力矩需求)，再由下方 Roll反旋+Servo_Mix_* 统一分配到 4 舵。
+         * lqr_mode==1：LQR 单步状态反馈算三轴需求(混控复用同一条链)；ladrc/PID 为各自的两环/单环。*/
+        if (lqr_mode == 1)
+        {
+            Euler_LQR_Cale(delta_time);   /* 写 output_gyro_Euler，混控分派照常执行 */
+        }
+        else if (ladrc_mode == 1)
         {
             /* 三轴全 LADRC */
             Euler_LADRC_Cale(delta_time);
@@ -1045,11 +1021,11 @@ void surface_control_task(void)
             // p_body = 0; 
             // y_body = 0; 
             // r_body = 15;
-            /* 三轴统一接 PID 内环输出(roll 绕纵轴不反旋,直接用);按 Alloc_Mode 分派分配器。*/
+            /* 三轴统一接 PID 内环输出(roll 绕纵轴不反旋,直接用);按 Alloc.Mode 分派分配器。*/
             Surface.output_Body_Euler[NOW][PITCH] = p_body;
             Surface.output_Body_Euler[NOW][YAW]   = y_body; 
             Surface.output_Body_Euler[NOW][ROLL]  = r_body;
-            switch (Alloc_Mode)
+            switch (Alloc.Mode)
             {
                 // case 0:  Servo_Mix_PitchPriority(p_body, r_body, y_body); break;  /* 旧对照(roll 入参已改 PID 输出) */
                 case 1:  Servo_Mix_AxisLimit    (p_body, r_body, y_body); break;

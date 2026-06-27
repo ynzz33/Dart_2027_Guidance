@@ -65,7 +65,7 @@
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
  * 左侧两片(UL,DL)取 −1 因左右舵机镜像安装;台架单轴阶跃标定,某片整体反了翻它的号。
- * SIGN 每片三轴共享、只修整片装反;轴间配对结构由逻辑阵的列决定(见 surface_control_task.c C 阵/Alloc_B)。*/
+ * SIGN 每片三轴共享、只修整片装反;轴间配对结构由逻辑阵的列决定(见 surface_control_task.c C 阵/Alloc.B)。*/
 #define  SIGN_UL  (-1.0f)
 #define  SIGN_UR  (+1.0f)
 #define  SIGN_DR  (+1.0f)
@@ -75,9 +75,9 @@
 #define  SERVO_ANGLE_LIMIT  60.0f
 
 /* === 控制分配(混控)参数 ===
- * Alloc_Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
+ * Alloc.Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
  * 1=可调三轴限幅 Servo_Mix_AxisLimit,2=最小能量分配 Servo_Mix_MinEnergy。*/
-#define  AXIS_LIMIT_PITCH   20.0f   /* 交付A:三轴各自独立限幅(度),可调 */
+#define  AXIS_LIMIT_PITCH   30.0f   /* 交付A:三轴各自独立限幅(度),可调 */
 #define  AXIS_LIMIT_ROLL    15.0f
 #define  AXIS_LIMIT_YAW     30.0f
 #define  ALLOC_U_MAX        SERVO_ANGLE_LIMIT   /* 交付B:单舵物理上限 */
@@ -150,6 +150,12 @@
 #define  PN_LEAD_K          (0.5f)    /* 视线率超前系数(s):target += K·λ̇;↑更超前/更抗滞后,过大易被视觉噪声激励 */
 #define  LOS_RATE_LIMIT_DPS (40.0f)   /* 视线率λ̇限幅(°/s):丢帧/视觉跳变时防 PN 项爆冲 */
 #define  AOA_TRIM_DEG       (0.0f)    /* 常值配平迎角前馈(°,默认0=关):正=机头比视线高,使速度方向对准灯;有试飞数据再标定 */
+
+/* === 末制导主动滑翔→扎(pitch 增程,见 surface_control_task.c Guidance_Terminal) ===
+ * 远(看灯视线浅)端住 THETA_GLIDE 压平轨迹增程;视线俯角越陡(越近)越平滑过渡到追视觉目标扎下去。*/
+#define  THETA_GLIDE_DEG    (2.0f)    /* 滑翔段主动端住的 pitch 姿态°(+=抬头压平增程);默认保守,过大易失速反掉得更快,台架/试飞往上调 */
+#define  GLIDE_LOS_HI_DEG   (-12.0f)  /* 视线俯角≥此值(灯浅/远)→纯滑翔 blend=0 */
+#define  GLIDE_LOS_LO_DEG   (-25.0f)  /* 视线俯角≤此值(灯陡/近)→纯扎 blend=1(追视觉目标),与 PITCH_INCIDENT_DEG≈-27 衔接 */
 
  enum
 {
@@ -232,30 +238,44 @@ typedef struct
     uint8_t Self_Text_Process;                /* 自检流程进度(Self_Text_Vision/Dart_Trigeer/OK/Start) */
 }Self_Text_t;
 
+/* 控制分配(混控)状态:档位/优先级/舵效阵 + Vofa 观测(分配解/缩放/降级标志)。
+ * 整合自原散落全局 Alloc_Mode/Alloc_Prio/Alloc_B/alloc_*servo_lat_scale,风格同 Surface_t。*/
+typedef struct {
+    uint8_t Mode;          /* 分配档:0=旧pitch优先对照 1=三轴限幅 2=最小能量 */
+    uint8_t Prio[3];       /* 交付A 逐级优先级:轴枚举[0]最高,默认{ROLL,YAW,PITCH};调试器在线改 */
+    float   B[3][4];       /* 舵效矩阵 τ=B·u,行[p,r,y]列[UL,UR,DR,DL];默认理想阵,可台架辨识替换 */
+    float   u0[4];         /* Vofa:分配解(投影/降级后,×SIGN前) */
+    float   u_out[4];      /* Vofa:最终写舵值(×SIGN限幅后) */
+    float   alpha;         /* Vofa:零空间投影α */
+    float   u0_span;       /* Vofa:u0极差 */
+    float   v_scale;       /* Vofa:降级横侧缩放比 */
+    float   p_scale;       /* Vofa:pitch缩放比 */
+    float   lat_scale;     /* Vofa:最低优先轴保留比(横侧 k 泛化),1=未饱和 <1=有轴被挤 */
+    uint8_t infeasible;    /* Vofa:不可达降级(0可达/1缩横侧/2连pitch也缩) */
+    uint8_t singular_flag; /* Vofa:求逆奇异退回 */
+}Alloc_t;
+
 extern float Stable_Euler_Angle[3];
 extern float pitch_control_limit_deg;   /* 放开 pitch 控制的俯冲角阈值°(<此值才主动制导 pitch);PNG_Apply_Lead 引用 */
 extern Surface_t Surface;
 extern Self_Text_t Self_Text;
 extern uint8_t Guidance_State;
 extern uint8_t Wing_Servo_Control_Flag;
-extern float servo_lat_scale;   /* Vofa 可观测:最低优先轴保留比(横侧 k 泛化),1=未饱和,<1=有轴被挤缩 */
-extern uint8_t Alloc_Mode;                     /* 控制分配档:0=旧pitch优先对照 1=三轴限幅 2=最小能量 */
-extern uint8_t Alloc_Prio[3];                  /* 交付A 逐级优先级:轴枚举[0]最高,默认{YAW,ROLL,PITCH};调试器在线改 */
-extern float   Alloc_B[3][4];                  /* 舵效矩阵 τ=B·u,行[p,r,y]列[UL,UR,DR,DL];默认理想阵,可台架辨识替换 */
-extern float   alloc_u0[4], alloc_u_out[4];    /* Vofa:分配解(投影/降级后,×SIGN前) / 最终写舵值(×SIGN限幅后) */
-extern float   alloc_alpha, alloc_u0_span, alloc_v_scale, alloc_p_scale; /* Vofa:零空间投影α / u0极差 / 降级横侧缩放比 / pitch缩放比 */
-extern uint8_t alloc_infeasible, alloc_singular_flag;     /* Vofa:不可达降级(0可达/1缩横侧/2连pitch也缩) / 求逆奇异退回 */
+extern Alloc_t Alloc;   /* 控制分配状态(整合原 Alloc_Mode/Prio/B、alloc_*、servo_lat_scale 散落全局) */
 extern float vision_los_final[2][3];   /* Vofa:末制导锁存的世界系视线终点(目标斜坡逼近它),帧间不变、仅新帧阶跃更新 */
 extern float vision_los_rate[3];    /* Vofa:世界系惯性视线率λ̇(°/s,PN用),视觉帧间差分、丢帧保持/丢目标清0 */
-extern float pitch_dive_floor;      /* Vofa:末制导俯仰俯冲下限θ_floor°(随接近度放开) */
-extern float closeness_s;           /* Vofa:接近度s∈[0,1](像素面积调度,缺失时按γ) */
-extern float yaw_distance_gain;     /* Vofa:末制导 yaw 距离面积增益 */
-extern float pitch_distance_gain;   /* Vofa:末制导 pitch 距离面积增益(远端小、近端大) */
+// extern float pitch_dive_floor;      /* ★封存:随俯冲下限函数停用(见 .c #if 0 块) */
+extern uint8_t pitch_glide_mode;                       /* 0=旧门限逻辑 1=主动滑翔→扎 */
+extern float   pitch_glide_target, pitch_glide_blend;  /* Vofa/Watch:滑翔段当前pitch目标° / 滑翔→扎过渡系数0..1 */
+// extern float closeness_s;           /* ★封存:随增益调度/俯冲下限函数停用(见 .c #if 0 块) */
+// extern float yaw_distance_gain;     /* ★封存 */
+// extern float pitch_distance_gain;   /* ★封存 */
 extern float LOOKING_DATA[10];
 
 extern uint16_t current_tick;
 void surface_control_task(void);
 extern uint8_t vel_pursuit_mode;   /* 0=原Euler_pid 1=速度矢量追踪三级串级 */
+extern uint8_t lqr_mode;           /* 0=关(PID/LADRC) 1=LQR一步6态→4舵(含混控,绕过Servo_Mix_*)；见 lqr.c */
 void Velocity_Pursuit_Cale(float delta_time);
 void Roll_Derotate_PitchYaw(float Pw, float Yw, float *Pb, float *Yb);
 void Servo_Mix_AxisLimit(float p, float r, float y);

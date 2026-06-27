@@ -17,6 +17,7 @@
 #include "TotalControl.h"
 #include "Vofa_send.h"
 #include "adrc.h"
+#include "lqr.h"
 uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Vision_Tx_Buf[3] = {0x5A,0,0xA5},Vision_TxDebug_Buf[50],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5],flag = 0;
 Dart_Trigger_Data_t Dart_Trigger_Data = {.Frame_Head = 0xAA,.Frame_Tail = 0x00};
 Vision_Rx_Buf_t Vision_Rx_Data ;
@@ -132,15 +133,14 @@ void Dart_Trriger_Color_Set(uint8_t Team_Color)
     Dart_Trigger_Data.Frame_Cmd = Color_Set;
     Dart_Trigger_Communicate(Dart_Trigger_Data.Communicate_Flag);
 }
-void Dart_Trigger_Power_Control(uint8_t Power_State)
-{
-    HAL_GPIO_WritePin( HEAD_PORT ,HEAD_PIN ,Power_State);
-}
 void Dart_Trigger_Self_Text(void)
 {
     Dart_Trigger_State_Check();
 }
-
+// void Dart_Trigger_Power_Control(uint8_t Power_State)
+// {
+//     HAL_GPIO_WritePin( HEAD_PORT ,HEAD_PIN ,Power_State);
+// }
 
 void Vision_Receive(uint8_t* Buf)
 {
@@ -213,16 +213,23 @@ void Vision_Transmit_Debug(void)
 
 
 
-    val[3]  = surface_control_pid[Angle][PITCH].err[NOW]; 
-    val[4]  = Surface.target_angle_Euler[NOW][ROLL];   
-    val[5]  = surface_control_pid[Angle][YAW].err[NOW];    
+    val[3]  = lqr_ctrl.err_deg[0] ;
+    val[4]  = lqr_ctrl.err_deg[1] ;                            
+    val[5]  = lqr_ctrl.err_deg[2] ;
+    val[6]  = lqr_ctrl.axis_cmd_deg[0] ;
+    val[7]  = lqr_ctrl.axis_cmd_deg[1] ;   
+    val[8]  = lqr_ctrl.axis_cmd_deg[2] ;
+
+    // val[3]  = surface_control_pid[Angle][PITCH].err[NOW]; 
+    // val[4]  = surface_control_pid[Angle][ROLL].err[NOW];   
+    // val[5]  = surface_control_pid[Angle][YAW].err[NOW];
+    // val[6]  = Surface.output_Body_Euler[NOW][PITCH];
+    // val[7]  = Surface.output_Body_Euler[NOW][ROLL];
+    // val[8]  = Surface.output_Body_Euler[NOW][YAW];    
 
     // val[3]  = IMU_Data.Velocity[Body][NOW][PITCH];
     // val[4]  = IMU_Data.Velocity[Body][NOW][ROLL];
-    // val[5]  = IMU_Data.Velocity[Body][NOW][YAW];
-    val[6]  = Surface.output_Body_Euler[NOW][PITCH];
-    val[7]  = Surface.output_Body_Euler[NOW][ROLL];
-    val[8]  = Surface.output_Body_Euler[NOW][YAW];
+    // val[5]  = IMU_Data.Velocity[Body][NOW][YAW];o
     val[9]  = IMU_Data.Velocity[Body][NOW][PITCH];
     val[10] = IMU_Data.Velocity[Body][NOW][ROLL];
     val[11] = IMU_Data.Velocity[Body][NOW][YAW];
