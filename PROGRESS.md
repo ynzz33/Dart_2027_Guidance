@@ -177,6 +177,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **落地**：[lqr.c](imcalib/Tool/lqr.c) / [.h](imcalib/Tool/lqr.h)。`LQR_Update` 纯解算（与 MATLAB 对拍用）；`Euler_LQR_Cale` 桥接：取 Surface 姿态/角速度→组 x→解算→换序+×SIGN+转度，**直接写 `output_angle_Servo`、绕过 `output_gyro_Euler` 与 `Servo_Mix_*`**。[surface_control_task.c](imcalib/Task/surface_control_task.c) 新增 `lqr_mode` 切档（0=关默认/1=LQR；优先级高于 ladrc/vel_pursuit，混控分派加 `lqr_mode!=1` 跳过）。`LQR_Init` 已挂 TotalInitTask。
 - **K 矩阵粘贴区**：`dart_lqr_K[4][6]` 与 MATLAB 同名同形；调好 Q/R/惯量/速度后跑脚本 Step5，把打印的 4 行整块覆盖粘贴即可。当前是脚本**占位参数**导出值，台架前必须用真实惯量/气动/速度重跑更新。
 - **⚠ 上车前必做**：① 新增 `lqr.c` 手动加入 Keil/eIDE 工程编译列表（AI 编不了）；② 按指南 §9 逐轴阶跃验符号——MATLAB 舵号(delta1=右上/2=左上/3=左下/4=右下)≠工程索引(UL/UR/DR/DL)，已在 `K_ROW_TO_SERVO[]` 换序，符号反了在 `SIGN_xx`/`gyro_sign[]` 翻，**别改 K 行序**（飞镖一次性，G 符号反=正反馈）。
+- **pitch 仅制导段受控**（开关 `lqr_pitch_terminal_only`，lqr.c 默认 1，2026-06-27 加）：`Euler_LQR_Cale` 组完状态后、`LQR_Update` 前，非 `Terminal` 段把 pitch 状态分量 `x[1]`(pitch_err)/`x[4]`(q) 清零 → 一步解出的 4 舵**不含 pitch 通道成分**，Stable 等自稳阶段 pitch 不打舵、只 roll/yaw 受控；制导段(Terminal)恢复全三轴控；`err_deg[1]` 保留真值供观测。=0 回全程控 pitch 做 A/B。作者诉求：「只在制导段才控 pitch，其他时候舵机 pitch 不受控」。**未编译/待台架。**
 
 ### ZUPT 零速更新 + 地面零偏在线对准（IMU.c，2026-06-15+）
 - **问题**：纯积分速度无外部观测→任何加速度零偏/姿态残差都被无限积分而漂（实测"漂移远大于真实运动"）。

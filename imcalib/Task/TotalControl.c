@@ -11,7 +11,7 @@
 #include "cmsis_os.h"
 #include "PNG_Task.h"
 #include "usart.h"
-
+#include "lqr.h"
 // void ALL_reset(uint8_t reset)
 // {
 // 		HAL_Delay(100);
@@ -39,7 +39,7 @@ void TotalControl(void)
 void Vofa(void)
 {
 	Vofa_Send_Data24(
-	
+
 	Surface.target_angle_Euler[NOW][PITCH],
 	Surface.target_angle_Euler[NOW][ROLL ],
 	Surface.target_angle_Euler[NOW][YAW  ],
@@ -60,13 +60,21 @@ void Vofa(void)
 	// Surface.output_gyro_Euler[NOW][PITCH],
     // Surface.output_gyro_Euler[NOW][ROLL], 
     // Surface.output_gyro_Euler[NOW][YAW],
-	Surface.Finally_Angle[NOW][UP_LEFT  ],
-	Surface.Finally_Angle[NOW][UP_RIGHT  ],
-	Surface.Finally_Angle[NOW][DOWN_RIGHT],
-	Surface.Finally_Angle[NOW][DOWN_LEFT   ],
-	Surface.current_gyro_Euler[NOW][PITCH],
-	Surface.current_gyro_Euler[NOW][ROLL ],
-	Surface.current_gyro_Euler[NOW][YAW  ],
+	// Surface.Finally_Angle[NOW][UP_LEFT  ],
+	// Surface.Finally_Angle[NOW][UP_RIGHT  ],
+	// Surface.Finally_Angle[NOW][DOWN_RIGHT],
+	// Surface.Finally_Angle[NOW][DOWN_LEFT   ],
+	lqr_ctrl.u_servo_deg[0],
+	lqr_ctrl.u_servo_deg[1],
+	lqr_ctrl.u_servo_deg[2],
+	lqr_ctrl.u_servo_deg[3],
+
+    lqr_ctrl.err_deg[0] ,
+    lqr_ctrl.err_deg[1] ,                            
+    lqr_ctrl.err_deg[2] ,
+	// Surface.current_gyro_Euler[NOW][PITCH],
+	// Surface.current_gyro_Euler[NOW][ROLL ],
+	// Surface.current_gyro_Euler[NOW][YAW  ],
 	// IMU_Data.A_World[NOW][X],
 	// IMU_Data.A_World[NOW][Y],
 	// IMU_Data.A_World[NOW][Z],
@@ -86,7 +94,7 @@ void Vofa(void)
 		// Dart_Trigger_Data.Rx_Set_Team_Color,
 		// Dart_Trigger_Data.Borad_Version,
 		// Dart_Trigger_Data.Borad_Temp,
-		// Dart_Trigger_Data.Borad_State_Team,
+		// Dart_Trigger_Data.Borad_State_Team,/
 		// Dart_Trigger_Data.Borad_State_Light_ON,
 		// Dart_Trigger_Data.Borad_State_Voltage,
 		// Dart_Trigger_Data.Borad_State_Light_Error,

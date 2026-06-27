@@ -1,14 +1,16 @@
-/**
+ /**
  * @file    lqr.c
  * @brief   飞镖 X 翼姿态 LQR 控制器（移植自 lqr_czn/dart_attitude_LQR_v1.m）
- * @details 一步从"姿态误差+角速度(6态)"解出 u = -K_d·x，再把 4 舵解反投影成三轴力矩需求，
- *          写 output_gyro_Euler，复用工程已台架验证的 Roll反旋 + Servo_Mix_* 混控链分配到 4 舵。
+ * @details 一步从"姿态误差+角速度(6态)"直接解出"4 片舵面偏角(4控)"：u = -K_d·x。
  *
- *          ★ 与 PID/LADRC 的关系：三者输出口径一致(都写 output_gyro_Euler 三轴力矩需求)，
- *            LQR 只是把"角度环+角速度阻尼"用单步状态反馈一次算完，混控/符号/装配复用同一条链。
+ *          ★ 与 PID/LADRC 的本质区别：
+ *            PID/LADRC 链路是两步——先算三轴力矩需求(output_gyro_Euler)，再过混控器
+ *            (Servo_Mix_AxisLimit/MinEnergy)分配到 4 舵。
+ *            LQR 的 K_d[4][6] 已经把"X 翼混控几何 G"烘焙进模型 B 里，dlqr 求逆得到的 K
+ *            直接是 6态→4舵。所以本模块一步替代 PID + 混控器两步，直接写
+ *            Surface.output_angle_Servo[NOW][...]，不经过 output_gyro_Euler、不经过 Servo_Mix_*。
  *
- *          ★ 历史：曾试过"LQR 直接出 4 舵 ×SIGN"，但 MATLAB G 的混控/符号约定与工程 C×SIGN 冲突，
- *            会把 pitch/roll 打成共模且 roll/pitch 反号(台架实测)。故改为只出三轴需求、复用现成混控。
+ *          ★ 符号约定：整机三轴极性在 MATLAB 的 G 矩阵(各轴行)里调；本文件的换序/×SIGN 见 §3 与下方。
  *
  *          ★ K 矩阵以 MATLAB 同名同形 dart_lqr_K[4][6] 存放(见下方"粘贴区")：
  *            MATLAB 脚本 Step5 会打印 `static const float dart_lqr_K[4][6] = { ... };`，
@@ -36,6 +38,7 @@
 #include "IMU.h"                     /* NOW 等历史槽枚举 */
 #include "pid.h"                     /* abs_limit / Angle_Wrap_180 复用 */
 #include "common_defs.h"            /* DEG2RAD / RAD2DEG */
+#include "CallBack_Task.h"
 
 /*============================================================================
  *  ★★★ K 矩阵粘贴区 ★★★
@@ -48,10 +51,12 @@ float dart_lqr_K[DART_LQR_SERVO_NUM][DART_LQR_STATE_NUM] = {
 
 
 
-    {0.47777069977510783, 0.49792246672720919, 1.5715597790783886, 0.15667095274685194, 0.22846983891393896, 0.33361239150210648},
-    {0.47777069977503522, -0.49792246672725388, 1.5715597790783933, 0.15667095274685117, -0.22846983891394126, 0.33361239150211958},
-    {0.47777069977470149, -0.49792246672712648, -1.571559779078191, 0.15667095274684809, -0.22846983891392941, -0.33361239150208238},
-    {0.47777069977477338, 0.49792246672733587, -1.5715597790781963, 0.15667095274684883, 0.22846983891395087, -0.33361239150209587}
+
+    {-0.60756979845502246, -0.27200540115909788, 0.29379300472243813, -0.32361332019090711, -0.37186397456477854, 0.37349076858548441},
+    {-0.60756979845503545, 0.27200540115900668, 0.29379300472245867, -0.32361332019090738, 0.37186397456476578, 0.3734907685854868},
+    {-0.60756979845504633, 0.27200540115906036, -0.29379300472243208, -0.32361332019090755, 0.37186397456477249, -0.37349076858548397},
+    {-0.60756979845503345, -0.27200540115904892, -0.29379300472245262, -0.32361332019090788, -0.37186397456477427, -0.37349076858548641}
+
 
 
 
@@ -64,6 +69,19 @@ LQR_t lqr_ctrl;   /* Vofa/Watch 可观测：状态 x、原始/限幅后舵偏 */
 
 /* 舵偏限幅(rad)，与 MATLAB delta_max_ac=deg2rad(60) 及工程 SERVO_ANGLE_LIMIT(60°) 对齐 */
 float dart_delta_max_rad = 1.0471975511965976f;   /* ±60° */
+
+/* pitch 轴门控：1=只在制导段(Terminal)控俯仰，其他阶段(Stable 自稳等)pitch 不受控；
+ * 0=全程控 pitch(旧行为)。调试器 Watch 在线切换做 A/B。详见 Euler_LQR_Cale 内说明。*/
+uint8_t lqr_pitch_terminal_only = 1;
+
+/* MATLAB 舵号(行序 delta1..4) → 本工程舵机索引(列序 UL/UR/DR/DL)··
+ *   delta1=右上=UP_RIGHT, delta2=左上=UP_LEFT, delta3=左下=DOWN_LEFT, delta4=右下=DOWN_RIGHT */
+static const uint8_t K_ROW_TO_SERVO[DART_LQR_SERVO_NUM] = {
+    UP_RIGHT,    /* delta1 右上 */
+    UP_LEFT,     /* delta2 左上 */
+    DOWN_LEFT,   /* delta3 左下 */
+    DOWN_RIGHT   /* delta4 右下 */
+};
 
 /*============================================================================
  *  核心：纯 LQR 解算 u = -K_d·x（与 MATLAB / C 对拍用，不依赖工程任何全局）
@@ -85,9 +103,9 @@ void LQR_Update(const float x[DART_LQR_STATE_NUM], float u[DART_LQR_SERVO_NUM])
 }
 
 /*============================================================================
- *  桥接：从 Surface 取姿态/角速度 → 组状态 x → LQR → 反投影成三轴力矩需求写 output_gyro_Euler。
- *  之后由 surface_control_task.c 的 Roll反旋 + Servo_Mix_*(按 Alloc.Mode)分配到 4 舵，与 PID/LADRC 同链。
- *  调用点：lqr_mode==1 时调用本函数(替代 Euler_pid_Cale/Euler_LADRC_Cale)，混控分派照常执行。
+ *  桥接：从 Surface 取姿态/角速度 → 组状态 x → LQR → 写 4 舵机角(度)
+ *  直接覆盖 Surface.output_angle_Servo[NOW][UL/UR/DR/DL]，绕过 output_gyro_Euler 与混控器。
+ *  调用点见 surface_control_task.c：lqr_mode==1 时调用本函数，并跳过混控分派。
  *
  *  @note dt 当前未参与计算(纯静态增益 LQR，无积分/状态记忆)，保留入参以便后续扩展。
  *============================================================================*/
@@ -104,40 +122,76 @@ void Euler_LQR_Cale(float dt)
     if (lqr_ctrl.roll_wrap) lqr_ctrl.err_deg[0] = Angle_Wrap_180(lqr_ctrl.err_deg[0]);
     lqr_ctrl.err_deg[2] = Angle_Wrap_180(lqr_ctrl.err_deg[2]);   /* yaw 始终环绕，防跨 ±180° 爆冲 */
 
-    lqr_ctrl.x[0] = DEG2RAD(lqr_ctrl.err_deg[0]);
-    lqr_ctrl.x[1] = DEG2RAD(lqr_ctrl.err_deg[1]);
-    lqr_ctrl.x[2] = DEG2RAD(lqr_ctrl.err_deg[2]);
+    /* 1.1) 基于 roll 的机体系补偿(roll_comp=1)：把世界系 pitch/yaw 误差按当前横滚反旋到机体系。
+     *   依据：角度误差取自世界系 ZYX 欧拉(current_angle_Euler)，但 LQR 的 K/B 是机体舵效；机身横滚
+     *   Δ=current_roll−Stable_roll 后，世界系 (pitch_err,yaw_err) 要在机体系里旋一个 Δ 才对得上舵面。
+     *   只反旋角度误差的 pitch/yaw 这一对：roll_err 绕纵轴不变、p/q/r(x[3..5]) 已是机体陀螺(IMU.c) → 都不旋。
+     *   复用 Roll_Derotate_PitchYaw(与 PID 同一旋转、同一 ROLL_WORLD_COMP_SIGN)；★用独立临时量收结果，
+     *   绝不传同一变量当输入兼输出——该函数内部 *Pb=…Pw…; *Yb=…Pw… 会被 in-place 别名覆盖算错。
+     *   roll_comp=0 时直通=旧 LQR 行为(A/B 对照)。Stable 段 Δ≈0 自然恒等，主要在 Terminal 横滚时生效。*/
+    float err_pitch = lqr_ctrl.err_deg[1];
+    float err_yaw   = lqr_ctrl.err_deg[2];
+    if (lqr_ctrl.roll_comp)
+    {
+        float pb, yb;
+        Roll_Derotate_PitchYaw(err_pitch, err_yaw, &pb, &yb);   /* 世界系 → 机体系 */
+        err_pitch = pb;
+        err_yaw   = yb;
+        lqr_ctrl.roll_comp_delta = Surface.current_angle_Euler[NOW][ROLL] - Surface.Stable_Euler_Angle[ROLL];
+    }
 
-    /* 角速度 p/q/r：用与 PID 内环同源的 current_gyro_Euler(°/s)，乘 gyro_sign 校正后转 rad/s。
-     * gyro_sign 默认全 +1；台架若某轴阻尼反向(一动就发散)→把对应符号翻 −1(指南 §9 第4步)。*/
-    lqr_ctrl.x[3] = DEG2RAD(lqr_ctrl.gyro_sign[0] * Surface.current_gyro_Euler[NOW][ROLL]);
-    lqr_ctrl.x[4] = DEG2RAD(lqr_ctrl.gyro_sign[1] * Surface.current_gyro_Euler[NOW][PITCH]);
-    lqr_ctrl.x[5] = DEG2RAD(lqr_ctrl.gyro_sign[2] * Surface.current_gyro_Euler[NOW][YAW]);
+    lqr_ctrl.x[0] = DEG2RAD(lqr_ctrl.err_deg[0]) ;   /* roll 误差(绕纵轴，不反旋) */
+    lqr_ctrl.x[1] = DEG2RAD(err_pitch) ;             /* pitch 误差(roll_comp=1 时为反旋后机体系；err_deg[1] 仍存反旋前世界值供对照) */
+    lqr_ctrl.x[2] = DEG2RAD(err_yaw) ;               /* yaw   误差(同上) */
+
+    /* 角速度 p/q/r：用与 PID 内环同源的 current_gyro_Euler(°/s)，转 rad/s。
+     * 同乘 axis_sign(整轴极性)与 gyro_sign(仅阻尼)：roll 一直旋/某轴发散→翻 axis_sign；只是抖→翻 gyro_sign。*/
+    lqr_ctrl.x[3] = DEG2RAD(Surface.current_gyro_Euler[NOW][ROLL])  ;
+    lqr_ctrl.x[4] = DEG2RAD(Surface.current_gyro_Euler[NOW][PITCH]) ;
+    lqr_ctrl.x[5] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW])   ;
+
+    /* 1.5) pitch 轴门控：只在制导段(Terminal)才控俯仰。
+     *   非 Terminal(如 Stable 自稳段)把 pitch 状态分量 pitch_err(x[1]) 与 q(x[4]) 清零 →
+     *   u=-K·x 解算出的 4 舵不含任何 pitch 通道成分，舵机 pitch 自由度不受控；roll/yaw 照常自稳。
+     *   err_deg[1] 保留真实 pitch 误差不动，Vofa 仍可观测。开关 lqr_pitch_terminal_only=0 回旧行为。
+     *   (Start/End 等阶段本就不进 Euler_LQR_Cale，舵机另行回中，无需在此处理。) */
+    // if (fabs(Surface.current_angle_Euler[NOW][PITCH])<5.0f)
+    
+    // if (Surface.current_angle_Euler[NOW][PITCH]>(Surface.Stable_Euler_Angle[PITCH]/2.0f))
+    if(Guidance_State<Stable)
+    {
+        lqr_ctrl.x[1] = 0.0f;   /* pitch 误差不进控制 */
+        lqr_ctrl.x[4] = 0.0f;   /* q(俯仰角速度阻尼)不进控制 */
+    }
 
     /* 2) LQR 解算(rad)，已限幅 */
     LQR_Update(lqr_ctrl.x, lqr_ctrl.u_rad);
 
-    /* 3) 把 4 舵解反投影成"三轴力矩需求(度)"，写 output_gyro_Euler —— 与 PID/LADRC 完全同一接口，
-     *    之后复用工程已台架验证的 Roll 反旋 + Servo_Mix_* 混控链，由那条链统一处理舵面分配/符号/装配 SIGN。
-     *
-     *    ★ 为什么不再"LQR 直接出 4 舵 ×SIGN"(旧实现)：
-     *      MATLAB G 的混控/符号约定与工程 C×SIGN 不一致——直接 ×SIGN 会把 pitch/roll 打成共模、
-     *      且 roll/pitch 整体反号。改走"只出三轴需求、复用现成混控"从根上消除两套约定冲突。
-     *
-     *    投影：u_rad 为 MATLAB 舵号 δ1..δ4=[右上UR,左上UL,左下DL,右下DR]，按理想 X 翼 G 行模式取：
-     *      roll ∝ 四片同向和；pitch ∝ (δ1−δ2−δ3+δ4)；yaw ∝ (δ1+δ2−δ3−δ4)；×0.25 归一成等效舵偏度数。
-     *    其符号 ∝ (目标−当前)，与 PID 的 output_gyro_Euler 同号，故可直接喂同一条混控链。*/
-    float d1 = lqr_ctrl.u_rad[0], d2 = lqr_ctrl.u_rad[1];
-    float d3 = lqr_ctrl.u_rad[2], d4 = lqr_ctrl.u_rad[3];
-    lqr_ctrl.axis_cmd_deg[ROLL]  = RAD2DEG((d1 + d2 + d3 + d4) * 0.25f);
-    lqr_ctrl.axis_cmd_deg[PITCH] = RAD2DEG((d1 - d2 - d3 + d4) * 0.25f);
-    lqr_ctrl.axis_cmd_deg[YAW]   = RAD2DEG((d1 + d2 - d3 - d4) * 0.25f);
+    /* 2.5) 仅观测：从 u_rad 反解等效三轴指令(度)，类比 PID 的 output_gyro_Euler。
+     *      u_rad 为 MATLAB 舵号 delta1..4=[右上UR,左上UL,左下DL,右下DR]，按理想 X 翼 G 行模式投影：
+     *        roll  ∝ 四片同向和；pitch ∝ (δ1−δ2−δ3+δ4)；yaw ∝ (δ1+δ2−δ3−δ4)。
+     *      ×0.25 归一成"等效对称舵偏度数"。不参与控制，仅供观测对照。*/
+    {
+        float d1 = lqr_ctrl.u_rad[0], d2 = lqr_ctrl.u_rad[1];
+        float d3 = lqr_ctrl.u_rad[2], d4 = lqr_ctrl.u_rad[3];
+        lqr_ctrl.axis_cmd_deg[ROLL]  = RAD2DEG((d1 + d2 + d3 + d4) * 0.25f);
+        lqr_ctrl.axis_cmd_deg[PITCH] = RAD2DEG((d1 - d2 - d3 + d4) * 0.25f);
+        lqr_ctrl.axis_cmd_deg[YAW]   = RAD2DEG((d1 + d2 - d3 - d4) * 0.25f);
+    } 
 
-    /* 写三轴力矩需求 → 交给后续 Roll_Derotate + Servo_Mix_*(按 Alloc.Mode 分派)分配到 4 舵。
-     * 与 Euler_pid_Cale / Euler_LADRC_Cale 输出口径一致。*/
-    Surface.output_gyro_Euler[NOW][PITCH] = lqr_ctrl.axis_cmd_deg[PITCH];
-    Surface.output_gyro_Euler[NOW][ROLL]  = lqr_ctrl.axis_cmd_deg[ROLL];
-    Surface.output_gyro_Euler[NOW][YAW]   = lqr_ctrl.axis_cmd_deg[YAW];
+    /* 3) 按 MATLAB 舵号→工程索引换序，转度，写舵机角(±SERVO_ANGLE_LIMIT)。
+     *    ★ 不乘工程 SIGN_xx：那套是为 PID 的"共模逻辑列"设计的(C 阵 pitch 列四片同号)，
+     *      而 MATLAB G 的 pitch/roll 已是差动；再乘 ×SIGN 会把 pitch/roll 打成共模(产生不了力矩)。
+     *      u_rad 即物理舵偏，换序后直接写。整机三轴极性在 MATLAB G 矩阵(roll/pitch/yaw 各行)里翻，重跑重粘 K。
+     *    若某片舵机机械装反(单片)，再在此处按 idx 单独翻号；勿动 K 行顺序(指南 §9)。*/
+    for (uint8_t row = 0; row < DART_LQR_SERVO_NUM; row++)
+    {
+        uint8_t idx = K_ROW_TO_SERVO[row];
+        float   deg = RAD2DEG(lqr_ctrl.u_rad[row]);
+        abs_limit(&deg, SERVO_ANGLE_LIMIT);
+        lqr_ctrl.u_servo_deg[idx] = deg;                 /* Vofa：最终舵角(按工程索引 UL/UR/DR/DL) */
+        Surface.output_angle_Servo[NOW][idx] = deg;      /* 直接写舵面，等同 Servo_Mix_* 的产物 */
+    }
 }
 
 /*============================================================================
@@ -147,9 +201,9 @@ void LQR_Init(void)
 {
     for (uint8_t i = 0; i < DART_LQR_STATE_NUM; i++) lqr_ctrl.x[i] = 0.0f;
     for (uint8_t i = 0; i < DART_LQR_SERVO_NUM; i++) lqr_ctrl.u_rad[i] = 0.0f;
+    for (uint8_t i = 0; i < SERVO_COUNT_X;      i++) lqr_ctrl.u_servo_deg[i] = 0.0f;
     lqr_ctrl.axis_cmd_deg[0] = lqr_ctrl.axis_cmd_deg[1] = lqr_ctrl.axis_cmd_deg[2] = 0.0f;
-    lqr_ctrl.gyro_sign[0] = 1.0f;   /* roll  */
-    lqr_ctrl.gyro_sign[1] = 1.0f;   /* pitch */
-    lqr_ctrl.gyro_sign[2] = 1.0f;   /* yaw   */
     lqr_ctrl.roll_wrap = 0;         /* 与 PID roll 默认对齐(roll 不环绕)；yaw 恒环绕 */
+    lqr_ctrl.roll_comp = 0;         /* 默认关(直通=旧 LQR)；台架验 SIGN 后再 Watch 切 1 启用 roll 补偿(见 Euler_LQR_Cale) */
+    lqr_ctrl.roll_comp_delta = 0.0f;
 }

@@ -213,8 +213,8 @@ void Vision_Transmit_Debug(void)
 
 
 
-    val[3]  = lqr_ctrl.err_deg[0] ;
-    val[4]  = lqr_ctrl.err_deg[1] ;                            
+    val[4]  = lqr_ctrl.err_deg[1] ;        
+    val[3]  = lqr_ctrl.err_deg[0] ;                    
     val[5]  = lqr_ctrl.err_deg[2] ;
     val[6]  = lqr_ctrl.axis_cmd_deg[0] ;
     val[7]  = lqr_ctrl.axis_cmd_deg[1] ;   

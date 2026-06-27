@@ -179,9 +179,10 @@ End ◄──(A_Normed[Y]≥0.9 且 A[Y]≥1.5，连续5；冲击检测)── T
 
 ### LQR 状态反馈（`lqr.c/.h`，可选替代 PID + 混控，**未编译/待台架**）
 
-`lqr_mode` 运行时切档（surface_control_task.c，**当前值=0 关**，优先级高于 ladrc_mode/vel_pursuit_mode）：
+`lqr_mode` 运行时切档（surface_control_task.c，**当前值=1 正调 LQR**，以代码为准；优先级高于 ladrc_mode/vel_pursuit_mode）：
 - **0**=关（走 PID/LADRC，安全默认）
 - **1**=LQR 一步解算：`u=-K_d·x`，6 态 `[roll,pitch,yaw 误差(rad), p,q,r(rad/s)]` → 4 舵偏(rad)。
+- **pitch 仅制导段受控** `lqr_pitch_terminal_only`（lqr.c，默认 1）：非 `Terminal` 段把 pitch 状态分量 `x[1]`(pitch_err)/`x[4]`(q) 清零 → LQR 解出的 4 舵**不含 pitch 通道成分**（Stable 等阶段 pitch 不打舵），roll/yaw 照常自稳；`err_deg[1]` 保留真值供观测。=0 回全程控 pitch 做 A/B。
 
 **与 PID/LADRC 的本质区别**：PID/LADRC 是两步（先算三轴力矩 `output_gyro_Euler` → 再过 `Servo_Mix_*` 混控）；LQR 的 `K_d[4][6]` 已把 X 翼混控几何 G 烘焙进模型，**一步替代 PID+混控两步**，`Euler_LQR_Cale` 直接写 `output_angle_Servo[NOW][...]`、绕过 `output_gyro_Euler` 与 `Servo_Mix_*`（调用点已加 `lqr_mode!=1` 跳过混控）。
 
@@ -248,7 +249,7 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[−1,−1,−1,−
 | `Surface` | surface_control_task.c | 控制状态总仓（current/target/output Euler、output_angle_Servo、Finally_Angle、Stable_Euler_Angle、Guidance_cnt） |
 | `Guidance_State` | surface_control_task.c | 制导状态机当前态 |
 | `ladrc_mode` | surface_control_task.c | LADRC 切档（0=全PID/1=三轴LADRC/3=仅Roll LADRC） |
-| `lqr_mode` / `lqr_ctrl` / `dart_lqr_K[4][6]` | surface_control_task.c / lqr.c | LQR 切档（0=关/1=一步6态→4舵含混控，绕过 Servo_Mix_*）/ 状态+舵偏观测仓 / K 矩阵(MATLAB 粘贴区)。未编译/待台架 |
+| `lqr_mode` / `lqr_pitch_terminal_only` / `lqr_ctrl` / `dart_lqr_K[4][6]` | surface_control_task.c / lqr.c | LQR 切档（0=关/1=一步6态→4舵含混控，绕过 Servo_Mix_*；**当前=1**）/ pitch 仅 Terminal 段受控开关(默认1) / 状态+舵偏观测仓 / K 矩阵(MATLAB 粘贴区)。未编译/待台架 |
 | `ladrc_ctrl[3]` | adrc.c | LADRC 控制器实例（wc/wo/b0/z1/z2/z3/u 等） |
 | `Alloc`（结构体 `Alloc_t`） | surface_control_task.c | 控制分配状态（整合原 `Alloc_Mode/Prio/B`、`alloc_*`、`servo_lat_scale`）：`.Mode` 档位 / `.Prio[3]` 优先级(默认{ROLL,YAW,PITCH}) / `.B[3][4]` 舵效阵 / `.u0/.u_out/.alpha/.u0_span/.v_scale/.p_scale/.lat_scale/.infeasible/.singular_flag` Vofa 观测 |
 | `Vision_Rx_Data` | CallBack_Task.c | 视觉接收（ISR 写、控制读，含 New_Data_flag/dist_cm/area/radius/Euler_norm） |

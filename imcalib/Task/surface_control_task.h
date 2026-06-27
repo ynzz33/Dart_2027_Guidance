@@ -30,36 +30,36 @@
 // #define  Servo_UL_ZERO      1360
 // #define  Servo_UR_ZERO      1630
 // #define  Servo_DR_ZERO      1510
-// #define  Servo_DL_ZERO      1560    
+// #define  Servo_DL_ZERO      1460    
 // #define Shot_Pitch 32
 // #define Shot_Roll 0
 // #define  Dart_Cnt_is_First 1
  
 // //镖体2 蓝色
-// #define  Servo_UL_ZERO      1530
-// #define  Servo_UR_ZERO      1450
-// #define  Servo_DR_ZERO      1510
-// #define  Servo_DL_ZERO      1500    
+// #define  Servo_UL_ZERO      1430
+// #define  Servo_UR_ZERO      1570
+// #define  Servo_DR_ZERO      1410
+// #define  Servo_DL_ZERO      1380    
 // #define Shot_Pitch 28 
 // #define Shot_Roll -3
 // #define  Dart_Cnt_is_First 0
 
 //镖体3 红色
-// #define  Servo_UL_ZERO      1460
-// #define  Servo_UR_ZERO      1450
-// #define  Servo_DR_ZERO      1480
-// #define  Servo_DL_ZERO      1540    
-// #define Shot_Pitch 28
-// #define Shot_Roll -3
-// #define  Dart_Cnt_is_First 0
+#define  Servo_UL_ZERO      1460
+#define  Servo_UR_ZERO      1450
+#define  Servo_DR_ZERO      1480
+#define  Servo_DL_ZERO      1540    
+#define Shot_Pitch 28
+#define Shot_Roll -3
+#define  Dart_Cnt_is_First 0
 
-//镖体4 红色
-#define  Servo_UL_ZERO      1350
-#define  Servo_UR_ZERO      1430
-#define  Servo_DR_ZERO      1560
-#define  Servo_DL_ZERO      1630    
-#define Shot_Pitch 23
-#define Shot_Roll 4
+// //镖体4 红色
+// #define  Servo_UL_ZERO      1350
+// #define  Servo_UR_ZERO      1430
+// #define  Servo_DR_ZERO      1560
+// #define  Servo_DL_ZERO      1630    
+// #define Shot_Pitch 23
+// #define Shot_Roll 4
 // #define  Dart_Cnt_is_First 0
 
 
@@ -153,7 +153,7 @@
 
 /* === 末制导主动滑翔→扎(pitch 增程,见 surface_control_task.c Guidance_Terminal) ===
  * 远(看灯视线浅)端住 THETA_GLIDE 压平轨迹增程;视线俯角越陡(越近)越平滑过渡到追视觉目标扎下去。*/
-#define  THETA_GLIDE_DEG    (2.0f)    /* 滑翔段主动端住的 pitch 姿态°(+=抬头压平增程);默认保守,过大易失速反掉得更快,台架/试飞往上调 */
+#define  THETA_GLIDE_DEG    (-5.0f)    /* 滑翔段主动端住的 pitch 姿态°(+=抬头压平增程);默认保守,过大易失速反掉得更快,台架/试飞往上调 */
 #define  GLIDE_LOS_HI_DEG   (-12.0f)  /* 视线俯角≥此值(灯浅/远)→纯滑翔 blend=0 */
 #define  GLIDE_LOS_LO_DEG   (-25.0f)  /* 视线俯角≤此值(灯陡/近)→纯扎 blend=1(追视觉目标),与 PITCH_INCIDENT_DEG≈-27 衔接 */
 

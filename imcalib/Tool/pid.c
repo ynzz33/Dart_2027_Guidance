@@ -35,11 +35,11 @@ void pid_init(void)
 // //镖体1
     PID_struct_init(&surface_control_pid[Angle][PITCH] ,POSITION_PID,200,50,                        0.25f,   0.0f,  0.00f                    ,0.0f,0.0f);
     PID_struct_init(&surface_control_pid[Angle][ROLL]  ,POSITION_PID,200,50,                        0.35f,   0.0f,  0.00000f                    ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,20,                        0.5f,   0.0f,  0.00000f                    ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Angle][YAW]   ,POSITION_PID,200,20,                        0.5f,    0.0f,  0.00000f                    ,0.0f,0.0f);
 
 
     PID_struct_init(&surface_control_pid[Gyro][PITCH]  ,POSITION_PID,AXIS_LIMIT_PITCH ,0,          0.80f,    0.0f,   0.00f                ,0.0f,0.0f);
-    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL  ,0,          1.0f,   0.0f,   0.00f                ,0.0f,0.0f);
+    PID_struct_init(&surface_control_pid[Gyro][ROLL]   ,POSITION_PID,AXIS_LIMIT_ROLL  ,0,          1.0f,     0.0f,   0.00f                ,0.0f,0.0f);
     PID_struct_init(&surface_control_pid[Gyro][YAW]    ,POSITION_PID,AXIS_LIMIT_YAW   ,0,          1.30f,    0.0f,   0.0f                 ,0.0f,0.0f);
 //
 // // //镖体1

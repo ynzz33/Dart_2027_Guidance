@@ -138,7 +138,7 @@ Co_rank = rank(ctrb(A, B));
 fprintf('Controllability rank = %d / 6\n', Co_rank);
 if Co_rank ~= 6
     warning('System is not fully controllable. Check G, lever arms, and inertia values.');
-end
+endz
 
 %% Step 3: 离散化 + 离散 LQR
 

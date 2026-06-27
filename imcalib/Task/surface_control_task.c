@@ -732,28 +732,29 @@ void Guidance_Terminal(void)//制导段
 
         /* YAW:直接追锁存视线终点 */
         Surface.target_angle_Euler[NOW][YAW] = vision_los_final[NOW][YAW];
+        Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
 
         /* PITCH:主动滑翔→扎(pitch_glide_mode=1) / 旧门限逻辑(=0) */
-        if (pitch_glide_mode)
-        {
-            /* phi=世界系看灯视线俯角(越负=越近越陡)。blend 0→1:
-             * 远端住 THETA_GLIDE 压平轨迹增程,近了平滑过渡到追视觉目标扎下去。*/
-            float phi   = vision_los_final[NOW][PITCH];
-            float blend = (GLIDE_LOS_HI_DEG - phi) / (GLIDE_LOS_HI_DEG - GLIDE_LOS_LO_DEG);
-            if (blend < 0.0f) blend = 0.0f;
-            if (blend > 1.0f) blend = 1.0f;
-            pitch_glide_blend  = blend;
-            pitch_glide_target = (1.0f - blend) * THETA_GLIDE_DEG + blend * vision_los_final[NOW][PITCH];
-            Surface.target_angle_Euler[NOW][PITCH] = pitch_glide_target;
-        }
-        else if (Surface.current_angle_Euler[NOW][PITCH] <= pitch_control_limit_deg)
-        {
-            Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
-        }
-        else
-        {
-            Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-        }
+        // if (pitch_glide_mode)
+        // {
+        //     /* phi=世界系看灯视线俯角(越负=越近越陡)。blend 0→1:
+        //      * 远端住 THETA_GLIDE 压平轨迹增程,近了平滑过渡到追视觉目标扎下去。*/
+        //     float phi   = vision_los_final[NOW][PITCH];
+        //     float blend = (GLIDE_LOS_HI_DEG - phi) / (GLIDE_LOS_HI_DEG - GLIDE_LOS_LO_DEG);
+        //     if (blend < 0.0f) blend = 0.0f;
+        //     if (blend > 1.0f) blend = 1.0f;
+        //     pitch_glide_blend  = blend;
+        //     pitch_glide_target = (1.0f - blend) * THETA_GLIDE_DEG + blend * vision_los_final[NOW][PITCH];
+        //     Surface.target_angle_Euler[NOW][PITCH] = pitch_glide_target;
+        // }
+        // else if (Surface.current_angle_Euler[NOW][PITCH] <= pitch_control_limit_deg)
+        // {
+        //     Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
+        // }
+        // else
+        // {
+        //     Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+        // }
     }
 
     /* PN 超前:暂时关闭,先用纯 PID 跟踪视觉目标验证基础跟踪性能。
@@ -783,7 +784,7 @@ void Guidance_End(void)
 }
 void Guidance_Process_OK(void)
 {
-    if (Surface.Guidance_cnt[5]++>800)
+    if (Surface.Guidance_cnt[5]++>3000)
     {
 		Total_Power_Control(Power_OFF);
         Surface.Guidance_cnt[5] = 0;
@@ -833,14 +834,14 @@ void get_current_Target(void)
         }
         
         /* ROLL 始终自稳(与视觉新数据无关),每 tick 刷新 */
-        Surface.target_angle_Euler[NOW][ROLL]  =  
-        Surface.Stable_Euler_Angle[ROLL];
-        Surface.target_angle_Euler[NOW][YAW]  =  
-        Surface.Stable_Euler_Angle[YAW];
-        Surface.target_angle_Euler[NOW][YAW]  =  
-        Surface.current_angle_Euler[NOW][PITCH];
+        // Surface.target_angle_Euler[NOW][ROLL]  =  
+        // Surface.Stable_Euler_Angle[ROLL];
+        // Surface.target_angle_Euler[NOW][YAW]  =  
+        // Surface.Stable_Euler_Angle[YAW];
+        // Surface.target_angle_Euler[NOW][PITCH]  =  
+        // Surface.current_angle_Euler[NOW][PITCH];
 
-}
+}   
 void get_current_State(void)
 {
     static uint8_t yaw_zero_latched = 0;   /* yaw 归零一次性闩锁:窗口内只发一次请求,流程重置后重新武装 */
@@ -863,7 +864,7 @@ void get_current_State(void)
                 Self_Text.Self_Text_Process = 5; 
             } 
             Surface.Guidance_cnt[0] = 0;
-            // Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
+            Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
             // Shot_Pitch = IMU_Data.Euler[NOW][PITCH];
         }
     }
@@ -895,7 +896,7 @@ void get_current_State(void)
             Surface.Guidance_flag[1] = 2;
         }
     }
-    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=5.0f&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
+    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=10.0f&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
     {
         Vision_Transmit( Vision_Cmd_Work );
         if(Surface.Guidance_cnt[2]++>5)
@@ -914,6 +915,20 @@ void get_current_State(void)
             Guidance_State = End;
             Surface.Guidance_cnt[3] = 0;
         }
+        
+        // if(fabs(IMU_Data.Velocity[Body][NOW][Z]==0.0f||IMU_Data.A_Normed[NOW][Y])>= 0.80f&& IMU_Data.A[NOW][Y]<= -0.9f)
+        // {
+        //     Surface.Guidance_cnt[3]++ ;   
+        // }
+        // if(IMU_Data.Velocity[Body][NOW][X] == 0.0f)
+        // {
+        //     if(Surface.Guidance_cnt[3]>5)
+        //     {
+        //         Buzzer_Remind();
+        //         Guidance_State = End;
+        //         Surface.Guidance_cnt[3] = 0;
+        //     }
+        // }
     }
     else 
     {
@@ -954,11 +969,11 @@ void surface_control_task(void)
         Surface.pid_cale_flag = 1;
 
         /* ========== LQR / LADRC / PID 控制选择 ==========
-         * 三者输出口径一致：都写 output_gyro_Euler(三轴力矩需求)，再由下方 Roll反旋+Servo_Mix_* 统一分配到 4 舵。
-         * lqr_mode==1：LQR 单步状态反馈算三轴需求(混控复用同一条链)；ladrc/PID 为各自的两环/单环。*/
+         * lqr_mode==1：LQR 一步 6态→4舵(含混控)，直接写 output_angle_Servo，绕过下面的 Servo_Mix_*。
+         *   其余分支(LADRC/PID)仍是两步：先算 output_gyro_Euler，再由混控器分配。*/
         if (lqr_mode == 1)
         {
-            Euler_LQR_Cale(delta_time);   /* 写 output_gyro_Euler，混控分派照常执行 */
+            Euler_LQR_Cale(delta_time);   /* 直接写 Surface.output_angle_Servo[NOW][...]，下方混控分派会跳过 */
         }
         else if (ladrc_mode == 1)
         {
@@ -996,10 +1011,11 @@ void surface_control_task(void)
     /*解算到舵面*/
     if(DART_TYPE == VECTOR_NOZZLE   )//x翼
     {
-        if (Guidance_State==Stable||Guidance_State==Terminal)
+        if ((Guidance_State==Stable||Guidance_State==Terminal) && lqr_mode != 1)
         // if (Guidance_State==Terminal)
         {
-            /* 先把世界系 pitch/yaw 输出按当前 roll 反旋到机体系,再做 Pitch 优先最小能量分配:
+            /* lqr_mode==1 时 Euler_LQR_Cale 已直接写好 4 舵角(含混控)，跳过本反旋+混控分派。
+             * 先把世界系 pitch/yaw 输出按当前 roll 反旋到机体系,再做 Pitch 优先最小能量分配:
              * pitch 全保,roll/yaw 等比缩进限幅,不污染 pitch。SIGN_xx 仍在函数内逐片乘上,标定流程不变。 */
             float 
             p_body = Surface.output_gyro_Euler[NOW][PITCH], 
