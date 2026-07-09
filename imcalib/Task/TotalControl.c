@@ -11,7 +11,7 @@
 #include "cmsis_os.h"
 #include "PNG_Task.h"
 #include "usart.h"
-#include "lqr.h"
+#include "../lqr_tool/lqr.h"
 // void ALL_reset(uint8_t reset)
 // {
 // 		HAL_Delay(100);
@@ -68,10 +68,10 @@ void Vofa(void)
 	lqr_ctrl.u_servo_deg[1],
 	lqr_ctrl.u_servo_deg[2],
 	lqr_ctrl.u_servo_deg[3],
-
     lqr_ctrl.err_deg[0] ,
     lqr_ctrl.err_deg[1] ,                            
-    lqr_ctrl.err_deg[2] ,
+    // lqr_ctrl.err_deg[2] ,
+	Surface.Guidance_flag[1],
 	// Surface.current_gyro_Euler[NOW][PITCH],
 	// Surface.current_gyro_Euler[NOW][ROLL ],
 	// Surface.current_gyro_Euler[NOW][YAW  ],

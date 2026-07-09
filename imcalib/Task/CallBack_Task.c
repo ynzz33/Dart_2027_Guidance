@@ -8,7 +8,6 @@
 #include "tim.h"
 #include "usart.h"
 #include "CallBack_Task.h"
-
 #include "buzzer.h"
 #include "FreeRTOS.h"
 #include "surface_control_task.h"
@@ -17,7 +16,7 @@
 #include "TotalControl.h"
 #include "Vofa_send.h"
 #include "adrc.h"
-#include "lqr.h"
+#include "../lqr_tool/lqr.h"
 uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Vision_Tx_Buf[3] = {0x5A,0,0xA5},Vision_TxDebug_Buf[50],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5],flag = 0;
 Dart_Trigger_Data_t Dart_Trigger_Data = {.Frame_Head = 0xAA,.Frame_Tail = 0x00};
 Vision_Rx_Buf_t Vision_Rx_Data ;
@@ -193,12 +192,16 @@ void Vision_Self_Text(void)
 }  
 void Vision_Transmit_Debug(void)
 {
-    /* 12 个待发量,顺序固定: 加速度XYZ, 陀螺PRY, 当前欧拉角PRY, 目标欧拉角PRY */
+    /* 12 个待发量,顺序固定(气动辨识用):
+     * [0] 时间(ms→s)  [1] 速度V_lqr(m/s)  [2] roll_err(deg)
+     * [3] pitch_err    [4] yaw_err         [5] p(deg/s)
+     * [6] q            [7] r               [8] delta1 UL(deg)
+     * [9] delta2 UR    [10] delta3 DR       [11] delta4 DL */
     float    val[12];
     uint8_t *src;
     uint8_t  i;
 
-    val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
+    const float DEG2RAD = 0.0174532925f;   /* π/180 */    val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
     val[1]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
     val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.Velocity[Body][NOW][YAW]*10;
     // val[3]  = Surface.current_angle_Euler[NOW][YAW];
@@ -211,14 +214,20 @@ void Vision_Transmit_Debug(void)
     // val[10] = temp[YAW];
     // val[11] = Surface.output_Body_Euler[NOW][YAW];
 
+    val[3]  = Surface.current_angle_Euler[NOW][PITCH];
+    val[4]  = Surface.current_angle_Euler[NOW][ROLL]; 
+    val[5]  = Surface.current_angle_Euler[NOW][YAW];
+    val[6]  = Surface.target_angle_Euler[NOW][PITCH];
+    val[7]  = Surface.target_angle_Euler[NOW][ROLL]; 
+    val[8]  = Surface.target_angle_Euler[NOW][YAW];
 
 
-    val[4]  = lqr_ctrl.err_deg[1] ;        
-    val[3]  = lqr_ctrl.err_deg[0] ;                    
-    val[5]  = lqr_ctrl.err_deg[2] ;
-    val[6]  = lqr_ctrl.axis_cmd_deg[0] ;
-    val[7]  = lqr_ctrl.axis_cmd_deg[1] ;   
-    val[8]  = lqr_ctrl.axis_cmd_deg[2] ;
+    // val[4]  = lqr_ctrl.err_deg[1] ;        
+    // val[3]  = lqr_ctrl.err_deg[0] ;                    
+    // val[5]  = lqr_ctrl.err_deg[2] ;
+    // val[6]  = lqr_ctrl.axis_cmd_deg[0] ;
+    // val[7]  = lqr_ctrl.axis_cmd_deg[1] ;   
+    // val[8]  = lqr_ctrl.axis_cmd_deg[2] ;
 
     // val[3]  = surface_control_pid[Angle][PITCH].err[NOW]; 
     // val[4]  = surface_control_pid[Angle][ROLL].err[NOW];   
@@ -230,9 +239,9 @@ void Vision_Transmit_Debug(void)
     // val[3]  = IMU_Data.Velocity[Body][NOW][PITCH];
     // val[4]  = IMU_Data.Velocity[Body][NOW][ROLL];
     // val[5]  = IMU_Data.Velocity[Body][NOW][YAW];o
-    val[9]  = IMU_Data.Velocity[Body][NOW][PITCH];
-    val[10] = IMU_Data.Velocity[Body][NOW][ROLL];
-    val[11] = IMU_Data.Velocity[Body][NOW][YAW];
+    val[9]  = lqr_ctrl.axis_cmd_deg[0] ;
+    val[10] = lqr_ctrl.axis_cmd_deg[1] ;
+    val[11] = lqr_ctrl.axis_cmd_deg[2] ;
     
     // val[0]  = IMU_Data.A_Normed[NOW][Y];
     // val[1]  = IMU_Data.A[NOW][Y];
@@ -256,6 +265,19 @@ void Vision_Transmit_Debug(void)
     // val[9]  = Surface.current_gyro_Euler[NOW][PITCH];
     // val[10] = Surface.current_gyro_Euler[NOW][ROLL];
     // val[11] = Surface.current_gyro_Euler[NOW][YAW];
+
+    // val[0]  = HAL_GetTick() / 1000.0f;                          /* 时间 s */
+    // val[1]  = lqr_ctrl.V_lqr;                                   /* 速度 m/s */
+    // val[2]  = lqr_ctrl.err_deg[0] * DEG2RAD;                   /* roll  err rad */
+    // val[3]  = lqr_ctrl.err_deg[1] * DEG2RAD;                   /* pitch err rad */
+    // val[4]  = lqr_ctrl.err_deg[2] * DEG2RAD;                   /* yaw   err rad */
+    // val[5]  = Surface.current_gyro_Euler[NOW][ROLL]  * DEG2RAD; /* p rad/s */
+    // val[6]  = Surface.current_gyro_Euler[NOW][PITCH] * DEG2RAD; /* q rad/s */
+    // val[7]  = Surface.current_gyro_Euler[NOW][YAW]   * DEG2RAD; /* r rad/s */
+    // val[8]  = Surface.output_angle_Servo[NOW][UP_LEFT]    * DEG2RAD; /* delta1 rad */
+    // val[9]  = Surface.output_angle_Servo[NOW][UP_RIGHT]   * DEG2RAD; /* delta2 rad */
+    // val[10] = Surface.output_angle_Servo[NOW][DOWN_RIGHT] * DEG2RAD; /* delta3 rad */
+    // val[11] = Surface.output_angle_Servo[NOW][DOWN_LEFT]  * DEG2RAD; /* delta4 rad */
 
     /* 帧头0x57 + 12×float(大端,MSB先,每个4字节) + 帧尾0x75, 共50字节(Vision_TxDebug_Buf[50])。
      * 视觉端定长收50字节,校验首0x57/尾0x75后大端解析,如 Python: struct.unpack('>12f', buf[1:49])。 */
@@ -395,8 +417,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
      }
      else if (htim->Instance == TIM7)
      {
-         // IMU_Task();
-         // IMU_Cnt++;
+         LQR_Gain_Update50Hz();   /* 50Hz 更新 LQR 速度调度增益 K_d(V) */
      }
      else if (htim->Instance == TIM15)
      {

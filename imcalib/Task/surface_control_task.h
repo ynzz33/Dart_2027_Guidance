@@ -27,40 +27,41 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-// #define  Servo_UL_ZERO      1360
-// #define  Servo_UR_ZERO      1630
+// #define  Servo_UL_ZERO      1360.
+
+// #define  Servo_UR_ZERO      1700
 // #define  Servo_DR_ZERO      1510
-// #define  Servo_DL_ZERO      1460    
-// #define Shot_Pitch 32
-// #define Shot_Roll 0
+// #define  Servo_DL_ZERO      1560    
+// #define Shot_Pitch 28
+// #define Shot_Roll -3
 // #define  Dart_Cnt_is_First 1
  
-// //镖体2 蓝色
-// #define  Servo_UL_ZERO      1430
+// //镖体2 红色
+// #define  Servo_UL_ZERO      1460
+// #define  Servo_UR_ZERO      1450
+// #define  Servo_DR_ZERO      1480
+// #define  Servo_DL_ZERO      1540
+// #define Shot_Pitch 32
+// #define Shot_Roll 0    
+// #define  Dart_Cnt_is_First 0
+
+//镖体3 蓝色
+// #define  Servo_UL_ZERO      1520
 // #define  Servo_UR_ZERO      1570
 // #define  Servo_DR_ZERO      1410
-// #define  Servo_DL_ZERO      1380    
-// #define Shot_Pitch 28 
-// #define Shot_Roll -3
+// #define  Servo_DL_ZERO      1480    
+// #define Shot_Pitch 26 
+// #define Shot_Roll 11 
 // #define  Dart_Cnt_is_First 0
 
-//镖体3 红色
-#define  Servo_UL_ZERO      1460
-#define  Servo_UR_ZERO      1450
-#define  Servo_DR_ZERO      1480
-#define  Servo_DL_ZERO      1540    
-#define Shot_Pitch 28
-#define Shot_Roll -3
+// // //镖体4 红色
+#define  Servo_UL_ZERO      1350
+#define  Servo_UR_ZERO      1430
+#define  Servo_DR_ZERO      1560
+#define  Servo_DL_ZERO      1630    
+#define Shot_Pitch 20 
+#define Shot_Roll 4
 #define  Dart_Cnt_is_First 0
-
-// //镖体4 红色
-// #define  Servo_UL_ZERO      1350
-// #define  Servo_UR_ZERO      1430
-// #define  Servo_DR_ZERO      1560
-// #define  Servo_DL_ZERO      1630    
-// #define Shot_Pitch 23
-// #define Shot_Roll 4
-// #define  Dart_Cnt_is_First 0
 
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
@@ -72,7 +73,7 @@
 #define  SIGN_DL  (-1.0f)
 
 /* X 翼舵机机械偏转角限幅(度),统一替代散落的 60.0f 字面量 */
-#define  SERVO_ANGLE_LIMIT  60.0f
+#define  SERVO_ANGLE_LIMIT  40.0f
 
 /* === 控制分配(混控)参数 ===
  * Alloc.Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,

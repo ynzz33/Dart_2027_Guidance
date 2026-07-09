@@ -10,7 +10,7 @@
 #include "IMU.h"
 #include "pid.h"
 #include "adrc.h"              /* LADRC 线性自抗扰控制器(文件名仍 adrc.*) */
-#include "lqr.h"               /* LQR 姿态控制器(6态→4舵)；未编译需手动加入工程 */
+#include "../lqr_tool/lqr.h"  /* LQR 姿态控制器(6态→4舵)；未编译需手动加入工程 */
 #include "surface_control_task.h"
 #include "usart.h"
 #include "PNG_Task.h"

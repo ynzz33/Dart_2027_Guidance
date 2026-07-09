@@ -35,10 +35,16 @@
 
 #include "lqr.h"
 #include "surface_control_task.h"   /* Surface / 舵机索引 UP_LEFT.. / SIGN_xx / SERVO_ANGLE_LIMIT / PITCH,ROLL,YAW */
-#include "IMU.h"                     /* NOW 等历史槽枚举 */
+#include "IMU.h"                     /* NOW 等历史槽枚举 / IMU_Data.Velocity */
 #include "pid.h"                     /* abs_limit / Angle_Wrap_180 复用 */
 #include "common_defs.h"            /* DEG2RAD / RAD2DEG */
 #include "CallBack_Task.h"
+
+/* MATLAB Coder 生成的速度方程 K_d(V) */
+#include "LQR_K_Dart_d.h"
+#include "LQR_K_Dart_d_initialize.h"
+
+#include <math.h>                    /* sqrtf */
 
 /*============================================================================
  *  ★★★ K 矩阵粘贴区 ★★★
@@ -65,14 +71,17 @@ float dart_lqr_K[DART_LQR_SERVO_NUM][DART_LQR_STATE_NUM] = {
 /*============================================================================
  *  全局实例 + 运行时旋钮
  *============================================================================*/
-LQR_t lqr_ctrl;   /* Vofa/Watch 可观测：状态 x、原始/限幅后舵偏 */
+LQR_t lqr_ctrl;   /* Vofa/Watch 可观测：状态 x、原始/限幅后舵偏、K_d(V) */
 
 /* 舵偏限幅(rad)，与 MATLAB delta_max_ac=deg2rad(60) 及工程 SERVO_ANGLE_LIMIT(60°) 对齐 */
 float dart_delta_max_rad = 1.0471975511965976f;   /* ±60° */
 
-/* pitch 轴门控：1=只在制导段(Terminal)控俯仰，其他阶段(Stable 自稳等)pitch 不受控；
- * 0=全程控 pitch(旧行为)。调试器 Watch 在线切换做 A/B。详见 Euler_LQR_Cale 内说明。*/
+/* pitch 轴门控：1=只在制导段(Terminal)+检测到目标时控俯仰(补偿)，其他阶段/丢目标时 pitch 不受控、
+ *   飞镖俯仰主要靠镖架初始动力；0=全程控 pitch(旧行为)。调试器 Watch 在线切换做 A/B。详见 Euler_LQR_Cale 内说明。*/
 uint8_t lqr_pitch_terminal_only = 1;
+
+/* 速度调度开关：1=用 lqr_ctrl.K_d(由 50Hz 中断更新，默认)；0=退回旧静态 dart_lqr_K */
+uint8_t lqr_use_scheduled_K = 1;
 
 /* MATLAB 舵号(行序 delta1..4) → 本工程舵机索引(列序 UL/UR/DR/DL)··
  *   delta1=右上=UP_RIGHT, delta2=左上=UP_LEFT, delta3=左下=DOWN_LEFT, delta4=右下=DOWN_RIGHT */
@@ -84,17 +93,24 @@ static const uint8_t K_ROW_TO_SERVO[DART_LQR_SERVO_NUM] = {
 };
 
 /*============================================================================
- *  核心：纯 LQR 解算 u = -K_d·x（与 MATLAB / C 对拍用，不依赖工程任何全局）
+ *  核心：纯 LQR 解算 u = -K_d·x
  *  x 单位 rad / rad·s⁻¹；u 单位 rad，已按 ±dart_delta_max_rad 限幅。
  *  ⚠ 控制律带负号；不要把 K 预先取负(否则需改名 minus_K)。
+ *
+ *  K 来源由 lqr_use_scheduled_K 控制：
+ *    1 = lqr_ctrl.K_d（50Hz 中断由 LQR_Gain_Update50Hz 更新，速度调度版，默认）
+ *    0 = dart_lqr_K（旧单点静态版，A/B 对照存根）
  *============================================================================*/
 void LQR_Update(const float x[DART_LQR_STATE_NUM], float u[DART_LQR_SERVO_NUM])
 {
+    const float (*K)[DART_LQR_STATE_NUM] =
+        lqr_use_scheduled_K ? lqr_ctrl.K_d : dart_lqr_K;
+
     for (uint8_t i = 0; i < DART_LQR_SERVO_NUM; i++)
     {
         float ui = 0.0f;
         for (uint8_t j = 0; j < DART_LQR_STATE_NUM; j++)
-            ui -= dart_lqr_K[i][j] * x[j];
+            ui -= K[i][j] * x[j];
 
         if (ui >  dart_delta_max_rad) ui =  dart_delta_max_rad;
         if (ui < -dart_delta_max_rad) ui = -dart_delta_max_rad;
@@ -116,8 +132,8 @@ void Euler_LQR_Cale(float dt)
     /* 1) 姿态误差 err = 测量 − 期望(配平/目标)，存入 lqr_ctrl.err_deg[roll,pitch,yaw](度，可观测)，
      *    再转 rad 填 x[0..2]。yaw 为周期角须环绕到 ±180°；roll 按 roll_wrap 选择是否环绕。
      *    工程欧拉/角速度索引为 [PITCH,ROLL,YAW]；状态 x 顺序为 [roll,pitch,yaw,p,q,r]。*/
-    lqr_ctrl.err_deg[0] = Surface.current_angle_Euler[NOW][ROLL]  - Surface.target_angle_Euler[NOW][ROLL];
-    lqr_ctrl.err_deg[1] = Surface.current_angle_Euler[NOW][PITCH] - Surface.target_angle_Euler[NOW][PITCH];
+    lqr_ctrl.err_deg[0] = Surface.current_angle_Euler[NOW][PITCH] - Surface.target_angle_Euler[NOW][PITCH];
+    lqr_ctrl.err_deg[1] = Surface.current_angle_Euler[NOW][ROLL]  - Surface.target_angle_Euler[NOW][ROLL];
     lqr_ctrl.err_deg[2] = Surface.current_angle_Euler[NOW][YAW]   - Surface.target_angle_Euler[NOW][YAW];
     if (lqr_ctrl.roll_wrap) lqr_ctrl.err_deg[0] = Angle_Wrap_180(lqr_ctrl.err_deg[0]);
     lqr_ctrl.err_deg[2] = Angle_Wrap_180(lqr_ctrl.err_deg[2]);   /* yaw 始终环绕，防跨 ±180° 爆冲 */
@@ -129,36 +145,19 @@ void Euler_LQR_Cale(float dt)
      *   复用 Roll_Derotate_PitchYaw(与 PID 同一旋转、同一 ROLL_WORLD_COMP_SIGN)；★用独立临时量收结果，
      *   绝不传同一变量当输入兼输出——该函数内部 *Pb=…Pw…; *Yb=…Pw… 会被 in-place 别名覆盖算错。
      *   roll_comp=0 时直通=旧 LQR 行为(A/B 对照)。Stable 段 Δ≈0 自然恒等，主要在 Terminal 横滚时生效。*/
-    float err_pitch = lqr_ctrl.err_deg[1];
-    float err_yaw   = lqr_ctrl.err_deg[2];
-    if (lqr_ctrl.roll_comp)
-    {
-        float pb, yb;
-        Roll_Derotate_PitchYaw(err_pitch, err_yaw, &pb, &yb);   /* 世界系 → 机体系 */
-        err_pitch = pb;
-        err_yaw   = yb;
-        lqr_ctrl.roll_comp_delta = Surface.current_angle_Euler[NOW][ROLL] - Surface.Stable_Euler_Angle[ROLL];
-    }
+    float err_pitch = lqr_ctrl.err_deg[0];
+    float err_roll  = lqr_ctrl.err_deg[1];
+    float err_yaw   = lqr_ctrl.err_deg[2]; 
 
-    lqr_ctrl.x[0] = DEG2RAD(lqr_ctrl.err_deg[0]) ;   /* roll 误差(绕纵轴，不反旋) */
+    lqr_ctrl.x[0] = DEG2RAD(err_roll) ;               /* roll 误差(绕纵轴，不反旋) */
     lqr_ctrl.x[1] = DEG2RAD(err_pitch) ;             /* pitch 误差(roll_comp=1 时为反旋后机体系；err_deg[1] 仍存反旋前世界值供对照) */
     lqr_ctrl.x[2] = DEG2RAD(err_yaw) ;               /* yaw   误差(同上) */
 
-    /* 角速度 p/q/r：用与 PID 内环同源的 current_gyro_Euler(°/s)，转 rad/s。
-     * 同乘 axis_sign(整轴极性)与 gyro_sign(仅阻尼)：roll 一直旋/某轴发散→翻 axis_sign；只是抖→翻 gyro_sign。*/
-    lqr_ctrl.x[3] = DEG2RAD(Surface.current_gyro_Euler[NOW][ROLL])  ;
-    lqr_ctrl.x[4] = DEG2RAD(Surface.current_gyro_Euler[NOW][PITCH]) ;
+    lqr_ctrl.x[3] = DEG2RAD(Surface.current_gyro_Euler[NOW][ROLL]) ;
+    lqr_ctrl.x[4] = DEG2RAD(Surface.current_gyro_Euler[NOW][PITCH])  ;
     lqr_ctrl.x[5] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW])   ;
 
-    /* 1.5) pitch 轴门控：只在制导段(Terminal)才控俯仰。
-     *   非 Terminal(如 Stable 自稳段)把 pitch 状态分量 pitch_err(x[1]) 与 q(x[4]) 清零 →
-     *   u=-K·x 解算出的 4 舵不含任何 pitch 通道成分，舵机 pitch 自由度不受控；roll/yaw 照常自稳。
-     *   err_deg[1] 保留真实 pitch 误差不动，Vofa 仍可观测。开关 lqr_pitch_terminal_only=0 回旧行为。
-     *   (Start/End 等阶段本就不进 Euler_LQR_Cale，舵机另行回中，无需在此处理。) */
-    // if (fabs(Surface.current_angle_Euler[NOW][PITCH])<5.0f)
-    
-    // if (Surface.current_angle_Euler[NOW][PITCH]>(Surface.Stable_Euler_Angle[PITCH]/2.0f))
-    if(Guidance_State<Stable)
+    if(Guidance_State<=Stable||Vision_Rx_Data.dist_cm>400)
     {
         lqr_ctrl.x[1] = 0.0f;   /* pitch 误差不进控制 */
         lqr_ctrl.x[4] = 0.0f;   /* q(俯仰角速度阻尼)不进控制 */
@@ -195,7 +194,37 @@ void Euler_LQR_Cale(float dt)
 }
 
 /*============================================================================
- *  初始化：清零状态、默认符号、限幅(在 TotalInitTask 调一次即可)
+ *  50Hz 中断调用：从 EKF 速度算 K_d(V)，写入 lqr_ctrl.K_d/V_lqr
+ *  lqr_use_scheduled_K=0 时直接返回(退回静态 K)。
+ *============================================================================*/
+void LQR_Gain_Update50Hz(void)
+{
+    if (!lqr_use_scheduled_K) return;
+
+    /* 1) 取当前飞行速度标量(m/s)，从 EKF 世界速度算模长 */
+    float vx = IMU_Data.Velocity[World][NOW][X];
+    float vy = IMU_Data.Velocity[World][NOW][Y];
+    float vz = IMU_Data.Velocity[World][NOW][Z];
+    float V = sqrtf(vx * vx + vy * vy + vz * vz);
+
+    /* 2) clamp 到拟合范围 */
+    if (V < DART_LQR_V_MIN) V = DART_LQR_V_MIN;
+    if (V > DART_LQR_V_MAX) V = DART_LQR_V_MAX;
+    lqr_ctrl.V_lqr = V;
+
+    /* 3) 调 MATLAB Coder 生成的方程（double 精度） */
+    double K_flat[24];
+    LQR_K_Dart_d((double)V, K_flat);
+
+    /* 4) 列优先→行优先，写入 lqr_ctrl.K_d
+     *    MATLAB 按列排：K_flat[0..3]=col0(roll_err), K_flat[4..7]=col1(pitch_err), ... */
+    for (uint8_t col = 0; col < DART_LQR_STATE_NUM; col++)
+        for (uint8_t row = 0; row < DART_LQR_SERVO_NUM; row++)
+            lqr_ctrl.K_d[row][col] = (float)K_flat[col * DART_LQR_SERVO_NUM + row];
+}
+
+/*============================================================================
+ *  初始化：清零状态、默认符号、初始化 MATLAB Coder 运行时(在 TotalInitTask 调一次)
  *============================================================================*/
 void LQR_Init(void)
 {
@@ -206,4 +235,11 @@ void LQR_Init(void)
     lqr_ctrl.roll_wrap = 0;         /* 与 PID roll 默认对齐(roll 不环绕)；yaw 恒环绕 */
     lqr_ctrl.roll_comp = 0;         /* 默认关(直通=旧 LQR)；台架验 SIGN 后再 Watch 切 1 启用 roll 补偿(见 Euler_LQR_Cale) */
     lqr_ctrl.roll_comp_delta = 0.0f;
+
+    /* 初始化 MATLAB Coder 运行时（rt_InitInfAndNaN + 标志位） */
+    LQR_K_Dart_d_initialize();
+
+    /* 用标称速度算初始 K_d，50Hz 中断会持续覆盖 */
+    LQR_Gain_Update50Hz();
+    lqr_ctrl.V_lqr = DART_LQR_V_NOM;   /* 初始值覆盖为标称速度(首次 Update 可能用 clamp 后的值) */
 }

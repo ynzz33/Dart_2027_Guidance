@@ -256,7 +256,7 @@ void MX_TIM7_Init(void)
 
   /* USER CODE END TIM7_Init 1 */
   htim7.Instance = TIM7;
-  htim7.Init.Prescaler = 167;
+  htim7.Init.Prescaler = 339;   /* 170MHz/340/10000 = 50Hz（原 167=100Hz，改 339=50Hz，供 LQR K_d(V) 更新） */
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim7.Init.Period = 9999;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;

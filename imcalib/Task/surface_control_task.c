@@ -19,7 +19,7 @@
 #include "CallBack_Task.h"
 #include "pid.h"
 #include "adrc.h"           /* LADRC 线性自抗扰控制器(文件名仍 adrc.*) */
-#include "lqr.h"            /* LQR 姿态控制器(6态→4舵一步解算，含混控)；未编译需手动加入工程 */
+#include "../lqr_tool/lqr.h"  /* LQR 姿态控制器(6态→4舵一步解算，含混控)；未编译需手动加入工程 */
 #include "cmsis_os.h"
 #include "FreeRTOS.h"
 #include "IMU.h"
@@ -877,7 +877,7 @@ void get_current_State(void)
             Surface.Guidance_cnt[1]++;
         }
         if(Surface.Guidance_cnt[1]>=5&&Surface.Guidance_cnt[1]<20)
-        {
+        {   
             /* 进入窗口仅一次:请求 IMU 以当前绝对航向为新原点,使此刻起 yaw=0 */
             if(!yaw_zero_latched){ Yaw_Zero_Req = 1; yaw_zero_latched = 1; }
         }
