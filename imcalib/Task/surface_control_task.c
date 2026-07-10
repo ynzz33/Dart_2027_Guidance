@@ -732,29 +732,36 @@ void Guidance_Terminal(void)//制导段
 
         /* YAW:直接追锁存视线终点 */
         Surface.target_angle_Euler[NOW][YAW] = vision_los_final[NOW][YAW];
-        Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
 
-        /* PITCH:主动滑翔→扎(pitch_glide_mode=1) / 旧门限逻辑(=0) */
+        // /* PITCH:主动滑翔→扎(pitch_glide_mode=1) / 旧门限逻辑(=0)
+        //  * 目标由 blend 在「滑翔姿态 THETA_GLIDE」与「视觉视线」间插值,LQR 门控(lqr.c)保证只在 Terminal 段打舵。*/
         // if (pitch_glide_mode)
         // {
-        //     /* phi=世界系看灯视线俯角(越负=越近越陡)。blend 0→1:
-        //      * 远端住 THETA_GLIDE 压平轨迹增程,近了平滑过渡到追视觉目标扎下去。*/
-        //     float phi   = vision_los_final[NOW][PITCH];
-        //     float blend = (GLIDE_LOS_HI_DEG - phi) / (GLIDE_LOS_HI_DEG - GLIDE_LOS_LO_DEG);
-        //     if (blend < 0.0f) blend = 0.0f;
-        //     if (blend > 1.0f) blend = 1.0f;
+        //     /* blend 0→1:远端住 THETA_GLIDE 压平轨迹增程(飞更远),近端平滑过渡到追视觉视线扎下去。
+        //      * ★驱动量 = 世界系看灯视线俯角 phi(越负=越陡=越近),但仅在识别成功时才用它触发扎下;
+        //      *   没识别到目标(还没看到灯/丢目标)时强制 blend=0 → pitch 住 THETA_GLIDE 主动压平滑翔,
+        //      *   不会因 FAILURE 分支把 phi 置成当前(可能已俯冲)的姿态而误判为「近」提前扎。*/
+        //     float blend = 0.0f;
+        //     if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+        //     {
+        //         float phi = vision_los_final[NOW][PITCH];
+        //         blend = (GLIDE_LOS_HI_DEG - phi) / (GLIDE_LOS_HI_DEG - GLIDE_LOS_LO_DEG);
+        //         if (blend < 0.0f) blend = 0.0f;
+        //         if (blend > 1.0f) blend = 1.0f;
+        //     }
         //     pitch_glide_blend  = blend;
         //     pitch_glide_target = (1.0f - blend) * THETA_GLIDE_DEG + blend * vision_los_final[NOW][PITCH];
         //     Surface.target_angle_Euler[NOW][PITCH] = pitch_glide_target;
         // }
-        // else if (Surface.current_angle_Euler[NOW][PITCH] <= pitch_control_limit_deg)
-        // {
-        //     Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
-        // }
-        // else
-        // {
-        //     Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-        // }
+        // else 
+        if (Surface.current_angle_Euler[NOW][PITCH] <= pitch_control_limit_deg)
+        {
+            Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
+        }
+        else
+        {
+            Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+        }
     }
 
     /* PN 超前:暂时关闭,先用纯 PID 跟踪视觉目标验证基础跟踪性能。
@@ -772,7 +779,7 @@ void Guidance_Terminal(void)//制导段
 void Guidance_End(void)
 {
     // Dart_Trigger_Power_Control( Power_OFF );
-    if (Surface.Guidance_cnt[4]++>1000)
+    if (Surface.Guidance_cnt[4]++>2000)
     {
         Vision_Transmit(Vision_Cmd_Record_Stop);
         Guidance_State = PROCESS_OK;

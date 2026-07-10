@@ -27,41 +27,40 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-// #define  Servo_UL_ZERO      1360.
-
+#define  Servo_UL_ZERO      1360
+#define  Servo_UR_ZERO      1460
+#define  Servo_DR_ZERO      1510
+#define  Servo_DL_ZERO      1560    
+#define Shot_Pitch 29
+#define Shot_Roll -5
+#define  Dart_Cnt_is_First 1
+ 
+// //镖体2 红色
+// #define  Servo_UL_ZERO      1360
 // #define  Servo_UR_ZERO      1700
 // #define  Servo_DR_ZERO      1510
 // #define  Servo_DL_ZERO      1560    
-// #define Shot_Pitch 28
-// #define Shot_Roll -3
-// #define  Dart_Cnt_is_First 1
- 
-// //镖体2 红色
-// #define  Servo_UL_ZERO      1460
-// #define  Servo_UR_ZERO      1450
-// #define  Servo_DR_ZERO      1480
-// #define  Servo_DL_ZERO      1540
 // #define Shot_Pitch 32
-// #define Shot_Roll 0    
+// #define Shot_Roll -1
 // #define  Dart_Cnt_is_First 0
 
 //镖体3 蓝色
-// #define  Servo_UL_ZERO      1520
+// #define  Servo_UL_ZERO      1650
 // #define  Servo_UR_ZERO      1570
-// #define  Servo_DR_ZERO      1410
-// #define  Servo_DL_ZERO      1480    
+// #define  Servo_DR_ZERO      1535
+// #define  Servo_DL_ZERO      1550    
 // #define Shot_Pitch 26 
-// #define Shot_Roll 11 
+// #define Shot_Roll 10        
 // #define  Dart_Cnt_is_First 0
 
 // // //镖体4 红色
-#define  Servo_UL_ZERO      1350
-#define  Servo_UR_ZERO      1430
-#define  Servo_DR_ZERO      1560
-#define  Servo_DL_ZERO      1630    
-#define Shot_Pitch 20 
-#define Shot_Roll 4
-#define  Dart_Cnt_is_First 0
+// #define  Servo_UL_ZERO      1660
+// #define  Servo_UR_ZERO      1570
+// #define  Servo_DR_ZERO      1570
+// #define  Servo_DL_ZERO      1660    
+// #define Shot_Pitch 24                   
+// #define Shot_Roll 4
+// #define  Dart_Cnt_is_First 0
 
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
@@ -73,7 +72,7 @@
 #define  SIGN_DL  (-1.0f)
 
 /* X 翼舵机机械偏转角限幅(度),统一替代散落的 60.0f 字面量 */
-#define  SERVO_ANGLE_LIMIT  40.0f
+#define  SERVO_ANGLE_LIMIT  60.0f
 
 /* === 控制分配(混控)参数 ===
  * Alloc.Mode 运行时切三档分配器(见 .c):0=旧 Servo_Mix_PitchPriority 对照,
@@ -130,7 +129,7 @@
  *   远端:增益小(控制保守,避免过早俯冲消耗能量)
  *   近端:增益大(控制激进,确保精准命中)
  * 增益线性插值:PITCH_GAIN_FAR(s=0,远处) → PITCH_GAIN_NEAR(s=1,近处)。*/
-#define  PITCH_GAIN_FAR          (0.7f)    /* 远处(s=0)的 pitch 增益:保守控制,保射程 */
+#define  PITCH_GAIN_FAR          (0.7f )    /* 远处(s=0)的 pitch 增益:保守控制,保射程 */
 #define  PITCH_GAIN_NEAR         (1.2f)    /* 近处(s=1)的 pitch 增益:激进控制,精准命中 */
 #define  PITCH_GAIN_ENABLE_DIST  (800.0f)  /* 启用 pitch 增益调整的最大距离阈值(cm) */
 
@@ -154,9 +153,9 @@
 
 /* === 末制导主动滑翔→扎(pitch 增程,见 surface_control_task.c Guidance_Terminal) ===
  * 远(看灯视线浅)端住 THETA_GLIDE 压平轨迹增程;视线俯角越陡(越近)越平滑过渡到追视觉目标扎下去。*/
-#define  THETA_GLIDE_DEG    (-5.0f)    /* 滑翔段主动端住的 pitch 姿态°(+=抬头压平增程);默认保守,过大易失速反掉得更快,台架/试飞往上调 */
-#define  GLIDE_LOS_HI_DEG   (-12.0f)  /* 视线俯角≥此值(灯浅/远)→纯滑翔 blend=0 */
-#define  GLIDE_LOS_LO_DEG   (-25.0f)  /* 视线俯角≤此值(灯陡/近)→纯扎 blend=1(追视觉目标),与 PITCH_INCIDENT_DEG≈-27 衔接 */
+#define  THETA_GLIDE_DEG    (0.0f)    /* 滑翔段主动端住的 pitch 姿态°(+=抬头压平增程);默认保守,过大易失速反掉得更快,台架/试飞往上调 */
+#define  GLIDE_LOS_HI_DEG   (-25.0f)  /* 视线俯角≥此值(灯浅/远)→纯滑翔 blend=0 */
+#define  GLIDE_LOS_LO_DEG   (-35.0f)  /* 视线俯角≤此值(灯陡/近)→纯扎 blend=1(追视觉目标),与 PITCH_INCIDENT_DEG≈-27 衔接 */
 
  enum
 {

@@ -157,7 +157,11 @@ void Euler_LQR_Cale(float dt)
     lqr_ctrl.x[4] = DEG2RAD(Surface.current_gyro_Euler[NOW][PITCH])  ;
     lqr_ctrl.x[5] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW])   ;
 
-    if(Guidance_State<=Stable||Vision_Rx_Data.dist_cm>400)
+    /* pitch 仅制导段(Terminal)受控:发射前/稳定段 pitch 不打舵(靠镖架初动力),进入 Terminal 就全程放开;
+     * pitch 目标由 Guidance_Terminal 的主动滑翔→扎给出(远段住 THETA_GLIDE 压平增程、看灯视线变陡再平滑扎下)。
+     * ★原 dist_cm>400 硬开关(4m 处 pitch 从"不控"突跳到"全控追视觉")已去掉——那个跳变改由 blend 平滑过渡承担。
+     *   lqr_pitch_terminal_only=0 → 全程控 pitch(旧行为)做 A/B 对照。*/
+    if (lqr_pitch_terminal_only && Guidance_State < Terminal&&Surface.current_angle_Euler[NOW][PITCH] > -5.0f)
     {
         lqr_ctrl.x[1] = 0.0f;   /* pitch 误差不进控制 */
         lqr_ctrl.x[4] = 0.0f;   /* q(俯仰角速度阻尼)不进控制 */

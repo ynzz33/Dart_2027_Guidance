@@ -198,14 +198,14 @@ void IMU_Attitude_Algorithm(void)
      * 【bug 修复】原来传参把 Y/Z 写反了(…fwd_z, …fwd_y),世界系 ENU 下应是
      *   SetVel(vx=fwd_x, vy=fwd_y, vz=fwd_z) —— 与 A_World/Vel_Dir/γ 同一 ENU 约定。
      *   回头解开注释时用下面这行(已修正)。 */
-//    if (Vel_Reanchor_Flag)
-//    {
-//        float fwd_x = IMU_Data.R_matrix_T[1][0];
-//        float fwd_y = IMU_Data.R_matrix_T[1][1];
-//        float fwd_z = IMU_Data.R_matrix_T[1][2];
-//        VisInsEKF_SetVel(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
-//        Vel_Reanchor_Flag = 0;
-//    }
+   if (Vel_Reanchor_Flag)
+   {
+       float fwd_x = IMU_Data.R_matrix_T[1][0];
+       float fwd_y = IMU_Data.R_matrix_T[1][1];
+       float fwd_z = IMU_Data.R_matrix_T[1][2];
+       VisInsEKF_SetVel(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
+       Vel_Reanchor_Flag = 0;
+   }
     /* 3) 视觉新帧(识别成功且有距离包)→ 笛卡尔位置量测更新。用 Vision_Recog_Cnt 跳变判新帧,
      *    不抢 TotalControlTask 的 Vision_New_Data_flag;本任务读 Vision_Rx_Data(ISR 写,字段小). */
     {
