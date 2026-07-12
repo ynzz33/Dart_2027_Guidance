@@ -15,6 +15,7 @@
 #include "usart.h"
 #include "PNG_Task.h"
 
+uint8_t init_flag = 0;
 
 void TotalInitTask(void)
 {

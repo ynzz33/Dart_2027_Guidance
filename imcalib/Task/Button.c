@@ -64,7 +64,8 @@ void Short_Press_Process(void)
                         // ==================视觉自检，内录==============
                         Vision_Self_Text();
                         Guidance_State = Start;
-                        Total_Power_Control(Power_OFF);
+                        Surface.Guidance_cnt[4] = 1800;
+                        Guidance_State = End;
                         // Vision_Transmit(Vision_Cmd_Work);
                         // Vision_Transmit( Vision_Cmd_Record_Start );
 
@@ -72,7 +73,8 @@ void Short_Press_Process(void)
                 case 2:
                 {
                         // ==================电池掉电==============
-                        Total_Power_Control(Power_OFF);
+                        Surface.Guidance_cnt[4] = 1800;
+                        Guidance_State = End;
                         // ==================视觉内录==============
                         // Vision_Transmit(Vision_Cmd_Record_Stop);
                         // Guidance_State = End;

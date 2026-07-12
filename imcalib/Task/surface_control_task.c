@@ -762,6 +762,10 @@ void Guidance_Terminal(void)//制导段
         {
             Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         }
+        if(Guidance_State == Terminal&&Surface.current_angle_Euler[NOW][PITCH]<10 && Surface.current_angle_Euler[NOW][PITCH]>5)
+        {
+            Surface.target_angle_Euler[NOW][PITCH] = 10;
+        }
     }
 
     /* PN 超前:暂时关闭,先用纯 PID 跟踪视觉目标验证基础跟踪性能。
@@ -791,7 +795,7 @@ void Guidance_End(void)
 }
 void Guidance_Process_OK(void)
 {
-    if (Surface.Guidance_cnt[5]++>3000)
+    if (Surface.Guidance_cnt[5]++>1000)
     {
 		Total_Power_Control(Power_OFF);
         Surface.Guidance_cnt[5] = 0;
@@ -841,8 +845,8 @@ void get_current_Target(void)
         }
         
         /* ROLL 始终自稳(与视觉新数据无关),每 tick 刷新 */
-        // Surface.target_angle_Euler[NOW][ROLL]  =  
-        // Surface.Stable_Euler_Angle[ROLL];
+        Surface.target_angle_Euler[NOW][ROLL]  =  
+        Surface.Stable_Euler_Angle[ROLL];
         // Surface.target_angle_Euler[NOW][YAW]  =  
         // Surface.Stable_Euler_Angle[YAW];
         // Surface.target_angle_Euler[NOW][PITCH]  =  

@@ -135,8 +135,11 @@ void InitTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-    TotalInitTask();
-    osThreadTerminate(Init_TaskHandle);
+    if(init_flag==0)
+    {
+        TotalInitTask();
+        init_flag = 1;
+    }
     osDelay(1);
   }
   /* USER CODE END InitTask */

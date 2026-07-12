@@ -3,4 +3,6 @@
 
 void TotalInitTask(void);
 
+extern uint8_t init_flag;
+
 #endif

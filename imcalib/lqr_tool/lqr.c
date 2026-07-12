@@ -128,12 +128,12 @@ void LQR_Update(const float x[DART_LQR_STATE_NUM], float u[DART_LQR_SERVO_NUM])
 void Euler_LQR_Cale(float dt)
 {
     (void)dt;
-
+ 
     /* 1) 姿态误差 err = 测量 − 期望(配平/目标)，存入 lqr_ctrl.err_deg[roll,pitch,yaw](度，可观测)，
      *    再转 rad 填 x[0..2]。yaw 为周期角须环绕到 ±180°；roll 按 roll_wrap 选择是否环绕。
      *    工程欧拉/角速度索引为 [PITCH,ROLL,YAW]；状态 x 顺序为 [roll,pitch,yaw,p,q,r]。*/
-    lqr_ctrl.err_deg[0] = Surface.current_angle_Euler[NOW][PITCH] - Surface.target_angle_Euler[NOW][PITCH];
-    lqr_ctrl.err_deg[1] = Surface.current_angle_Euler[NOW][ROLL]  - Surface.target_angle_Euler[NOW][ROLL];
+    lqr_ctrl.err_deg[0] = Surface.current_angle_Euler[NOW][ROLL]  - Surface.target_angle_Euler[NOW][ROLL];
+    lqr_ctrl.err_deg[1] = Surface.current_angle_Euler[NOW][PITCH] - Surface.target_angle_Euler[NOW][PITCH];
     lqr_ctrl.err_deg[2] = Surface.current_angle_Euler[NOW][YAW]   - Surface.target_angle_Euler[NOW][YAW];
     if (lqr_ctrl.roll_wrap) lqr_ctrl.err_deg[0] = Angle_Wrap_180(lqr_ctrl.err_deg[0]);
     lqr_ctrl.err_deg[2] = Angle_Wrap_180(lqr_ctrl.err_deg[2]);   /* yaw 始终环绕，防跨 ±180° 爆冲 */
@@ -145,8 +145,8 @@ void Euler_LQR_Cale(float dt)
      *   复用 Roll_Derotate_PitchYaw(与 PID 同一旋转、同一 ROLL_WORLD_COMP_SIGN)；★用独立临时量收结果，
      *   绝不传同一变量当输入兼输出——该函数内部 *Pb=…Pw…; *Yb=…Pw… 会被 in-place 别名覆盖算错。
      *   roll_comp=0 时直通=旧 LQR 行为(A/B 对照)。Stable 段 Δ≈0 自然恒等，主要在 Terminal 横滚时生效。*/
-    float err_pitch = lqr_ctrl.err_deg[0];
-    float err_roll  = lqr_ctrl.err_deg[1];
+    float err_roll  = lqr_ctrl.err_deg[0];
+    float err_pitch = lqr_ctrl.err_deg[1];
     float err_yaw   = lqr_ctrl.err_deg[2]; 
 
     lqr_ctrl.x[0] = DEG2RAD(err_roll) ;               /* roll 误差(绕纵轴，不反旋) */
@@ -161,7 +161,7 @@ void Euler_LQR_Cale(float dt)
      * pitch 目标由 Guidance_Terminal 的主动滑翔→扎给出(远段住 THETA_GLIDE 压平增程、看灯视线变陡再平滑扎下)。
      * ★原 dist_cm>400 硬开关(4m 处 pitch 从"不控"突跳到"全控追视觉")已去掉——那个跳变改由 blend 平滑过渡承担。
      *   lqr_pitch_terminal_only=0 → 全程控 pitch(旧行为)做 A/B 对照。*/
-    if (lqr_pitch_terminal_only && Guidance_State < Terminal&&Surface.current_angle_Euler[NOW][PITCH] > -5.0f)
+    if (lqr_pitch_terminal_only && Guidance_State == Terminal)
     {
         lqr_ctrl.x[1] = 0.0f;   /* pitch 误差不进控制 */
         lqr_ctrl.x[4] = 0.0f;   /* q(俯仰角速度阻尼)不进控制 */
