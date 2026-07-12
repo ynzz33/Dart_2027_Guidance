@@ -149,8 +149,10 @@ void Vision_Receive(uint8_t* Buf)
     {
         Vision_Rx_Data.x[NOW] = (int16_t)(Buf[1]<<8|Buf[2]);
         Vision_Rx_Data.y[NOW] = (int16_t)(Buf[3]<<8|Buf[4]);
-        Vision_Rx_Data.Euler[NOW][0] = Vision_Rx_Data.y[NOW]/16.00f*72.0f;
-        Vision_Rx_Data.Euler[NOW][1] = Vision_Rx_Data.x[NOW]/12.00f*54.0f;
+        // Vision_Rx_Data.Euler[NOW][0] = Vision_Rx_Data.y[NOW]/16.00f*72.0f;
+        // Vision_Rx_Data.Euler[NOW][1] = Vision_Rx_Data.x[NOW]/12.00f*54.0f;
+        Vision_Rx_Data.Euler[NOW][0] = Vision_Rx_Data.y[NOW]/160.0f*36.0f;
+        Vision_Rx_Data.Euler[NOW][1] = Vision_Rx_Data.x[NOW]/120.0f*27.0f;
         Vision_Rx_Data.Vision_recognize_flag = RECOGNIZE_SUCCESS;
         Vision_Rx_Data.Vision_Recog_Cnt++;          /* 识别成功帧计数(纯统计) */
         Vision_Rx_Data.Vision_New_Data_flag = 1;    /* 视觉新有效数据到达 → 控制端 Guidance_Terminal 据此锁存世界系视线,消费后清0 */
@@ -213,20 +215,21 @@ void Vision_Transmit_Debug(void)
     // val[8]  = lqr_ctrl.u_servo_deg[0];
     // val[9]  = lqr_ctrl.u_servo_deg[1];
     // val[10] = lqr_ctrl.u_servo_deg[2];
-    // val[11] = lqr_ctrl.u_servo_deg[3];
+    // val[11] = lqr_ctrl.u_servo_deg[3];x
     
-    val[0]  = HAL_GetTick() / 1000.0f;                          /* 时间 s */
+    // val[0]  = HAL_GetTick() / 1000.0f;                          /* 时间 s */
+    val[0]  = Surface.Stable_Euler_Angle[ROLL];
     val[1]  = lqr_ctrl.V_lqr;                                   /* 速度 m/s */
-    val[2]  = lqr_ctrl.err_deg[0] * DEG2RAD;                   /* roll  err rad */
-    val[3]  = lqr_ctrl.err_deg[1] * DEG2RAD;                   /* pitch err rad */
-    val[4]  = lqr_ctrl.err_deg[2] * DEG2RAD;                   /* yaw   err rad */
-    val[5]  = Surface.current_gyro_Euler[NOW][ROLL]  * DEG2RAD; /* p rad/s */
-    val[6]  = Surface.current_gyro_Euler[NOW][PITCH] * DEG2RAD; /* q rad/s */
-    val[7]  = Surface.current_gyro_Euler[NOW][YAW]   * DEG2RAD; /* r rad/s */
-    val[8]  = Surface.output_angle_Servo[NOW][UP_LEFT]    * DEG2RAD; /* delta1 rad */
-    val[9]  = Surface.output_angle_Servo[NOW][UP_RIGHT]   * DEG2RAD; /* delta2 rad */
-    val[10] = Surface.output_angle_Servo[NOW][DOWN_RIGHT] * DEG2RAD; /* delta3 rad */
-    val[11] = Surface.output_angle_Servo[NOW][DOWN_LEFT]  * DEG2RAD; /* delta4 rad */
+    val[2]  = lqr_ctrl.err_deg[0] ;                  /* roll  err rad */
+    val[3]  = lqr_ctrl.err_deg[1] ;                   /* pitch err rad */
+    val[4]  = lqr_ctrl.err_deg[2] ;                   /* yaw   err rad */
+    val[5]  = Surface.current_gyro_Euler[NOW][ROLL]  ; /* p rad/s */
+    val[6]  = Surface.current_gyro_Euler[NOW][PITCH] ; /* q rad/s */
+    val[7]  = Surface.current_gyro_Euler[NOW][YAW]   ; /* r rad/s */
+    val[8]  = Surface.output_angle_Servo[NOW][UP_LEFT]    ; /* delta1 rad */
+    val[9]  = Surface.output_angle_Servo[NOW][UP_RIGHT]   ; /* delta2 rad */
+    val[10] = Surface.output_angle_Servo[NOW][DOWN_RIGHT] ; /* delta3 rad */
+    val[11] = Surface.output_angle_Servo[NOW][DOWN_LEFT]  ; /* delta4 rad */
 
     // val[3]  = Surface.current_angle_Euler[NOW][YAW];
     // val[4]  = Surface.target_angle_Euler[NOW][YAW]; 
@@ -349,6 +352,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
             {
                 Self_Text.Vision_Self_Text_flag = Self_Text_Success;
                 Self_Text.Self_Text_Process     = Self_Text_Dart_Trigeer;
+                Self_Text.Self_Text_Process = Self_Text_OK;
             }
         }
         else if (Size == 6)

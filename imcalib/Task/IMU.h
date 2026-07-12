@@ -20,7 +20,7 @@
 #define MAG_CS_PIN GPIO_PIN_11
 
 /* Mahony 互补滤波:预测(陀螺积分)-校正(加速度拉回重力方向),即"更聪明的输入滤波" */
-#define mahony_MAXOUT   8.00f   /* 修正量限幅,防加速度突变把姿态拉飞 */
+#define mahony_MAXOUT   30.00f   /* 修正量限幅,防加速度突变把姿态拉飞 */
 #define mahony_i_maxout  5.00f   /* 积分限幅 */
 #define mahony_Kp        10.0f    /* 加速度校正强度:大→快速消陀螺漂移但易被振动带歪;小→抗扰好但收敛慢 */
 #define mahony_Ki        0.01f  /* 陀螺零偏在线估计:静止时 acc_trust≈1→自动学习,高机动时 acc_trust≈0→冻结。
@@ -34,7 +34,7 @@
 #define ACC_TRUST_ZERO_DEV  0.50f   /* ||a|-1g| >= 此值:完全不信任(权重=0,纯陀螺) */
 
 #define GYR_KF_Q 1.0f
-#define GYR_KF_R 50.0f
+#define GYR_KF_R 15.0f
 #define ACC_KF_Q 1.0f
 #define ACC_KF_R 10.0f
 
@@ -56,7 +56,7 @@
 
 /* 俯冲入段锚定世界速度用的标称滑翔速度(m/s),待台架实测。
  * 只决定弹道角 γ 的演化速率(γ̇≈−g·cosγ/V),不决定初始 γ(初始 γ 只由姿态前向方向定),故粗略即可。*/
-#define V_NOM_MS    6.0f
+#define V_NOM_MS    9.0f
 /* VEL_MAX_MS 见 common_defs.h */
 
 /* === ZUPT 零速更新 + 地面零偏对准:纯积分速度无外部速度观测,任何加速度零偏/姿态残差都被无限积分→漂

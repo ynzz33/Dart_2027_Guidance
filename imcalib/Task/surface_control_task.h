@@ -30,25 +30,25 @@
 // #define  Servo_UL_ZERO      1360
 // #define  Servo_UR_ZERO      1460
 // #define  Servo_DR_ZERO      1510
-// #define  Servo_DL_ZERO      1560    
+// #define  Servo_DL_ZERO      1540    
 // #define Shot_Pitch 29
 // #define Shot_Roll -5  
  
 // //镖体2 红色
-// #define  Servo_UL_ZERO      1420
-// #define  Servo_UR_ZERO      1700
-// #define  Servo_DR_ZERO      1685
-// #define  Servo_DL_ZERO      1495    
-// #define Shot_Pitch 32
-// #define Shot_Roll -1
+#define  Servo_UL_ZERO      1420
+#define  Servo_UR_ZERO      1700
+#define  Servo_DR_ZERO      1685
+#define  Servo_DL_ZERO      1495    
+#define Shot_Pitch 32
+#define Shot_Roll -1
 
 //镖体3 蓝色
-#define  Servo_UL_ZERO      1560
-#define  Servo_UR_ZERO      1680
-#define  Servo_DR_ZERO      1535
-#define  Servo_DL_ZERO      1570    
-#define Shot_Pitch 22 
-#define Shot_Roll -8        
+// #define  Servo_UL_ZERO      1560
+// #define  Servo_UR_ZERO      1680
+// #define  Servo_DR_ZERO      15357
+// #define  Servo_DL_ZERO      1570    
+// #define Shot_Pitch 18
+// #define Shot_Roll 8        
 
 // // //镖体4 红色
 // #define  Servo_UL_ZERO      1660
@@ -141,7 +141,7 @@
  * PN:目标角按"世界系惯性视线率λ̇"超前——λ̇由锁存视线帧间差分得(纯视觉),驱动λ̇→0=碰撞航线,
  *    既提前瞄准命中、又给外环超前相位压制猎振;λ̇限幅防丢帧/视觉跳变爆冲。
  * 迎角前馈:理论应加迎角 θ−γ,但本工程 γ 取姿态前向≡Euler[PITCH]→θ−γ≡0 不含迎角信息8,
- *    无气动配平数据,退化为常值 AOA_TRIM_DEG(机体俯仰比视线高这么多,使速度方向落在视线上)。
+ * 
  * 全部待台架/试飞实测调:先 PN_LEAD_K 小增益验证方向与稳定性、再逐步加大;AOA_TRIM 有数据再给。*/
 #define  PN_LEAD_K          (0.5f)    /* 视线率超前系数(s):target += K·λ̇;↑更超前/更抗滞后,过大易被视觉噪声激励 */
 #define  LOS_RATE_LIMIT_DPS (40.0f)   /* 视线率λ̇限幅(°/s):丢帧/视觉跳变时防 PN 项爆冲 */

@@ -733,8 +733,8 @@ void Guidance_Terminal(void)//制导段
         /* YAW:直接追锁存视线终点 */
         Surface.target_angle_Euler[NOW][YAW] = vision_los_final[NOW][YAW];
 
-        // /* PITCH:主动滑翔→扎(pitch_glide_mode=1) / 旧门限逻辑(=0)
-        //  * 目标由 blend 在「滑翔姿态 THETA_GLIDE」与「视觉视线」间插值,LQR 门控(lqr.c)保证只在 Terminal 段打舵。*/
+        /* PITCH:主动滑翔→扎(pitch_glide_mode=1) / 旧门限逻辑(=0)
+         * 目标由 blend 在「滑翔姿态 THETA_GLIDE」与「视觉视线」间插值,LQR 门控(lqr.c)保证只在 Terminal 段打舵。*/
         // if (pitch_glide_mode)
         // {
         //     /* blend 0→1:远端住 THETA_GLIDE 压平轨迹增程(飞更远),近端平滑过渡到追视觉视线扎下去。
@@ -805,6 +805,8 @@ void Guidance_Process_OK(void)
 void get_current_Target(void)
 {
         // Guidance_State = Stable;
+        Surface.target_angle_Euler[NOW][ROLL]  =  
+        Surface.Stable_Euler_Angle[ROLL];
         Stable_Flag = 0;
         switch(Guidance_State)
         {
@@ -845,8 +847,6 @@ void get_current_Target(void)
         }
         
         /* ROLL 始终自稳(与视觉新数据无关),每 tick 刷新 */
-        Surface.target_angle_Euler[NOW][ROLL]  =  
-        Surface.Stable_Euler_Angle[ROLL];
         // Surface.target_angle_Euler[NOW][YAW]  =  
         // Surface.Stable_Euler_Angle[YAW];
         // Surface.target_angle_Euler[NOW][PITCH]  =  
@@ -894,7 +894,7 @@ void get_current_State(void)
         }
         if(Surface.Guidance_cnt[1]>=20&&Surface.Guidance_flag[1]==0)
         {
-            Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
+            Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]-5.0f; 
             Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
             Surface.Guidance_flag[1] = 1;
             Vision_Transmit( Vision_Cmd_Record_Start );
@@ -920,7 +920,7 @@ void get_current_State(void)
     }
     else if (Guidance_State == Terminal &&fabs(IMU_Data.Velocity[Body][NOW][Z]==0.0f||IMU_Data.A_Normed[NOW][Y])>= 0.90f&& IMU_Data.A[NOW][Y]<= -1.3f)
     {
-        if(Surface.Guidance_cnt[3]++>5)
+        if(Surface.Guidance_cnt[3]++>500)
         {
             Buzzer_Remind();
             Guidance_State = End;

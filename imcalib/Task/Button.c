@@ -74,7 +74,7 @@ void Short_Press_Process(void)
                 {
                         // ==================电池掉电==============
                         Surface.Guidance_cnt[4] = 1800;
-                        Guidance_State = End;
+                        Total_Power_Control(Power_OFF);
                         // ==================视觉内录==============
                         // Vision_Transmit(Vision_Cmd_Record_Stop);
                         // Guidance_State = End;
