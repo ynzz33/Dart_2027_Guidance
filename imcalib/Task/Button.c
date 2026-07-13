@@ -65,6 +65,7 @@ void Short_Press_Process(void)
                         Vision_Self_Text();
                         Guidance_State = Start;
                         Surface.Guidance_cnt[4] = 1800;
+                        Surface.Guidance_cnt[5] = 500;
                         Guidance_State = End;
                         // Vision_Transmit(Vision_Cmd_Work);
                         // Vision_Transmit( Vision_Cmd_Record_Start );

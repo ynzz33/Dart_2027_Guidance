@@ -23,7 +23,7 @@
 #define mahony_MAXOUT   30.00f   /* 修正量限幅,防加速度突变把姿态拉飞 */
 #define mahony_i_maxout  5.00f   /* 积分限幅 */
 #define mahony_Kp        10.0f    /* 加速度校正强度:大→快速消陀螺漂移但易被振动带歪;小→抗扰好但收敛慢 */
-#define mahony_Ki        0.01f  /* 陀螺零偏在线估计:静止时 acc_trust≈1→自动学习,高机动时 acc_trust≈0→冻结。
+#define mahony_Ki        0.1f  /* 陀螺零偏在线估计:静止时 acc_trust≈1→自动学习,高机动时 acc_trust≈0→冻结。
                                  * 值小=收敛慢但稳,0.01 约 100s 时间常数;mahony_i_maxout 防积分饱和。旧值 0=关。 */
 #define mahony_Kd        0.0f    /* 必须为 0:标准 Mahony 只有 PI,D 项会放大噪声 */
 
@@ -34,7 +34,7 @@
 #define ACC_TRUST_ZERO_DEV  0.50f   /* ||a|-1g| >= 此值:完全不信任(权重=0,纯陀螺) */
 
 #define GYR_KF_Q 1.0f
-#define GYR_KF_R 15.0f
+#define GYR_KF_R 10.0f
 #define ACC_KF_Q 1.0f
 #define ACC_KF_R 10.0f
 

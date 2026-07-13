@@ -155,6 +155,8 @@ virtualFolder:
         - path: imcalib/lqr_tool/rtGetNaN.c
         - path: imcalib/lqr_tool/rtGetNaN.h
         - path: imcalib/lqr_tool/rtwtypes.h
+        - path: imcalib/lqr_tool/lqr_Stable_K_Dart.c
+        - path: imcalib/lqr_tool/lqr_Stable_K_Dart.h
       folders: []
 dependenceList: []
 outDir: build

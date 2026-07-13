@@ -660,6 +660,8 @@ void Guidance_Start(void)//自检后的判断
 {
             Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
             Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
+        Surface.target_angle_Euler[NOW][ROLL]  =  
+        Surface.Stable_Euler_Angle[ROLL];
 }
 void Guidance_Stable(void)//自稳
 {
@@ -668,6 +670,8 @@ void Guidance_Stable(void)//自稳
         Surface.current_angle_Euler[NOW][PITCH];
         Surface.target_angle_Euler[NOW][YAW]   = 
         Surface.Stable_Euler_Angle[YAW];
+        Surface.target_angle_Euler[NOW][ROLL]  =  
+        Surface.Stable_Euler_Angle[ROLL];
 }
 void Guidance_Terminal(void)//制导段
 {
@@ -891,13 +895,13 @@ void get_current_State(void)
         {   
             /* 进入窗口仅一次:请求 IMU 以当前绝对航向为新原点,使此刻起 yaw=0 */
             if(!yaw_zero_latched){ Yaw_Zero_Req = 1; yaw_zero_latched = 1; }
+            Vision_Transmit( Vision_Cmd_Record_Start );
         }
         if(Surface.Guidance_cnt[1]>=20&&Surface.Guidance_flag[1]==0)
         {
-            Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]-5.0f; 
+            Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
             Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
-            Surface.Guidance_flag[1] = 1;
-            Vision_Transmit( Vision_Cmd_Record_Start );
+            Surface.Guidance_flag[1] = 1; 
         }
         if(Surface.Guidance_flag[1] == 1&&(IMU_Data.Velocity[Body][NOW][Z]<=-0.7f||(IMU_Data.Velocity[Body][NOW][Y]>=0.7f)))
         {
@@ -918,7 +922,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&fabs(IMU_Data.Velocity[Body][NOW][Z]==0.0f||IMU_Data.A_Normed[NOW][Y])>= 0.90f&& IMU_Data.A[NOW][Y]<= -1.3f)
+    else if (Guidance_State == Terminal &&fabs(V_DART<4.0f||IMU_Data.A_Normed[NOW][Y])>= 0.90f&& IMU_Data.A[NOW][Y]<= -1.3f)
     {
         if(Surface.Guidance_cnt[3]++>500)
         {
@@ -948,6 +952,14 @@ void get_current_State(void)
         Surface.Guidance_cnt[2] = 0;
         Surface.Guidance_cnt[3] = 0;
         yaw_zero_latched = 0;   /* 流程退回:重新武装 yaw 归零,下次进窗口再触发一次 */
+    }
+    if(Guidance_State>Stable&&V_DART<4.0f)
+    {
+        if(Surface.POWER_OFF_CNT++>500)
+        {
+            Guidance_State = End;
+        }
+        
     }
 }
 

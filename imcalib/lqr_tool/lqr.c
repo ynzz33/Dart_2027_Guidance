@@ -46,27 +46,8 @@
 
 #include <math.h>                    /* sqrtf */
 
-/*============================================================================
- *  ★★★ K 矩阵粘贴区 ★★★
- *  从 MATLAB(dart_attitude_LQR_v1.m) Step5 输出复制 4 行数值，整体覆盖到这里。
- *  行 = 4 个舵(MATLAB delta1..delta4)，列 = 6 个状态[roll_err,pitch_err,yaw_err,p,q,r]。
- *  当前为脚本占位参数(占位惯量/气动/QR)导出的值，台架前必须用真实参数重跑 MATLAB 更新。
- *  注意：保留 float 精度，别手动四舍五入到太少位数。
- *============================================================================*/
-float dart_lqr_K[DART_LQR_SERVO_NUM][DART_LQR_STATE_NUM] = {
 
-
-
-
-    {-0.60756979845502246, -0.27200540115909788, 0.29379300472243813, -0.32361332019090711, -0.37186397456477854, 0.37349076858548441},
-    {-0.60756979845503545, 0.27200540115900668, 0.29379300472245867, -0.32361332019090738, 0.37186397456476578, 0.3734907685854868},
-    {-0.60756979845504633, 0.27200540115906036, -0.29379300472243208, -0.32361332019090755, 0.37186397456477249, -0.37349076858548397},
-    {-0.60756979845503345, -0.27200540115904892, -0.29379300472245262, -0.32361332019090788, -0.37186397456477427, -0.37349076858548641}
-
-
-
-
-};
+float V_DART = 0.0f;   /* 当前拍速度(m/s，clamp 后) */
 
 /*============================================================================
  *  全局实例 + 运行时旋钮
@@ -103,8 +84,7 @@ static const uint8_t K_ROW_TO_SERVO[DART_LQR_SERVO_NUM] = {
  *============================================================================*/
 void LQR_Update(const float x[DART_LQR_STATE_NUM], float u[DART_LQR_SERVO_NUM])
 {
-    const float (*K)[DART_LQR_STATE_NUM] =
-        lqr_use_scheduled_K ? lqr_ctrl.K_d : dart_lqr_K;
+    const float (*K)[DART_LQR_STATE_NUM] = lqr_ctrl.K_d ;
 
     for (uint8_t i = 0; i < DART_LQR_SERVO_NUM; i++)
     {
@@ -141,7 +121,7 @@ void Euler_LQR_Cale(float dt)
     /* 1.1) 基于 roll 的机体系补偿(roll_comp=1)：把世界系 pitch/yaw 误差按当前横滚反旋到机体系。
      *   依据：角度误差取自世界系 ZYX 欧拉(current_angle_Euler)，但 LQR 的 K/B 是机体舵效；机身横滚
      *   Δ=current_roll−Stable_roll 后，世界系 (pitch_err,yaw_err) 要在机体系里旋一个 Δ 才对得上舵面。
-     *   只反旋角度误差的 pitch/yaw 这一对：roll_err 绕纵轴不变、p/q/r(x[3..5]) 已是机体陀螺(IMU.c) → 都不旋。
+    *   只反旋角度误差的 pitch/yaw 这一对：roll_err 绕纵轴不变、p/q/r(x[3..5]) 已是机体陀螺(IMU.c) → 都不旋。
      *   复用 Roll_Derotate_PitchYaw(与 PID 同一旋转、同一 ROLL_WORLD_COMP_SIGN)；★用独立临时量收结果，
      *   绝不传同一变量当输入兼输出——该函数内部 *Pb=…Pw…; *Yb=…Pw… 会被 in-place 别名覆盖算错。
      *   roll_comp=0 时直通=旧 LQR 行为(A/B 对照)。Stable 段 Δ≈0 自然恒等，主要在 Terminal 横滚时生效。*/
@@ -158,11 +138,16 @@ void Euler_LQR_Cale(float dt)
     lqr_ctrl.x[5] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW])   ;
 
 
-    // if (Surface.current_angle_Euler[NOW][PITCH]>=-5.0f&&Guidance_State == Terminal&&Vision_Rx_Data.x[NOW]<0  )
+    // if(Surf·ace.current_angle_Euler[NOW][PITCH]>=Shot_Pitch-10.0f)
     // {
-    //     lqr_ctrl.x[1] = 0.0f;   
+    //     lqr_ctrl.x[4] = 0;
+    //     // lqr_ctrl.x[3] = 0;
+    //     lqr_ctrl.x[5] = 0;
     // }
-
+    if(Guidance_State<Terminal)
+    {
+        lqr_ctrl.x[2] *= 0.3f;
+    }
     /* 2) LQR 解算(rad)，已限幅 */
     LQR_Update(lqr_ctrl.x, lqr_ctrl.u_rad);
 
@@ -205,17 +190,26 @@ void LQR_Gain_Update50Hz(void)
     float vx = IMU_Data.Velocity[World][NOW][X];
     float vy = IMU_Data.Velocity[World][NOW][Y];
     float vz = IMU_Data.Velocity[World][NOW][Z];
-    float V = sqrtf(vx * vx + vy * vy + vz * vz);
+    V_DART = sqrtf(vx * vx + vy * vy + vz * vz);
 
     /* 2) clamp 到拟合范围 */
-    if (V < DART_LQR_V_MIN) V = DART_LQR_V_MIN;
-    if (V > DART_LQR_V_MAX) V = DART_LQR_V_MAX;
-    lqr_ctrl.V_lqr = V;
+    if (V_DART < DART_LQR_V_MIN) V_DART = DART_LQR_V_MIN;
+    if (V_DART > DART_LQR_V_MAX) V_DART = DART_LQR_V_MAX;
+    lqr_ctrl.V_lqr = V_DART;
+
 
     /* 3) 调 MATLAB Coder 生成的方程（double 精度） */
+    
     double K_flat[24];
-    LQR_K_Dart_d((double)V, K_flat);
-
+    LQR_K_Dart_d((double)V_DART, K_flat);
+    // if(Guidance_State <= Stable)
+    // {
+    //     LQR_K_Dart_Stable_d((double)V, K_flat);
+    // }
+    // else if(Guidance_State == Terminal)
+    // {
+    //     LQR_K_Dart_d((double)V, K_flat);
+    // }
     /* 4) 列优先→行优先，写入 lqr_ctrl.K_d
      *    MATLAB 按列排：K_flat[0..3]=col0(roll_err), K_flat[4..7]=col1(pitch_err), ... */
     for (uint8_t col = 0; col < DART_LQR_STATE_NUM; col++)

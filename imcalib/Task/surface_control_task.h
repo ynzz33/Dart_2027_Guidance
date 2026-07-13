@@ -12,51 +12,45 @@
 
 #define  ZERO_POINT 1500
  
-#define  Wing_left_ZERO_POINT      1400  //变大向上，变小向下
-#define  Wing_right_ZERO_POINT     1480  //变小向上，变大向下
-#define  Vertical_fin_ZERO_POINT   1520
-
-#define  Wing_up_Change_Angle       50.0f  // 250.0f
-#define  Wing_down_Change_Angle    -100.0f  //-400.0f
-#define  Vertical_fin_Change_Angle  250.0f  // 800.0f
-/* === X 翼 4 舵机布局(VECTOR_NOZZLE 模式使用),不影响原飞翼路径 === */
 //硬件原因导致左上舵机接在了 TIM3 上，所以单独写函数控制
 #define  Servo_UL_Channel   TIM_CHANNEL_2   /* htim3 CH2 → PB5 - UP_LEFT (硬件原因独占 TIM3) */
 #define  Servo_UR_Channel   TIM_CHANNEL_2   /* htim4 CH2 → PB7 - UP_RIGHT   */
 #define  Servo_DR_Channel   TIM_CHANNEL_3   /* htim4 CH3 → PB8 - DOWN_RIGHT  */
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
-//镖体1 红色
-// #define  Servo_UL_ZERO      1360
+// //镖体1 红色
+// #define  Servo_UL_ZERO      1365
 // #define  Servo_UR_ZERO      1460
-// #define  Servo_DR_ZERO      1510
-// #define  Servo_DL_ZERO      1540    
+// #define  Servo_DR_ZERO      1505
+// #define  Servo_DL_ZERO      1530    
 // #define Shot_Pitch 29
 // #define Shot_Roll -5  
  
 // //镖体2 红色
-#define  Servo_UL_ZERO      1420
-#define  Servo_UR_ZERO      1700
-#define  Servo_DR_ZERO      1685
-#define  Servo_DL_ZERO      1495    
-#define Shot_Pitch 32
-#define Shot_Roll -1
+// #define  Servo_UL_ZERO      1430
+// #define  Servo_UR_ZERO      1690
+// #define  Servo_DR_ZERO      1675
+// #define  Servo_DL_ZERO      1505    
+// #define Shot_Pitch 32
+// #define Shot_Roll -1
 
 //镖体3 蓝色
-// #define  Servo_UL_ZERO      1560
-// #define  Servo_UR_ZERO      1680
-// #define  Servo_DR_ZERO      15357
-// #define  Servo_DL_ZERO      1570    
-// #define Shot_Pitch 18
-// #define Shot_Roll 8        
+// #define  Servo_UL_ZERO      1660
+// #define  Servo_UR_ZERO      1550
+// #define  Servo_DR_ZERO      1520
+// #define  Servo_DL_ZERO      1550    
+// #define Shot_Pitch 21.5
+// #define Shot_Roll -9.5        
 
 // // //镖体4 红色
-// #define  Servo_UL_ZERO      1660
-// #define  Servo_UR_ZERO      1570
-// #define  Servo_DR_ZERO      1570
-// #define  Servo_DL_ZERO      1660    
-// #define Shot_Pitch 24                   
-// #define Shot_Roll 4
+#define  Servo_UL_ZERO      1630
+#define  Servo_UR_ZERO      1570
+#define  Servo_DR_ZERO      1540
+#define  Servo_DL_ZERO      1630    
+#define Shot_Pitch 24                   
+#define Shot_Roll 4
+
+
 
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
@@ -222,6 +216,7 @@ typedef struct
     int8_t  Guidance_flag[6];          /* 制导状态机各跳变的去抖计数 */
     uint8_t pid_cale_flag;            /* 本拍是否跑了 PID(Vofa 观测) */
     uint8_t Text_Flag;                /* 自检标志(预留) */
+    int16_t POWER_OFF_CNT;             /* 末制导低速超时计数 */
 }Surface_t;
 
 /* 上电自检流程(视觉 + 镖头触发板)状态 */

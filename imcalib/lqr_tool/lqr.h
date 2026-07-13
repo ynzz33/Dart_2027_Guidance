@@ -25,7 +25,7 @@
 
 /* 速度调度范围(m/s)，与 MATLAB V_schedule_ac 对齐；超出 clamp 到边界 */
 #define DART_LQR_V_MIN       2.0f
-#define DART_LQR_V_MAX       20.0f
+#define DART_LQR_V_MAX       10.0f
 #define DART_LQR_V_NOM       4.0f   /* 标称速度(初始 K_d / EKF 不可用时的回退) */
 
 /*============================================================================
@@ -68,7 +68,7 @@ extern float dart_lqr_K[DART_LQR_SERVO_NUM][DART_LQR_STATE_NUM]; /* 旧单点 K 
 extern float dart_delta_max_rad;                            /* 舵偏限幅(rad)，默认 ±60° */
 extern uint8_t lqr_pitch_terminal_only;                    /* 1=只在制导段(Terminal)+检测到目标时控 pitch(补偿)；0=全程控。见 lqr.c */
 extern uint8_t lqr_use_scheduled_K;                        /* 1=速度调度 K_d(V)(默认)；0=退回静态 dart_lqr_K */
-
+extern float V_DART;                                        /* 50Hz 中断算出的当前飞行速度(m/s)，clamp 到 [DART_LQR_V_MIN,DART_LQR_V_MAX] */
 /*============================================================================
  *  接口
  *============================================================================*/
