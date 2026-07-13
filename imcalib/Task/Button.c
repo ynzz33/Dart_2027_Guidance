@@ -63,9 +63,6 @@ void Short_Press_Process(void)
                         // Total_Power_Control(Power_ON);
                         // ==================视觉自检，内录==============
                         Vision_Self_Text();
-                        Guidance_State = Start;
-                        Surface.Guidance_cnt[4] = 1800;
-                        Surface.Guidance_cnt[5] = 500;
                         Guidance_State = End;
                         // Vision_Transmit(Vision_Cmd_Work);
                         // Vision_Transmit( Vision_Cmd_Record_Start );
@@ -74,7 +71,6 @@ void Short_Press_Process(void)
                 case 2:
                 {
                         // ==================电池掉电==============
-                        Surface.Guidance_cnt[4] = 1800;
                         Total_Power_Control(Power_OFF);
                         // ==================视觉内录==============
                         // Vision_Transmit(Vision_Cmd_Record_Stop);
@@ -90,6 +86,10 @@ void Short_Press_Process(void)
                 {
                         // ==================阵营切换-蓝==============
                         Dart_Trriger_Color_Set(Team_Blue);
+                }break;
+                case 5:
+                {
+                        Vision_Transmit( Vision_Cmd_Record_Start );
                 }break;
                 case 8:
                 {

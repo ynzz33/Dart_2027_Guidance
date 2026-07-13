@@ -90,50 +90,6 @@ float   pitch_glide_target = 0.0f, pitch_glide_blend = 0.0f;
 /*---------------------------------------------------------------------------*/
 #if 1
 
-void Velocity_Pursuit_Cale(float delta_time)
-{
-    /* --- 外环:速度方向追目标方向 → body 目标角 --- */
-    float body_cmd_pitch = Surface.target_angle_Euler[NOW][PITCH]; /* 默认直通 */
-    float body_cmd_yaw   = Surface.target_angle_Euler[NOW][YAW];
-
-    if (Guidance_State > Stable)
-    {
-        body_cmd_pitch = pid_calc(&vel_pursuit_pid[PITCH],
-                                  IMU_Data.Vel_Dir[PITCH],
-                                  Surface.target_angle_Euler[NOW][PITCH],
-                                  delta_time);
-    }
-    body_cmd_yaw = pid_calc(&vel_pursuit_pid[YAW],
-                            IMU_Data.Vel_Dir[YAW],
-                            Surface.target_angle_Euler[NOW][YAW],
-                            delta_time);
-
-    /* --- 中环:镖头追外环输出 → rate_cmd --- */
-    if (Guidance_State > Stable)
-    {
-        temp[PITCH] = pid_calc(&surface_control_pid[Angle][PITCH],
-                               Surface.current_angle_Euler[NOW][PITCH],
-                               body_cmd_pitch,
-                               delta_time);
-    }
-    temp[YAW] = pid_calc(&surface_control_pid[Angle][YAW],
-                          Surface.current_angle_Euler[NOW][YAW],
-                          body_cmd_yaw,
-                          delta_time);
-    temp[ROLL] = pid_calc(&surface_control_pid[Angle][ROLL],
-                           Surface.current_angle_Euler[NOW][ROLL],
-                           Surface.target_angle_Euler[NOW][ROLL],
-                           delta_time);
-
-    /* --- 内环:角速度追 rate_cmd → 舵偏 --- */
-    Surface.output_gyro_Euler[NOW][PITCH] = pid_calc(&surface_control_pid[Gyro][PITCH],
-        Surface.current_gyro_Euler[NOW][PITCH], temp[PITCH], delta_time);
-    Surface.output_gyro_Euler[NOW][YAW] = pid_calc(&surface_control_pid[Gyro][YAW],
-        Surface.current_gyro_Euler[NOW][YAW], temp[YAW], delta_time);
-    Surface.output_gyro_Euler[NOW][ROLL] = pid_calc(&surface_control_pid[Gyro][ROLL],
-        Surface.current_gyro_Euler[NOW][ROLL], temp[ROLL], delta_time);
-}
-
 void Euler_Updata(void)
 {
     //Updata
@@ -242,419 +198,6 @@ void Wing_Control(void)
     }
 }
 
-#if 0   /* ★封存:末制导视线角归一化/目标斜坡/俯冲下限/距离增益——LPF段简化为直接用锁存视线后,主路径已不再调用这些函数;保留可回退(改回 #if 1 即恢复) */
-/* === 视线角半径归一化 ===
- * 远处引导灯 blob 半径小(~5px),同样像素偏移对应更大实际角度;
- * 近处 blob 半径大(~30px),同样像素偏移对应更小实际角度。
- * 归一化到 REF_RADIUS(15px):normalized = angle × (REF_RADIUS / radius)
- * → 控制增益不再随距离变化,同一像素偏移始终对应同一归一化角。
- *
- * 输入:angle_deg 视觉原始视线角(度), radius_px blob等效半径(像素)
- * 输出:归一化后的视线角(度),radius<REF_RADIUS_MIN 时原样返回(防除零) */
-static float Vision_Angle_Normalize(float angle_deg, uint16_t radius_px)
-{
-    if (radius_px < REF_RADIUS_MIN) return angle_deg;  /* 半径太小/无数据,不补偿 */
-    float r = (float)radius_px;
-    
-    return angle_deg * (REF_RADIUS / r);
-}
-
-/* 目标斜坡逼近(速率限制):把 cur 朝 target 每拍最多移动 max_step,把视觉阶跃摊成斜坡(方案3)。
- * wrap=1:差值按角度环绕到最短弧(YAW 是 atan2 周期角);wrap=0:普通(PITCH 是 asin 不环绕)。*/
-static float Target_Slew(float cur, float target, float max_step, uint8_t wrap)
-{
-    float err = target - cur;
-    if (wrap) err = Angle_Wrap_180(err);
-    if (err >  max_step) err =  max_step;
-    if (err < -max_step) err = -max_step;
-    return cur + err;
-}
-
-/* === 末制导俯仰能量管理:随接近度放开的最陡俯冲下限 θ_floor ===
- * 钳"机体俯仰目标 ≥ θ_floor"=不许比 θ_floor 更陡。两条"≥"下限取较不陡(较大)者:
- *  ① 调度限幅 L_sched:接近度 s∈[0,1] 从远(s=0,浅滑翔保射程)线性放开到近(s=1,期望入射角)。
- *     s 分段合成(面积+距离一起用,数据来自视觉 0x5B 包):远段用距离 dist_cm(标定准、连续,s:0→DIVE_SCHED_SWITCH),
- *     近段用面积 area(blob 大、近场更可靠,s:DIVE_SCHED_SWITCH→1),dist_cm 决定走哪段;两包都无(dist_cm=0)
- *     退化按弹道角 γ 自调度(γ 随重力变陡→逐步放开)。
- *  ② 迎角限幅:θ ≥ γ−AOA_MARGIN,即鼻子不许指到比速度方向(γ)再低 AOA_MARGIN 以上——大负迎角
- *     →掉升力→因重力掉高度损能,正是"过早陡俯冲损耗能量"的物理根因;此条防距离/面积被骗时仍守住。
- * 终端 γ≈θ≈入射角时迎角 θ−γ→0=正向撞击。Vofa 观测 closeness_s / pitch_dive_floor。*/
-static float Pitch_Dive_Floor(uint16_t dist_cm, uint16_t area)
-{
-    float s_dist, s_area, s;
-    if (dist_cm == 0)                              /* 无 0x5B 距离/面积包 → 退化按弹道角 γ 自调度 */
-        // s = (gamma_pitch_deg - GAMMA_FAR_DEG) / (PITCH_INCIDENT_DEG - GAMMA_FAR_DEG);
-        s = 0.0f;   /* 直接退化到最保守的远段限幅,不放开 γ 自调度了(实测 γ 不够准),待实测再改回按 γ 调度 */
-    else if ((float)dist_cm > DIST_NEAR_CM)        /* 远段:距离调度,s 由远(s=0)线性升到切换点 */
-        s = DIVE_SCHED_SWITCH * (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
-    else                                           /* 近段:面积调度,s 由切换点升到近(s=1) */
-        s = DIVE_SCHED_SWITCH + (1.0f - DIVE_SCHED_SWITCH) * ((float)area - AREA_NEAR) / (AREA_IMPACT - AREA_NEAR);
-    if (s < 0.0f) s = 0.0f;
-    if (s > 1.0f) s = 1.0f;
-    closeness_s = s;
-
-    float L_sched = PITCH_DIVE_LIMIT_FAR_DEG + s * (PITCH_INCIDENT_DEG - PITCH_DIVE_LIMIT_FAR_DEG);
-    float L_aoa   = gamma_pitch_fwd_deg - AOA_MARGIN_DEG;
-    float dive_floor = (L_sched > L_aoa) ? L_sched : L_aoa;   /* 两个"≥"下限取较不陡(较大)者 */
-    pitch_dive_floor = dive_floor;
-    return dive_floor;
-}
-
-/* === [旧函数已注释] 末制导 YAW 距离面积增益 ===
- * 原函数使用距离+面积双段合成,调试中出现异常增益值,注释保留供参考。
- * 替换为纯距离线性插值版 Yaw_Gain_ByDist()。
- *
-static float Yaw_Distance_Area_Gain(uint16_t dist_cm, uint16_t area)
-{
-    ... (原代码已禁用)
-}
-*/
-
-/* === [旧函数已注释] 末制导 PITCH 距离面积增益 ===
- * 同上,替换为纯距离版 Pitch_Gain_ByDist()。
- *
-static float Pitch_Distance_Area_Gain(uint16_t dist_cm, uint16_t area)
-{
-    ... (原代码已禁用)
-}
-*/
-
-/* ============================================================================
- * Yaw_Gain_ByDist — 纯距离线性增益(YAW 通道)
- *
- * 原理:同样像素误差,远处对应更大实际角度→需要更大增益补偿;近处角度误差小→减小增益防过冲。
- * 只用距离 dist_cm,不用面积,消除面积异常值导致的增益跳变。
- *
- * 输入:
- *   dist_cm  视觉测距(cm),0=无数据
- *
- * 输出:
- *   增益值 ∈ [YAW_GAIN_NEAR, YAW_GAIN_FAR], 全局 yaw_distance_gain 同步更新
- *
- * 分段:
- *   dist > YAW_GAIN_ENABLE_DIST(800cm): 返回 1.0(远处不调整)
- *   dist == 0:                          返回 1.0(无数据不调整)
- *   DIST_ACQUIRE_CM(700) → DIST_NEAR_CM(470): 远→近线性插值
- *   dist < DIST_NEAR_CM(470):           夹到近端增益
- * ============================================================================ */
-static float Yaw_Gain_ByDist(uint16_t dist_cm)
-{
-    float gain;
-
-    if (dist_cm == 0)
-    {
-        /* 无距离数据:保持默认增益,不调整 */
-        gain = 1.0f;
-    }
-    else if ((float)dist_cm > YAW_GAIN_ENABLE_DIST)
-    {
-        /* 超过启用阈值:远处不调整 */
-        gain = 1.0f;
-    }
-    else if ((float)dist_cm >= DIST_ACQUIRE_CM)
-    {
-        /* 刚识别到但很远(DIST_ACQUIRE ~ ENABLE):用远端增益 */
-        gain = YAW_GAIN_FAR;
-    }
-    else if ((float)dist_cm <= DIST_NEAR_CM)
-    {
-        /* 已很近:用近端增益 */
-        gain = YAW_GAIN_NEAR;
-    }
-    else
-    {
-        /* 中间段:距离从 DIST_ACQUIRE 线性降到 DIST_NEAR,增益从 FAR 线性降到 NEAR */
-        float t = (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
-        /* t ∈ (0,1),t=0→远端,t=1→近端 */
-        gain = YAW_GAIN_FAR + t * (YAW_GAIN_NEAR - YAW_GAIN_FAR);
-    }
-
-    /* 最终硬夹:任何浮点异常都不可能越界 */
-    if (gain < YAW_GAIN_NEAR) gain = YAW_GAIN_NEAR;
-    if (gain > YAW_GAIN_FAR)  gain = YAW_GAIN_FAR;
-
-    yaw_distance_gain = gain;
-    return gain;
-}
-
-/* ============================================================================
- * Pitch_Gain_ByDist — 纯距离线性增益(PITCH 通道)
- *
- * 与 Yaw_Gain_ByDist 对称,但插值方向相反:
- *   远端(FAR)→小增益(保守,保射程);  近端(NEAR)→大增益(激进,精准命中)。
- *
- * 输入/输出/分段逻辑同 Yaw_Gain_ByDist,仅增益常量换为 PITCH_GAIN_*。
- * ============================================================================ */
-static float Pitch_Gain_ByDist(uint16_t dist_cm)
-{
-    float gain;
-
-    if (dist_cm == 0)
-    {
-        gain = 1.0f;
-    }
-    else if ((float)dist_cm > PITCH_GAIN_ENABLE_DIST)
-    {
-        gain = 1.0f;
-    }
-    else if ((float)dist_cm >= DIST_ACQUIRE_CM)
-    {
-        gain = PITCH_GAIN_FAR;
-    }
-    else if ((float)dist_cm <= DIST_NEAR_CM)
-    {
-        gain = PITCH_GAIN_NEAR;
-    }
-    else
-    {
-        float t = (DIST_ACQUIRE_CM - (float)dist_cm) / (DIST_ACQUIRE_CM - DIST_NEAR_CM);
-        gain = PITCH_GAIN_FAR + t * (PITCH_GAIN_NEAR - PITCH_GAIN_FAR);
-    }
-
-    if (gain < PITCH_GAIN_FAR)  gain = PITCH_GAIN_FAR;
-    if (gain > PITCH_GAIN_NEAR) gain = PITCH_GAIN_NEAR;
-
-    pitch_distance_gain = gain;
-    return gain;
-}
-#endif
-
-
-#if 1
-/* === 世界系 pitch/yaw 解算:roll 反旋(输出端) ===
- * 喂 PID 的 ZYX 欧拉 pitch/yaw 是世界系参考(绕纵轴横滚不改 pitch 读数,已台架确认),
- * 故 PID 输出 = 世界系 pitch/yaw 力矩需求;但 X 翼舵面产生的是机体系力矩。
- * 机身相对参考姿态横滚 Δ=当前roll−Stable_roll 后,把 (Pw,Yw) 反旋 Δ 投到机体系:
- *     Pb =  cosΔ·Pw + sinΔ·Yw
- *     Yb = −sinΔ·Pw + cosΔ·Yw
- * Δ=0(标称 roll)→恒等。roll 通道绕纵轴,不在此处理。
- * Roll_World_Comp_Flag=0 时直通(=旧行为,便于 A/B);
- * ROLL_WORLD_COMP_SIGN 为横滚正向/舵面朝向符号,台架单轴阶跃验证后可翻 ±1。*/
-void Roll_Derotate_PitchYaw(float Pw, float Yw, float *Pb, float *Yb)
-{
-    float delta_roll = Surface.current_angle_Euler[NOW][ROLL] - Surface.Stable_Euler_Angle[ROLL];
-    float r = DEG2RAD(ROLL_WORLD_COMP_SIGN * delta_roll);
-    float c = cosf(r), s = sinf(r);
-    *Pb =  c * Pw + s * Yw;
-    *Yb = -s * Pw + c * Yw;
-}
-/* ===== 控制分配(混控)重写:可调三轴限幅(交付A) + 最小能量分配(交付B) =====
- * 三者输出约定一致:写 Surface.output_angle_Servo[NOW][0..3](度,含SIGN,±SERVO_ANGLE_LIMIT 内),
- * 下标 0/1/2/3 = UP_LEFT/UP_RIGHT/DOWN_RIGHT/DOWN_LEFT。由调用点按 Alloc.Mode 分派。*/
-
-/* 交付A(重写):完全可配置的逐级(字典序)优先级缩放分配。
- * Alloc.Prio[0..2] 指定三轴优先级(轴枚举,[0]最高)。最高优先轴在前置限幅内全额保障;
- * 次级/三级各在每片剩余舵机余量内最大化保留,绝不回削高优先轴 → 高优先轴不被低优先轴污染。
- * 写 Surface.output_angle_Servo[NOW][0..3](度,含SIGN,±SERVO_ANGLE_LIMIT 内) 与 Alloc.u_out[]。*/
-void Servo_Mix_AxisLimit(float p, float r, float y)
-{
-    /* 1) 前置轴级限幅(各轴独立),保证 |d[a]| ≤ AXIS_LIMIT(应≤SERVO_ANGLE_LIMIT) */
-    abs_limit(&p, AXIS_LIMIT_PITCH);
-    abs_limit(&r, AXIS_LIMIT_ROLL);
-    abs_limit(&y, AXIS_LIMIT_YAW);
-    float d[3] = { p, r, y };                       /* 按 PITCH/ROLL/YAW 下标 */
-
-    /* 逻辑符号阵 C(未含物理 SIGN),列序 P/R/Y。pitch 列四片同号 [−1,−1,−1,−1] 是 X 翼解算所需:
-     * 4 片成 X(45°,从尾看 UL135/UR45/DR315/DL225),每片切向力对力矩贡献 pitch∝cosθ、yaw∝sinθ、roll=常数;
-     * 配 SIGN=[−1,+1,+1,−1](左右镜像,见.h)后 pitch 落到舵令 u=[+,−,−,+]=真俯仰、与 roll/yaw 正交解耦。
-     * 轴间配对结构由本阵的列决定(SIGN 只修整片装反);同步:Alloc.B pitch 行。
-     * 注:pitch 逻辑列用 −1(非 +1)是因为 SIGN 翻转后等效,−1×SIGN=[+1,−1,−1,+1] 与物理舵面对齐。*/
-    static const float C[4][3] = {                  /* 列序 P/R/Y */
-        { -1.0f, +1.0f, -1.0f },                    /* UP_LEFT    */
-        { -1.0f, -1.0f, +1.0f },                    /* UP_RIGHT   */
-        { -1.0f, -1.0f, -1.0f },                    /* DOWN_RIGHT */
-        { -1.0f, +1.0f, +1.0f },                    /* DOWN_LEFT  */
-    };
-
-    /* 2) Alloc.Prio 合法性校验:必须是 {0,1,2} 的排列,否则退回默认 {PITCH,YAW,ROLL} */
-    uint8_t prio[3];
-    {
-        uint8_t seen = 0, ok = 1;
-        for (int rank = 0; rank < 3; rank++)
-        {
-            uint8_t a = Alloc.Prio[rank];
-            if (a > 2 || (seen & (1u << a))) { ok = 0; break; }
-            seen |= (1u << a);
-        }
-        if (ok) { prio[0]=Alloc.Prio[0]; prio[1]=Alloc.Prio[1]; prio[2]=Alloc.Prio[2]; }
-        else    { prio[0]=PITCH;         prio[1]=YAW;           prio[2]=ROLL;          }
-    }
-
-    /* 3) 逐级缩放:base[i]=各已定轴在片 i 的累计逻辑贡献 */
-    float base[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    float k_last  = 1.0f;
-    for (int rank = 0; rank < 3; rank++)
-    {
-        int   a = prio[rank];
-        float k = 1.0f;
-        for (int i = 0; i < 4; i++)
-        {
-            float term = C[i][a] * d[a];
-            float at   = (term < 0.0f) ? -term : term;
-            if (at < 1e-6f) continue;               /* 无贡献 → 不构成约束 */
-            float sgn  = (term < 0.0f) ? -1.0f : 1.0f;
-            float ki   = (SERVO_ANGLE_LIMIT - sgn * base[i]) / at;
-            if (ki < k) k = ki;
-        }
-        if (k < 0.0f) k = 0.0f;
-        if (k > 1.0f) k = 1.0f;
-        for (int i = 0; i < 4; i++)
-            base[i] += C[i][a] * k * d[a];          /* 叠加本级,永不回削前级 */
-        k_last = k;
-    }
-    Alloc.lat_scale = k_last;                       /* Vofa:最低优先轴保留比(横侧 k 的泛化) */
-
-    /* 4) ×物理装配 SIGN + 每片兜底限幅(消 FP 误差) → 写出 */
-    float SGN[4];
-    SGN[UP_LEFT]    = SIGN_UL;  SGN[UP_RIGHT]   = SIGN_UR;
-    SGN[DOWN_RIGHT] = SIGN_DR;  SGN[DOWN_LEFT]  = SIGN_DL;
-    for (int i = 0; i < 4; i++)
-    {
-        float v = SGN[i] * base[i];
-        abs_limit(&v, SERVO_ANGLE_LIMIT);
-        Surface.output_angle_Servo[NOW][i] = v;
-        Alloc.u_out[i] = v;
-    }
-}
-/* 1 维零空间 n:n_j=(-1)^j·det(B 删去第 j 列的 3x3 子阵)。理想阵应得 n=[4,4,-4,-4]∝[1,1,-1,-1]。*/
-static void alloc_compute_nullspace(const float B[3][4], float n[4])
-{
-    for (int j = 0; j < 4; j++)
-    {
-        int c[3], k = 0;
-        for (int cc = 0; cc < 4; cc++) if (cc != j) c[k++] = cc;
-        float a = B[0][c[0]], b = B[0][c[1]], d = B[0][c[2]];
-        float e = B[1][c[0]], f = B[1][c[1]], g = B[1][c[2]];
-        float h = B[2][c[0]], m = B[2][c[1]], q = B[2][c[2]];
-        float det = a * (f * q - g * m) - b * (e * q - g * h) + d * (e * m - f * h);
-        n[j] = ((j & 1) ? -1.0f : 1.0f) * det;
-    }
-}
-
-/* 最小能量伪逆解 u0 = Bᵀ(BBᵀ)⁻¹ v;成功返回1,(BBᵀ)奇异返回0。CMSIS,数据缓冲静态。*/
-static uint8_t alloc_minnorm_solve(float B[3][4], float v[3], float u0[4])
-{
-    static float Bt_d[12], M_d[9], Minv_d[9], t3_d[3];
-    mat Bm, Btm, Mm, Minvm, vm, t3m, u0m;
-    mat_init(&Bm,    3, 4, (float *)B);
-    mat_init(&Btm,   4, 3, Bt_d);
-    mat_trans(&Bm, &Btm);                      /* Bᵀ (4x3) */
-    mat_init(&Mm,    3, 3, M_d);
-    mat_mult(&Bm, &Btm, &Mm);                  /* M = B·Bᵀ (3x3) */
-    mat_init(&Minvm, 3, 3, Minv_d);
-    if (mat_inv(&Mm, &Minvm) == ARM_MATH_SINGULAR) return 0;
-    mat_init(&vm,    3, 1, v);
-    mat_init(&t3m,   3, 1, t3_d);
-    mat_mult(&Minvm, &vm, &t3m);               /* t3 = M⁻¹·v */
-    mat_init(&u0m,   4, 1, u0);
-    mat_mult(&Btm, &t3m, &u0m);                /* u0 = Bᵀ·t3 (4x1) */
-    return 1;
-}
-
-/* 沿零空间 n 把 u0 投影进约束盒 |u_i|≤u_max(Bn=0 故不改变 Bu=v)。
- * 可行区间非空→就地更新 u0、记录 α、返回1;为空(v 不可达)→返回0。*/
-static uint8_t alloc_project_nullspace(float u0[4], const float n[4], float u_max)
-{
-    float a_lo = -1e30f, a_hi = 1e30f;
-    for (int i = 0; i < 4; i++)
-    {
-        if (fabsf(n[i]) < 1e-6f)
-        {
-            if (fabsf(u0[i]) > u_max) return 0;        /* 该舵无零空间自由度且已越界 → 不可达 */
-            continue;
-        }
-        float lo = (-u_max - u0[i]) / n[i];
-        float hi = ( u_max - u0[i]) / n[i];
-        if (lo > hi) { float t = lo; lo = hi; hi = t; }
-        if (lo > a_lo) a_lo = lo;
-        if (hi < a_hi) a_hi = hi;
-    }
-    if (a_lo > a_hi) return 0;                          /* 可行区间空 → 不可达 */
-
-    float ndotn = n[0]*n[0] + n[1]*n[1] + n[2]*n[2] + n[3]*n[3];
-    float u0dn  = u0[0]*n[0] + u0[1]*n[1] + u0[2]*n[2] + u0[3]*n[3];
-    float a = (ndotn > 1e-9f) ? -(u0dn / ndotn) : 0.0f; /* 最小能量 α* = -(u0·n)/(n·n) */
-    if (a < a_lo) a = a_lo;
-    if (a > a_hi) a = a_hi;
-    Alloc.alpha = a;
-    for (int i = 0; i < 4; i++) u0[i] += a * n[i];
-    return 1;
-}
-
-/* 用 v=[p,r,y] 解 minnorm→×ALLOC_GAIN→零空间投影。可达返回1(u0填最终解),(BBᵀ)奇异返回-1,不可达返回0。*/
-static int alloc_try(float p, float r, float y, const float n[4], float u0[4])
-{
-    float v[3] = { p, r, y };
-    if (!alloc_minnorm_solve(Alloc.B, v, u0)) return -1;
-    for (int i = 0; i < 4; i++) u0[i] *= ALLOC_GAIN;
-    return alloc_project_nullspace(u0, n, ALLOC_U_MAX) ? 1 : 0;
-}
-
-/* 交付B:真正的最小能量控制分配。min‖u‖² s.t. B·u=v(×ALLOC_GAIN),|u_i|≤u_max(=ALLOC_U_MAX)。
- * 可达→精确实现该力矩的最小能量解;不可达→优先级 pitch>yaw>roll:先保 pitch 二分缩横侧,横侧缩尽仍
- * 不可达(pitch 力矩超单舵极限)再二分缩 pitch(等效 Mode1 饱和截断);(BBᵀ)奇异→退回三轴限幅。
- * B 默认理想阵,可台架辨识替换(见 Alloc.B 注释)。*/
-void Servo_Mix_MinEnergy(float p, float r, float y)
-{
-    float n[4];
-    alloc_compute_nullspace(Alloc.B, n);
-
-    float u0[4] = {0};
-    float s_lat = 1.0f, s_pit = 1.0f;
-    int rc;
-
-    /* 先判 pitch 单独(横侧全关)可达性:决定走"保 pitch 缩横侧"还是"缩 pitch" */
-    rc = alloc_try(p, 0.0f, 0.0f, n, u0);
-    if (rc < 0) { Alloc.singular_flag = 1; Servo_Mix_AxisLimit(p, r, y); return; }
-
-    if (rc == 1)
-    {
-        /* 阶段1:pitch 可达 → 保 pitch,二分缩横侧(yaw/roll) */
-        for (int it = 0; it < 10; it++)
-        {
-            rc = alloc_try(p, r * s_lat, y * s_lat, n, u0);
-            if (rc != 0) break;                /* 可达(1)或奇异(-1)都跳出 */
-            s_lat *= 0.7f;
-        }
-        if (rc == 0) { rc = alloc_try(p, 0.0f, 0.0f, n, u0); s_lat = 0.0f; }  /* 兜底:退化到纯 pitch(已知可达) */
-    }
-    else
-    {
-        /* 阶段2:pitch 力矩超单舵极限 → 横侧置 0,二分缩 pitch(牺牲幅度,等效 Mode1 饱和) */
-        s_lat = 0.0f;
-        for (int it = 0; it < 12; it++)
-        {
-            s_pit *= 0.7f;
-            rc = alloc_try(p * s_pit, 0.0f, 0.0f, n, u0);
-            if (rc != 0) break;
-        }
-    }
-    if (rc < 0) { Alloc.singular_flag = 1; Servo_Mix_AxisLimit(p, r, y); return; }
-    Alloc.singular_flag = 0;
-    Alloc.v_scale = s_lat;
-    Alloc.p_scale = s_pit;
-    Alloc.infeasible = (s_pit < 0.999f) ? 2 : ((s_lat < 0.999f) ? 1 : 0);  /* 0可达 1缩横侧 2连pitch也缩 */
-
-    /* 输出 ×SIGN + 兜底限幅,记录 Vofa */
-    float SGN[4];
-    SGN[UP_LEFT]    = SIGN_UL;  SGN[UP_RIGHT]   = SIGN_UR;
-    SGN[DOWN_RIGHT] = SIGN_DR;  SGN[DOWN_LEFT]  = SIGN_DL;
-    float lo = 1e30f, hi = -1e30f;
-    for (int i = 0; i < 4; i++)
-    {
-        Alloc.u0[i] = u0[i];
-        if (u0[i] < lo) lo = u0[i];
-        if (u0[i] > hi) hi = u0[i];
-        float out = SGN[i] * u0[i];
-        abs_limit(&out, SERVO_ANGLE_LIMIT);
-        Surface.output_angle_Servo[NOW][i] = out;
-        Alloc.u_out[i] = out;
-    }
-    Alloc.u0_span = hi - lo;
-}
-#endif
-
-
 #endif
 void Guidance_Start(void)//自检后的判断
 {
@@ -737,27 +280,6 @@ void Guidance_Terminal(void)//制导段
         /* YAW:直接追锁存视线终点 */
         Surface.target_angle_Euler[NOW][YAW] = vision_los_final[NOW][YAW];
 
-        /* PITCH:主动滑翔→扎(pitch_glide_mode=1) / 旧门限逻辑(=0)
-         * 目标由 blend 在「滑翔姿态 THETA_GLIDE」与「视觉视线」间插值,LQR 门控(lqr.c)保证只在 Terminal 段打舵。*/
-        // if (pitch_glide_mode)
-        // {
-        //     /* blend 0→1:远端住 THETA_GLIDE 压平轨迹增程(飞更远),近端平滑过渡到追视觉视线扎下去。
-        //      * ★驱动量 = 世界系看灯视线俯角 phi(越负=越陡=越近),但仅在识别成功时才用它触发扎下;
-        //      *   没识别到目标(还没看到灯/丢目标)时强制 blend=0 → pitch 住 THETA_GLIDE 主动压平滑翔,
-        //      *   不会因 FAILURE 分支把 phi 置成当前(可能已俯冲)的姿态而误判为「近」提前扎。*/
-        //     float blend = 0.0f;
-        //     if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
-        //     {
-        //         float phi = vision_los_final[NOW][PITCH];
-        //         blend = (GLIDE_LOS_HI_DEG - phi) / (GLIDE_LOS_HI_DEG - GLIDE_LOS_LO_DEG);
-        //         if (blend < 0.0f) blend = 0.0f;
-        //         if (blend > 1.0f) blend = 1.0f;
-        //     }
-        //     pitch_glide_blend  = blend;
-        //     pitch_glide_target = (1.0f - blend) * THETA_GLIDE_DEG + blend * vision_los_final[NOW][PITCH];
-        //     Surface.target_angle_Euler[NOW][PITCH] = pitch_glide_target;
-        // }
-        // else 
         if (Surface.current_angle_Euler[NOW][PITCH] <= pitch_control_limit_deg)
         {
             Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
@@ -765,10 +287,6 @@ void Guidance_Terminal(void)//制导段
         else
         {
             Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-        }
-        if(Guidance_State == Terminal&&Surface.current_angle_Euler[NOW][PITCH]<10 && Surface.current_angle_Euler[NOW][PITCH]>5)
-        {
-            Surface.target_angle_Euler[NOW][PITCH] = 10;
         }
     }
 
@@ -787,7 +305,7 @@ void Guidance_Terminal(void)//制导段
 void Guidance_End(void)
 {
     // Dart_Trigger_Power_Control( Power_OFF );
-    if (Surface.Guidance_cnt[4]++>2000)
+    if (Surface.Guidance_cnt[4]++>100)
     {
         Vision_Transmit(Vision_Cmd_Record_Stop);
         Guidance_State = PROCESS_OK;
@@ -799,7 +317,7 @@ void Guidance_End(void)
 }
 void Guidance_Process_OK(void)
 {
-    if (Surface.Guidance_cnt[5]++>1000)
+    if (Surface.Guidance_cnt[5]++>3000)
     {
 		Total_Power_Control(Power_OFF);
         Surface.Guidance_cnt[5] = 0;
@@ -885,23 +403,19 @@ void get_current_State(void)
     }
     else if (Guidance_State == Start )
     {
+        Vision_Transmit( Vision_Cmd_Work );
+        Vision_Transmit( Vision_Cmd_Record_Start );
+
         if(IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch+2.0f&&IMU_Data.Euler[NOW][PITCH]>=Shot_Pitch- 2.0f&&
            IMU_Data.Euler[NOW][ROLL]<=Shot_Roll+3.0f&&IMU_Data.Euler[NOW][ROLL]>=Shot_Roll- 3.0f)
         {
-            Vision_Transmit( Vision_Cmd_Work );
             Surface.Guidance_cnt[1]++;
-        }
-        if(Surface.Guidance_cnt[1]>=5&&Surface.Guidance_cnt[1]<20)
-        {   
-            /* 进入窗口仅一次:请求 IMU 以当前绝对航向为新原点,使此刻起 yaw=0 */
-            if(!yaw_zero_latched){ Yaw_Zero_Req = 1; yaw_zero_latched = 1; }
-            Vision_Transmit( Vision_Cmd_Record_Start );
         }
         if(Surface.Guidance_cnt[1]>=20&&Surface.Guidance_flag[1]==0)
         {
-            Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL]; 
-            Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW]; 
-            Surface.Guidance_flag[1] = 1; 
+            Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL];
+            Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW];
+            Surface.Guidance_flag[1] = 1;
         }
         if(Surface.Guidance_flag[1] == 1&&(IMU_Data.Velocity[Body][NOW][Z]<=-0.7f||(IMU_Data.Velocity[Body][NOW][Y]>=0.7f)))
         {
@@ -922,28 +436,15 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&fabs(V_DART<4.0f||IMU_Data.A_Normed[NOW][Y])>= 0.90f&& IMU_Data.A[NOW][Y]<= -1.3f)
+    else if (Guidance_State == Terminal &&V_DART<4.0f)
     {
-        if(Surface.Guidance_cnt[3]++>500)
+        if(Surface.Guidance_cnt[3]++>50)
         {
             Buzzer_Remind();
             Guidance_State = End;
             Surface.Guidance_cnt[3] = 0;
         }
         
-        // if(fabs(IMU_Data.Velocity[Body][NOW][Z]==0.0f||IMU_Data.A_Normed[NOW][Y])>= 0.80f&& IMU_Data.A[NOW][Y]<= -0.9f)
-        // {
-        //     Surface.Guidance_cnt[3]++ ;   
-        // }
-        // if(IMU_Data.Velocity[Body][NOW][X] == 0.0f)
-        // {
-        //     if(Surface.Guidance_cnt[3]>5)
-        //     {
-        //         Buzzer_Remind();
-        //         Guidance_State = End;
-        //         Surface.Guidance_cnt[3] = 0;
-        //     }
-        // }
     }
     else 
     {
@@ -953,13 +454,17 @@ void get_current_State(void)
         Surface.Guidance_cnt[3] = 0;
         yaw_zero_latched = 0;   /* 流程退回:重新武装 yaw 归零,下次进窗口再触发一次 */
     }
-    if(Guidance_State>Stable&&V_DART<4.0f)
+    if(Guidance_State>=Stable&&V_DART==2.0f)
     {
         if(Surface.POWER_OFF_CNT++>500)
         {
             Guidance_State = End;
         }
         
+    }
+    if(Guidance_State == PROCESS_OK)
+    {
+		Total_Power_Control(Power_OFF);
     }
 }
 
@@ -990,87 +495,7 @@ void surface_control_task(void)
     if ((Guidance_State==Stable||Guidance_State==Terminal)&&(imu_is_static==0))
     {
         Surface.pid_cale_flag = 1;
-
-        /* ========== LQR / LADRC / PID 控制选择 ==========
-         * lqr_mode==1：LQR 一步 6态→4舵(含混控)，直接写 output_angle_Servo，绕过下面的 Servo_Mix_*。
-         *   其余分支(LADRC/PID)仍是两步：先算 output_gyro_Euler，再由混控器分配。*/
-        if (lqr_mode == 1)
-        {
-            Euler_LQR_Cale(delta_time);   /* 直接写 Surface.output_angle_Servo[NOW][...]，下方混控分派会跳过 */
-        }
-        else if (ladrc_mode == 1)
-        {
-            /* 三轴全 LADRC */
-            Euler_LADRC_Cale(delta_time);
-        }
-        else if (ladrc_mode == 3)
-        {
-            /* 仅 Roll 用 LADRC，Pitch/Yaw 仍 PID：先按 PID 算三轴，再用 LADRC 覆盖 Roll 通道 */
-            Euler_pid_Cale(delta_time);
-            Surface.output_gyro_Euler[NOW][ROLL] = LADRC_Calc(
-                &ladrc_ctrl[LADRC_ROLL],
-                Surface.target_angle_Euler[NOW][ROLL],   /* roll 自稳目标 = Stable 角 */
-                Surface.current_angle_Euler[NOW][ROLL],  /* 当前 roll 角 */
-                Surface.current_gyro_Euler[NOW][ROLL],   /* 实测 roll 角速度(阻尼用，替代 LESO z2) */
-                delta_time);
-        }
-        else
-        {
-            /* 原 PID（默认安全档） 或 速度矢量追踪 */
-            if (vel_pursuit_mode)
-                Velocity_Pursuit_Cale(delta_time);
-            else
-                Euler_pid_Cale(delta_time);
-        }
-        /* ===================================== */
-    }
-    // else if(imu_is_static==1)
-    // {
-    //     Surface.output_gyro_Euler[NOW][PITCH] = 0; 
-    //     Surface.output_gyro_Euler[NOW][YAW] = 0;
-    //     Surface.output_gyro_Euler[NOW][ROLL] = 0;
-    //         LADRC_Reset(&ladrc_ctrl[LADRC_ROLL]);
-    // }
-    /*解算到舵面*/
-    if(DART_TYPE == VECTOR_NOZZLE   )//x翼
-    {
-        if ((Guidance_State==Stable||Guidance_State==Terminal) && lqr_mode != 1)
-        // if (Guidance_State==Terminal)
-        {
-            /* lqr_mode==1 时 Euler_LQR_Cale 已直接写好 4 舵角(含混控)，跳过本反旋+混控分派。
-             * 先把世界系 pitch/yaw 输出按当前 roll 反旋到机体系,再做 Pitch 优先最小能量分配:
-             * pitch 全保,roll/yaw 等比缩进限幅,不污染 pitch。SIGN_xx 仍在函数内逐片乘上,标定流程不变。 */
-            float 
-            p_body = Surface.output_gyro_Euler[NOW][PITCH], 
-            y_body = Surface.output_gyro_Euler[NOW][YAW],
-            r_body = Surface.output_gyro_Euler[NOW][ROLL];
-        // if (Guidance_State==Terminal&&IMU_Data.Euler[NOW][PITCH]<5.0F)
-        // {
-        //     // ladrc_ctrl[LADRC_ROLL].max_output = 10;
-        //     // y_body *= 1.5f;
-        //     // p_body = 0.0f;  
-        // }
-            if (Guidance_State==Terminal)
-            {
-            Roll_Derotate_PitchYaw(Surface.output_gyro_Euler[NOW][PITCH],
-                                   Surface.output_gyro_Euler[NOW][YAW],
-                                   &p_body, &y_body);           
-            }
-
-            // p_body = 0; 
-            // y_body = 0; 
-            // r_body = 15;
-            /* 三轴统一接 PID 内环输出(roll 绕纵轴不反旋,直接用);按 Alloc.Mode 分派分配器。*/
-            Surface.output_Body_Euler[NOW][PITCH] = p_body;
-            Surface.output_Body_Euler[NOW][YAW]   = y_body; 
-            Surface.output_Body_Euler[NOW][ROLL]  = r_body;
-            switch (Alloc.Mode)
-            {
-                // case 0:  Servo_Mix_PitchPriority(p_body, r_body, y_body); break;  /* 旧对照(roll 入参已改 PID 输出) */
-                case 1:  Servo_Mix_AxisLimit    (p_body, r_body, y_body); break;
-                case 2:  Servo_Mix_MinEnergy    (p_body, r_body, y_body); break;
-            }
-        }
+        Euler_LQR_Cale(delta_time);
         for (int i = 0; i < 4; i++)                    /* 安全网:分配已保证在限内,此处仅兜底 FP 误差 */
             abs_limit(&Surface.output_angle_Servo[NOW][i], SERVO_ANGLE_LIMIT);
     }

@@ -201,7 +201,7 @@ void LQR_Gain_Update50Hz(void)
     /* 3) 调 MATLAB Coder 生成的方程（double 精度） */
     
     double K_flat[24];
-    LQR_K_Dart_d((double)V_DART, K_flat);
+    LQR_K_Dart_d((double)6, K_flat);
     // if(Guidance_State <= Stable)
     // {
     //     LQR_K_Dart_Stable_d((double)V, K_flat);
