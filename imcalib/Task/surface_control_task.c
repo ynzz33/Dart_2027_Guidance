@@ -377,9 +377,21 @@ void get_current_Target(void)
 }   
 void get_current_State(void)
 {
-    static uint8_t yaw_zero_latched = 0;   /* yaw 归零一次性闩锁:窗口内只发一次请求,流程重置后重新武装 */
+    if(Guidance_State>=Stable&&V_DART<=4.0f)
+    {
+        if(Surface.POWER_OFF_CNT++>500)
+        {
+            Guidance_State = End;
+        }
+        
+    }
+    if(Guidance_State == PROCESS_OK)
+    {
+		Total_Power_Control(Power_OFF);
+    }
     if(
             Surface.Guidance_flag[1] == 1
+            ||Guidance_State == Terminal
     )
     {
             Buzzer_Remind();
@@ -403,9 +415,6 @@ void get_current_State(void)
     }
     else if (Guidance_State == Start )
     {
-        Vision_Transmit( Vision_Cmd_Work );
-        Vision_Transmit( Vision_Cmd_Record_Start );
-
         if(IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch+2.0f&&IMU_Data.Euler[NOW][PITCH]>=Shot_Pitch- 2.0f&&
            IMU_Data.Euler[NOW][ROLL]<=Shot_Roll+3.0f&&IMU_Data.Euler[NOW][ROLL]>=Shot_Roll- 3.0f)
         {
@@ -416,6 +425,7 @@ void get_current_State(void)
             Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL];
             Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW];
             Surface.Guidance_flag[1] = 1;
+            Vision_Transmit( Vision_Cmd_Record_Start );
         }
         if(Surface.Guidance_flag[1] == 1&&(IMU_Data.Velocity[Body][NOW][Z]<=-0.7f||(IMU_Data.Velocity[Body][NOW][Y]>=0.7f)))
         {
@@ -436,7 +446,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&V_DART<4.0f)
+    else if (Guidance_State == Terminal &&(V_DART<6.0f||(IMU_Data.A_Normed[NOW][Y]>= 0.90f&& IMU_Data.A[NOW][Y]<= -1.3f)))
     {
         if(Surface.Guidance_cnt[3]++>50)
         {
@@ -452,19 +462,6 @@ void get_current_State(void)
         Surface.Guidance_cnt[1] = 0;
         Surface.Guidance_cnt[2] = 0;
         Surface.Guidance_cnt[3] = 0;
-        yaw_zero_latched = 0;   /* 流程退回:重新武装 yaw 归零,下次进窗口再触发一次 */
-    }
-    if(Guidance_State>=Stable&&V_DART==2.0f)
-    {
-        if(Surface.POWER_OFF_CNT++>500)
-        {
-            Guidance_State = End;
-        }
-        
-    }
-    if(Guidance_State == PROCESS_OK)
-    {
-		Total_Power_Control(Power_OFF);
     }
 }
 

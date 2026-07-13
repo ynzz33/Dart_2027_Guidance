@@ -19,36 +19,36 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 // //镖体1 红色
-#define  Servo_UL_ZERO      1420
-#define  Servo_UR_ZERO      1470
-#define  Servo_DR_ZERO      1610
-#define  Servo_DL_ZERO      1540    
-#define Shot_Pitch 29
-#define Shot_Roll -5  
+// #define  Servo_UL_ZERO      1410
+// #define  Servo_UR_ZERO      1460
+// #define  Servo_DR_ZERO      1600
+// #define  Servo_DL_ZERO      1540    
+// #define Shot_Pitch 29
+// #define Shot_Roll -5  
  
 // //镖体2 红色
-// #define  Servo_UL_ZERO      1430
-// #define  Servo_UR_ZERO      1690
-// #define  Servo_DR_ZERO      1675
-// #define  Servo_DL_ZERO      1505    
-// #define Shot_Pitch 32
-// #define Shot_Roll -1
+// #define  Servo_UL_ZERO      1550
+// #define  Servo_UR_ZERO      1510
+// #define  Servo_DR_ZERO      1580
+// #define  Servo_DL_ZERO      1475    
+// #define Shot_Pitch 21
+// #define Shot_Roll -8
 
 //镖体3 蓝色
 // #define  Servo_UL_ZERO      1660
 // #define  Servo_UR_ZERO      1550
-// #define  Servo_DR_ZERO      1520
-// #define  Servo_DL_ZERO      1550    
-// #define Shot_Pitch 21.5
-// #define Shot_Roll -9.5        
+// #define  Servo_DR_ZERO      1580
+// #define  Servo_DL_ZERO      1480    
+// #define Shot_Pitch 24
+// #define Shot_Roll 5        
 
 // // //镖体4 红色
-// #define  Servo_UL_ZERO      1630
-// #define  Servo_UR_ZERO      1570
-// #define  Servo_DR_ZERO      1540
-// #define  Servo_DL_ZERO      1630    
-// #define Shot_Pitch 24                   
-// #define Shot_Roll 4
+#define  Servo_UL_ZERO      1630
+#define  Servo_UR_ZERO      1570
+#define  Servo_DR_ZERO      1540
+#define  Servo_DL_ZERO      1480    
+#define Shot_Pitch 24                   
+#define Shot_Roll 4
 
 
 

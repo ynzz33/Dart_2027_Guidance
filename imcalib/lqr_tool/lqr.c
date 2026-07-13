@@ -62,7 +62,7 @@ float dart_delta_max_rad = 1.0471975511965976f;   /* ±60° */
 uint8_t lqr_pitch_terminal_only = 1;
 
 /* 速度调度开关：1=用 lqr_ctrl.K_d(由 50Hz 中断更新，默认)；0=退回旧静态 dart_lqr_K */
-uint8_t lqr_use_scheduled_K = 1;
+uint8_t lqr_use_scheduled_K = 0;
 
 /* MATLAB 舵号(行序 delta1..4) → 本工程舵机索引(列序 UL/UR/DR/DL)··
  *   delta1=右上=UP_RIGHT, delta2=左上=UP_LEFT, delta3=左下=DOWN_LEFT, delta4=右下=DOWN_RIGHT */
@@ -85,6 +85,7 @@ static const uint8_t K_ROW_TO_SERVO[DART_LQR_SERVO_NUM] = {
 void LQR_Update(const float x[DART_LQR_STATE_NUM], float u[DART_LQR_SERVO_NUM])
 {
     const float (*K)[DART_LQR_STATE_NUM] = lqr_ctrl.K_d ;
+    lqr_ctrl.integral.saturated = 0;
 
     for (uint8_t i = 0; i < DART_LQR_SERVO_NUM; i++)
     {
@@ -92,8 +93,23 @@ void LQR_Update(const float x[DART_LQR_STATE_NUM], float u[DART_LQR_SERVO_NUM])
         for (uint8_t j = 0; j < DART_LQR_STATE_NUM; j++)
             ui -= K[i][j] * x[j];
 
-        if (ui >  dart_delta_max_rad) ui =  dart_delta_max_rad;
-        if (ui < -dart_delta_max_rad) ui = -dart_delta_max_rad;
+        /* Integral action reuses the first three K columns to preserve signs/mixing. */
+        if (lqr_ctrl.integral.enable)
+        {
+            for (uint8_t axis = 0; axis < 3; axis++)
+                ui -= K[i][axis] * lqr_ctrl.integral.gain[axis] * lqr_ctrl.integral.err[axis];
+        }
+
+        if (ui >  dart_delta_max_rad)
+        {
+            ui = dart_delta_max_rad;
+            lqr_ctrl.integral.saturated = 1;
+        }
+        if (ui < -dart_delta_max_rad)
+        {
+            ui = -dart_delta_max_rad;
+            lqr_ctrl.integral.saturated = 1;
+        }
         u[i] = ui;
     }
 }
@@ -107,7 +123,10 @@ void LQR_Update(const float x[DART_LQR_STATE_NUM], float u[DART_LQR_SERVO_NUM])
  *============================================================================*/
 void Euler_LQR_Cale(float dt)
 {
-    (void)dt;
+    float integral_prev[3];
+
+    for (uint8_t axis = 0; axis < 3; axis++)
+        integral_prev[axis] = lqr_ctrl.integral.err[axis];
  
     /* 1) 姿态误差 err = 测量 − 期望(配平/目标)，存入 lqr_ctrl.err_deg[roll,pitch,yaw](度，可观测)，
      *    再转 rad 填 x[0..2]。yaw 为周期角须环绕到 ±180°；roll 按 roll_wrap 选择是否环绕。
@@ -149,7 +168,37 @@ void Euler_LQR_Cale(float dt)
         lqr_ctrl.x[2] *= 0.3f;
     }
     /* 2) LQR 解算(rad)，已限幅 */
+    /* Integral separation: freeze the integrator while the attitude error is large. */
+    if (!lqr_ctrl.integral.enable)
+    {
+        for (uint8_t axis = 0; axis < 3; axis++)
+            lqr_ctrl.integral.err[axis] = 0.0f;
+    }
+    else
+    {
+        for (uint8_t axis = 0; axis < 3; axis++)
+        {
+            if (lqr_ctrl.integral.separation &&
+                fabsf(lqr_ctrl.err_deg[axis]) >= lqr_ctrl.integral.separation_deg[axis])
+                continue;
+
+            lqr_ctrl.integral.err[axis] += lqr_ctrl.x[axis] * dt;
+            if (lqr_ctrl.integral.err[axis] > lqr_ctrl.integral.limit[axis])
+                lqr_ctrl.integral.err[axis] = lqr_ctrl.integral.limit[axis];
+            if (lqr_ctrl.integral.err[axis] < -lqr_ctrl.integral.limit[axis])
+                lqr_ctrl.integral.err[axis] = -lqr_ctrl.integral.limit[axis];
+        }
+    }
+
     LQR_Update(lqr_ctrl.x, lqr_ctrl.u_rad);
+
+    /* Anti-windup: rollback this cycle's integral if any servo saturated. */
+    if (lqr_ctrl.integral.saturated)
+    {
+        for (uint8_t axis = 0; axis < 3; axis++)
+            lqr_ctrl.integral.err[axis] = integral_prev[axis];
+        LQR_Update(lqr_ctrl.x, lqr_ctrl.u_rad);
+    }
 
     /* 2.5) 仅观测：从 u_rad 反解等效三轴指令(度)，类比 PID 的 output_gyro_Euler。
      *      u_rad 为 MATLAB 舵号 delta1..4=[右上UR,左上UL,左下DL,右下DR]，按理想 X 翼 G 行模式投影：
@@ -184,13 +233,20 @@ void Euler_LQR_Cale(float dt)
  *============================================================================*/
 void LQR_Gain_Update50Hz(void)
 {
-    if (!lqr_use_scheduled_K) return;
+    /* 速度调度关闭时固定使用当前设计点，不读取 EKF 速度。 */
+    if (!lqr_use_scheduled_K)
+    {
+        V_DART = 6.0f;
+    }
+    else
+    {
 
     /* 1) 取当前飞行速度标量(m/s)，从 EKF 世界速度算模长 */
     float vx = IMU_Data.Velocity[World][NOW][X];
     float vy = IMU_Data.Velocity[World][NOW][Y];
     float vz = IMU_Data.Velocity[World][NOW][Z];
     V_DART = sqrtf(vx * vx + vy * vy + vz * vz);
+    }
 
     /* 2) clamp 到拟合范围 */
     if (V_DART < DART_LQR_V_MIN) V_DART = DART_LQR_V_MIN;
@@ -201,7 +257,7 @@ void LQR_Gain_Update50Hz(void)
     /* 3) 调 MATLAB Coder 生成的方程（double 精度） */
     
     double K_flat[24];
-    LQR_K_Dart_d((double)6, K_flat);
+    LQR_K_Dart_d((double)V_DART, K_flat);
     // if(Guidance_State <= Stable)
     // {
     //     LQR_K_Dart_Stable_d((double)V, K_flat);
@@ -230,10 +286,21 @@ void LQR_Init(void)
     lqr_ctrl.roll_comp = 0;         /* 默认关(直通=旧 LQR)；台架验 SIGN 后再 Watch 切 1 启用 roll 补偿(见 Euler_LQR_Cale) */
     lqr_ctrl.roll_comp_delta = 0.0f;
 
+    for (uint8_t axis = 0; axis < 3; axis++)
+    {
+        lqr_ctrl.integral.err[axis] = 0.0f;
+        lqr_ctrl.integral.gain[axis] = 1.0f;
+        lqr_ctrl.integral.limit[axis] = 1.0f;
+        lqr_ctrl.integral.separation_deg[axis] = 2.0f;
+    }
+    lqr_ctrl.integral.enable = 1;
+    lqr_ctrl.integral.separation = 1;
+    lqr_ctrl.integral.saturated = 0;
+
     /* 初始化 MATLAB Coder 运行时（rt_InitInfAndNaN + 标志位） */
     LQR_K_Dart_d_initialize();
 
     /* 用标称速度算初始 K_d，50Hz 中断会持续覆盖 */
     LQR_Gain_Update50Hz();
-    lqr_ctrl.V_lqr = DART_LQR_V_NOM;   /* 初始值覆盖为标称速度(首次 Update 可能用 clamp 后的值) */
+    lqr_ctrl.V_lqr = V_DART;
 }

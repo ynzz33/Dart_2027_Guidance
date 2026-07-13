@@ -23,6 +23,17 @@
 #define DART_LQR_STATE_NUM   6
 #define DART_LQR_SERVO_NUM   4
 
+typedef struct
+{
+    float err[3];
+    float gain[3];
+    float limit[3];
+    float separation_deg[3];
+    uint8_t enable;
+    uint8_t separation;
+    uint8_t saturated;
+} LQR_Integral_t;
+
 /* 速度调度范围(m/s)，与 MATLAB V_schedule_ac 对齐；超出 clamp 到边界 */
 #define DART_LQR_V_MIN       2.0f
 #define DART_LQR_V_MAX       20.0f
@@ -44,6 +55,9 @@ typedef struct
     /* ---- 速度调度 K_d(V)(50Hz 中断更新，Vofa 可观测) ---- */
     float K_d[DART_LQR_SERVO_NUM][DART_LQR_STATE_NUM]; /* 当前拍 K 矩阵(由 LQR_Gain_Update50Hz 写入) */
     float V_lqr;                          /* 当前拍用于算 K 的速度(m/s，clamp 后) */
+
+    /* LQR+I：积分状态、积分分离和抗积分饱和，统一收进 LQR_t */
+    LQR_Integral_t integral;
 
     /* ---- 上车前需逐轴台架验证的符号/环绕(指南 §9) ---- */
     float   axis_sign[3];                 /* ★整轴极性[roll,pitch,yaw]，±1，默认+1。某轴打反/发散(如 roll 一直旋)
