@@ -135,6 +135,10 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr);
 void IMU_Data_Read(void);
 void IMU_Attitude_Algorithm(void);
 void ALL_CS_Free(void);
+#if USE_BMI088
+void BMI088_Init_Acc(void);
+void BMI088_Read_Acc(void);
+#endif
 extern uint32_t IMU_Cnt,control_cnt;
 extern float acc_trust_obs;   /* Vofa 可观测:Mahony 加速度校正权重(1=全信任 / 0=纯陀螺coast) */
 extern float gamma_pitch_deg;     /* 弹道角(速度积分版)°。速度链路 #if 0 后不再更新,消费端改用 gamma_pitch_fwd_deg */

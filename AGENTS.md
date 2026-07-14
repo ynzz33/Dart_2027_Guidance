@@ -74,7 +74,7 @@
 
 ## 本项目入口（Dart_2027 飞控 · 项目特定，换项目时替换）
 
-- **一句话**：STM32G431 + BMX055 + FreeRTOS 的 **RoboMaster 飞镖 X 翼飞控**——串级 PID（+可选 LADRC）自稳 + 视觉末制导，4 舵面 X 翼，Mahony 姿态 + 视觉/IMU 紧耦合 EKF 速度。
+- **一句话**：STM32G431 + BMX055/BMI088(可切换) + FreeRTOS 的 **RoboMaster 飞镖 X 翼飞控**——串级 PID（+可选 LADRC）自稳 + 视觉末制导，4 舵面 X 翼，Mahony 姿态 + 视觉/IMU 紧耦合 EKF 速度。IMU 芯片通过 `common_defs.h` 宏 `USE_BMX055`/`USE_BMI088` 切换。
 - **地图文档**：[CODE_OVERVIEW.md](CODE_OVERVIEW.md)（环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）、[PROGRESS.md](PROGRESS.md)（时间线/决策/TODO）。**先读这两篇。**
 - **核心代码**：`imcalib/Task/`（IMU.c 姿态、surface_control_task.c 制导+混控、CallBack_Task.c 视觉/中断、PNG_Task.c 比例导引）、`imcalib/Tool/`（pid.c、adrc.c、vision_ins.c EKF、filter.c）。
 - **构建/验证**：Keil MDK（`MDK-ARM/*.uvprojx`），**AI 环境编不了**→改完标"未编译"；台架靠 **Vofa+** 遥测 + 调试器 Watch。

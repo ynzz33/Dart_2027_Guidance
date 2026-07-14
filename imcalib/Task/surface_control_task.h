@@ -27,12 +27,17 @@
 // #define Shot_Roll -5  
  
 // //镖体2 红色
-// #define  Servo_UL_ZERO      1550
-// #define  Servo_UR_ZERO      1510
-// #define  Servo_DR_ZERO      1580
-// #define  Servo_DL_ZERO      1475    
-// #define Shot_Pitch 21
-// #define Shot_Roll -8
+#define  Servo_UL_ZERO      1550
+#define  Servo_UR_ZERO      1510
+#define  Servo_DR_ZERO      1580
+#define  Servo_DL_ZERO      1475    
+#define Shot_Pitch 21.5
+#define Shot_Roll -7.5
+#define USE_BMX055   1
+#define USE_BMI088   0
+#if (USE_BMX055 + USE_BMI088) != 1
+  #error "Exactly one of USE_BMX055 / USE_BMI088 must be 1"
+#endif
 
 //镖体3 蓝色
 // #define  Servo_UL_ZERO      1660
@@ -43,14 +48,26 @@
 // #define Shot_Roll 5        
 
 // // //镖体4 红色
-#define  Servo_UL_ZERO      1630
-#define  Servo_UR_ZERO      1570
-#define  Servo_DR_ZERO      1540
-#define  Servo_DL_ZERO      1480    
-#define Shot_Pitch 24                   
-#define Shot_Roll 4
+// #define  Servo_UL_ZERO      1630
+// #define  Servo_UR_ZERO      1570
+// #define  Servo_DR_ZERO      1540
+// #define  Servo_DL_ZERO      1480    
+// #define Shot_Pitch 24                   
+// #define Shot_Roll 4
 
 
+/* ---- 加速度量程常量:按传感器型号切换 ---- */
+#if USE_BMI088
+  /* BMI088 acc 16-bit 数据,敏感度 = 3/32768 * 量程倍数
+   * ±3g 基准: 0.0008974358974f (例程 BMI088_ACCEL_3G_SEN), ±24g = ×8 */
+  #define ACC_LSB_24G   (0.0008974358974f * 8.0f)  /* BMI088 ±24g ≈ 0.007179 g/LSB */
+  #define ACC_LSB       ACC_LSB_24G
+  #define ACC_SAT_G     23.5f
+#elif USE_BMX055
+  #define ACC_LSB_16G   (1.0f/(16.0f*128.0f))
+  #define ACC_LSB       ACC_LSB_16G
+  #define ACC_SAT_G     15.5f
+#endif
 
 
 /* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],

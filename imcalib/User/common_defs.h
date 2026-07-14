@@ -17,14 +17,22 @@
 #define RAD2DEG(x)  ((x) * 57.29577951308232f)
 #define DEG2RAD(x)  ((x) * 0.017453292519943295f)
 
+
 #define IMU_SAMPLE_HZ        1000.0f
 #define CTRL_PERIOD_MS       1
-#define GYRO_LSB_2000DPS     16.4f
-#define ACC_LSB_16G          (1.0f/(16.0f*128.0f))
+#define GYRO_LSB_2000DPS     16.4f          /* BMX055/BMI088 陀螺共用 */
 #define GRAVITY_MS2          9.80665f
 
 #define GYRO_SAT_DPS         1900.0f
-#define ACC_SAT_G            15.5f
+
+
+/* ========== 传感器选型: BMX055(原) / BMI088 — 改这里切芯片 ========== */
+#define USE_BMX055   0
+#define USE_BMI088   1
+#if (USE_BMX055 + USE_BMI088) != 1
+  #error "Exactly one of USE_BMX055 / USE_BMI088 must be 1"
+#endif
+/* ACC_LSB / ACC_SAT_G 按传感器型号切换,定义在 surface_control_task.h (方便调参) */
 
 /* 速度全局限幅(m/s):飞镖标称~7m/s,20 只截真正的 IMU 积分发散,不削正常飞行波动。
  * EKF publish() 内 abs_limit 钳位 X[3..5];IMU.c 冗余兜底非 EKF 路径。 */

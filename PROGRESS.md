@@ -322,3 +322,21 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 ### 2026-07-14：LQR 固定速度 + 积分分离
 
 保留现有 `K_d[4][6]`，`lqr_use_scheduled_K=0` 时固定设计速度生成 K；新增 `LQR_t.integral` 统一管理积分状态、增益、限幅、积分分离和舵面饱和回退。积分分离开关为 1，大姿态误差冻结积分，输出饱和回退本拍积分。未编译，待 Keil/台架验证。
+
+### 2026-07-14：BMI088 加速度计支持（BMX055 可切换）
+
+- **动机**：硬件换用 BMI088（6 轴 IMU，acc+gyro），需与原 BMX055 代码并存、运行时宏切换。
+- **BMX055 vs BMI088 关键差异**：
+  - Acc 寄存器地址不同（BMX055: 0x02 起始 / BMI088: 0x12 起始）
+  - BMI088 acc 有电源状态机（0x7D=0x04 开、0x7C=0x00 active），BMX055 无
+  - BMI088 acc 数据 16-bit（敏感度≈0.00718 g/LSB @±24g），BMX055 12-bit 左对齐
+  - **BMI088 acc 读取必须含 dummy byte**：发完地址后多发1字节dummy，数据才正确。单字节读和多字节读均需 dummy。burst 读 = 8字节（1地址+1dummy+6数据），数据从 rx[2] 开始
+  - Gyro 两芯片完全共用（寄存器、协议、±2000°/s），gyro 读不需要 dummy
+- **落地**：
+  - `common_defs.h`：`USE_BMX055`/`USE_BMI088` 选型宏（当前 `USE_BMI088=1`）
+  - `surface_control_task.h`：`ACC_LSB`/`ACC_SAT_G` 按芯片自动切换（方便调参）
+  - `IMU.c`：新增 `BMI088_Init_Acc()`（软复位→使能→active→配 ODR/量程，对照官方例程 `bmi088_lib/`）+ `BMI088_Read_Acc()`（burst 读 8 字节，数据从 rx[2] 开始）
+  - `IMU_Init()` / `IMU_Data_Read()` 用 `#if USE_BMI088` 分流
+- **踩坑记录**：① 寄存器 0x7C/0x7D 写反（active/suspend 搞混）；② 误以为多字节读不需要 dummy byte（实际需要，7字节版数据错位1字节，角度正常是因为 acc_trust=0 时姿态纯靠陀螺）；③ 数据格式误判为 12-bit 右对齐（实际 16-bit）；④ init 缺软复位+chip ID 验证（例程要求写完读回验证）。**核心教训：必须对照官方例程的寄存器地址和 SPI 时序，不能凭经验猜。**
+- **已验证**：BMI088 acc 读取正常（chip ID=0x1E，静止 acc 值≈±1g）。未编译（Keil/MDK），待台架完整验证。
+- **切换方法**：改 `common_defs.h` 的 `USE_BMX055=1/USE_BMI088=0` 即可切回 BMX055。

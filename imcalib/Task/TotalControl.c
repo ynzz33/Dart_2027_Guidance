@@ -23,10 +23,11 @@ void TotalControl(void)
 {
 	if (huart2.gState == HAL_UART_STATE_READY)
 	{
+		// Vision_Transmit(Vision_Cmd_Record_Start);
 		Vofa();
 	}
 	surface_control_task();
-	if(huart3.gState == HAL_UART_STATE_READY&&(Guidance_State == Start||Guidance_State == Stable||Guidance_State == Terminal))
+	if(huart3.gState == HAL_UART_STATE_READY&&(Guidance_State == Stable||Guidance_State == Terminal))
 	{
 		Vision_Transmit_Debug();
 		// ADC_Voltage_Real = 100;
@@ -40,9 +41,9 @@ void Vofa(void)
 {
 	Vofa_Send_Data24(
 
-	Surface.target_angle_Euler[NOW][PITCH],
-	Surface.target_angle_Euler[NOW][ROLL ],
-	Surface.target_angle_Euler[NOW][YAW  ],
+	// Surface.target_angle_Euler[NOW][PITCH],
+	// Surface.target_angle_Euler[NOW][ROLL ],
+	// Surface.target_angle_Euler[NOW][YAW  ],
 	Surface.current_angle_Euler[NOW][PITCH],
 	Surface.current_angle_Euler[NOW][ROLL ],
 	Surface.current_angle_Euler[NOW][YAW  ],
@@ -70,11 +71,11 @@ void Vofa(void)
 	lqr_ctrl.u_servo_deg[3],
     lqr_ctrl.err_deg[0] ,
     lqr_ctrl.err_deg[1] ,                            
-    // lqr_ctrl.err_deg[2] ,
-	Surface.Guidance_flag[1],
-	// Surface.current_gyro_Euler[NOW][PITCH],
-	// Surface.current_gyro_Euler[NOW][ROLL ],
-	// Surface.current_gyro_Euler[NOW][YAW  ],
+    lqr_ctrl.err_deg[2] ,
+	// Surface.Guidance_flag[1],
+	Surface.current_gyro_Euler[NOW][PITCH],
+	Surface.current_gyro_Euler[NOW][ROLL ],
+	Surface.current_gyro_Euler[NOW][YAW  ],
 	// IMU_Data.A_World[NOW][X],
 	// IMU_Data.A_World[NOW][Y],
 	// IMU_Data.A_World[NOW][Z],

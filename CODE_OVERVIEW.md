@@ -10,7 +10,7 @@
 
 ## 0. 一句话定义
 
-STM32G431 + BMX055 + FreeRTOS 的 **Dart 飞镖型飞行器飞控**：X 翼 4 舵面，串级 PID（角度环→角速度环）+ 可选 LADRC 单环二阶自抗扰（`ladrc_mode` 切档）自稳 + 末制导，Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度，视觉（OpenMV）经 UART 给视线角+距离+面积。比赛镖（RoboMaster 飞镖）场景。
+STM32G431 + BMX055/BMI088(可切换) + FreeRTOS 的 **Dart 飞镖型飞行器飞控**：X 翼 4 舵面，串级 PID（角度环→角速度环）+ 可选 LADRC 单环二阶自抗扰（`ladrc_mode` 切档）自稳 + 末制导，Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度，视觉（OpenMV）经 UART 给视线角+距离+面积。比赛镖（RoboMaster 飞镖）场景。IMU 芯片通过 `common_defs.h` 的 `USE_BMX055`/`USE_BMI088` 宏切换（acc 初始化/读取/敏感度自动适配，gyr 共用）。
 
 ---
 
@@ -35,7 +35,7 @@ STM32G431 + BMX055 + FreeRTOS 的 **Dart 飞镖型飞行器飞控**：X 翼 4 �
 ```
 imcalib/                ← 用户应用代码（核心都在这）
 ├── Task/
-│   ├── IMU.c/.h               BMX055 SPI 读取 + Mahony 姿态解算（最核心）
+│   ├── IMU.c/.h               BMX055/BMI088 SPI 读取 + Mahony 姿态解算（最核心，USE_BMI088 切芯片；BMI088 acc 需 dummy byte，8字节burst读）
 │   ├── surface_control_task.c/.h  制导状态机 + 串级PID调度 + 混控/控制分配 + 舵机PWM（最大）
 │   ├── TotalControl.c/.h      主控制编排：Vofa()+surface_control_task()+遥测；IMU_Task()=读+解算
 │   ├── CallBack_Task.c/.h     所有中断回调（UART视觉/镖头、定时器、EXTI按键）+ 视觉协议解析 + 遥测发送
@@ -80,14 +80,14 @@ Drivers/ Middlewares/   ← HAL 库、CMSIS、FreeRTOS、DSP 库
 > ⚠️ **IMU 与 Control 同为 osPriorityIdle、同优先级、各自 1kHz、无同步**：执行先后不确定，控制环可能用**上一拍**姿态（≤1ms 滞后）。初始化顺序靠 Init_Task(Normal) 先跑完再让 Idle 任务跑（正确）。改进项见 PROGRESS TODO。
 
 ### 初始化序列 `TotalInitTask()`（`Init_Config.c`）
-`ALL_CS_Free` → 启 TIM6/7 中断 → `PWM_Init()`(启 TIM2/3/4 PWM) → `pid_init()` → `Q[NOW][0]=1` → 三路 UART 空闲DMA接收(huart1半双工/huart2调试/huart3视觉，关半传输中断) → `ADC_Init()` → `IMU_Init()`(BMX055寄存器) → `PNG_Init()` → `Kalman_Vel_Init()` → 上电 → 目标欧拉角初值 30/30/30（随即被状态机覆盖）。
+`ALL_CS_Free` → 启 TIM6/7 中断 → `PWM_Init()`(启 TIM2/3/4 PWM) → `pid_init()` → `Q[NOW][0]=1` → 三路 UART 空闲DMA接收(huart1半双工/huart2调试/huart3视觉，关半传输中断) → `ADC_Init()` → `IMU_Init()`(BMX055或BMI088,按 `USE_BMI088` 宏切换) → `PNG_Init()` → `Kalman_Vel_Init()` → 上电 → 目标欧拉角初值 30/30/30（随即被状态机覆盖）。
 
 ---
 
 ## 4. 数据流水线（每 1ms）
 
 ```
-BMX055(SPI2阻塞读) ─IMU_Data_Read─► IMU_Data.A/G(原始,去饱和/NaN,标量Kalman,减陀螺零偏)
+BMX055/BMI088(SPI2阻塞读) ─IMU_Data_Read─► IMU_Data.A/G(原始,去饱和/NaN,标量Kalman,减陀螺零偏)
                                          │
                     IMU_Attitude_Algorithm│(Mahony PI 融合 → 四元数积分 → 欧拉角)
                                          │

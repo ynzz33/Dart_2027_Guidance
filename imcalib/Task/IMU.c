@@ -443,9 +443,9 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr)
                 {
                     /* 寄存器 rx(2,1)=accX rx(4,3)=accY rx(6,5)=accZ → 机体系 X=右/Y=前/Z=上;
                        符号见 IMU.h ACC_SIGN_*(默认: 前=+chipX, 右=+chipY, 上=−chipZ 使静止+g)。*/
-                    IMU_Data.A[NOW][Y] = ACC_SIGN_Y * (int16_t)(rx_buf[2]<<8|rx_buf[1]) * ACC_LSB_16G;
-                    IMU_Data.A[NOW][X] = ACC_SIGN_X * (int16_t)(rx_buf[4]<<8|rx_buf[3]) * ACC_LSB_16G;
-                    IMU_Data.A[NOW][Z] = ACC_SIGN_Z * (int16_t)(rx_buf[6]<<8|rx_buf[5]) * ACC_LSB_16G;
+                    IMU_Data.A[NOW][Y] = ACC_SIGN_Y * (int16_t)(rx_buf[2]<<8|rx_buf[1]) * ACC_LSB;
+                    IMU_Data.A[NOW][X] = ACC_SIGN_X * (int16_t)(rx_buf[4]<<8|rx_buf[3]) * ACC_LSB;
+                    IMU_Data.A[NOW][Z] = ACC_SIGN_Z * (int16_t)(rx_buf[6]<<8|rx_buf[5]) * ACC_LSB;
                     for (int k = 0; k < 3; k++)
                     {
                         if (isnan(IMU_Data.A[NOW][k]) || fabsf(IMU_Data.A[NOW][k]) > ACC_SAT_G)
@@ -495,6 +495,41 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr)
 
 }
 
+#if USE_BMI088
+/*
+ * BMI088 acc burst 读:1地址 + 1dummy + 6数据 = 8字节
+ *   rx[0]=发地址期间无效, rx[1]=dummy期间无效, rx[2..7]=X_L/X_H/Y_L/Y_H/Z_L/Z_H
+ */
+void BMI088_Read_Acc(void)
+{
+    BMX055_CS_Select(ACC);
+
+    uint8_t tx_buf[8] = {0};
+    uint8_t rx_buf[8] = {0};
+    tx_buf[0] = 0x12 | 0x80;  /* BMI088 acc 数据起始 0x12 + 读标志 */
+    tx_buf[1] = 0x55;          /* dummy byte */
+
+    HAL_SPI_TransmitReceive(&hspi2, tx_buf, rx_buf, 8, 5000);
+
+    BMX055_CS_Free(ACC);
+
+    /* rx[2]=X_L, rx[3]=X_H, rx[4]=Y_L, rx[5]=Y_H, rx[6]=Z_L, rx[7]=Z_H */
+    IMU_Data.A[NOW][X] = ACC_SIGN_X * (float)((int16_t)((rx_buf[3] << 8) | rx_buf[2])) * ACC_LSB;
+    IMU_Data.A[NOW][Y] = ACC_SIGN_Y * (float)((int16_t)((rx_buf[5] << 8) | rx_buf[4])) * ACC_LSB;
+    IMU_Data.A[NOW][Z] = ACC_SIGN_Z * (float)((int16_t)((rx_buf[7] << 8) | rx_buf[6])) * ACC_LSB;
+
+    for (int k = 0; k < 3; k++)
+    {
+        if (isnan(IMU_Data.A[NOW][k]) || fabsf(IMU_Data.A[NOW][k]) > ACC_SAT_G)
+            IMU_Data.A[NOW][k] = IMU_Data.A[LAST][k];
+    }
+    IMU_Data.A[NOW][X] = KalmanFilter(&IMU_Kalman_Filter[ACC][X], IMU_Data.A[NOW][X], ACC_KF_Q, ACC_KF_R);
+    IMU_Data.A[NOW][Y] = KalmanFilter(&IMU_Kalman_Filter[ACC][Y], IMU_Data.A[NOW][Y], ACC_KF_Q, ACC_KF_R);
+    IMU_Data.A[NOW][Z] = KalmanFilter(&IMU_Kalman_Filter[ACC][Z], IMU_Data.A[NOW][Z], ACC_KF_Q, ACC_KF_R);
+    for (int k = 0; k < 3; k++) IMU_Data.A[LAST][k] = IMU_Data.A[NOW][k];
+}
+#endif
+
 void BMX055_Write(uint8_t Sensor,uint8_t Reg_Addr,uint8_t data)
 {
 
@@ -523,6 +558,67 @@ void BMX055_Init_Acc_Gyr(void)
      BMX055_Write( GYR,0x10,0x02 );
 
 }
+
+#if USE_BMI088
+/*
+ * BMI088 acc 单字节读(对照例程 BMI088_accel_read_single_reg):
+ *   CS低 → 发 addr|0x80 → 读 dummy → 读 data → CS高
+ * 写寄存器(对照例程 BMI088_write_single_reg):
+ *   CS低 → 发 addr → 发 data → CS高 (BMI088 write 也需要 CS 拉高)
+ */
+static void BMI088_Acc_Read_Reg(uint8_t reg, uint8_t *data)
+{
+    BMX055_CS_Select(ACC);
+    uint8_t tx[3] = {reg | 0x80, 0x55, 0x55};
+    uint8_t rx[3] = {0};
+    HAL_SPI_TransmitReceive(&hspi2, tx, rx, 3, 5000);
+    BMX055_CS_Free(ACC);
+    *data = rx[2];  /* rx[1]=dummy, rx[2]=真数据 */
+}
+
+static void BMI088_Acc_Write_Reg(uint8_t reg, uint8_t data)
+{
+    BMX055_CS_Select(ACC);
+    uint8_t tx[2] = {reg, data};
+    uint8_t rx[2] = {0};
+    HAL_SPI_TransmitReceive(&hspi2, tx, rx, 2, 5000);
+    BMX055_CS_Free(ACC);
+}
+
+void BMI088_Init_Acc(void)
+{
+    uint8_t res = 0;
+
+    /* 1. 复位前先读两次 chip ID 确认通信(例程流程) */
+    BMI088_Acc_Read_Reg(0x00, &res);
+    HAL_Delay(1);
+    BMI088_Acc_Read_Reg(0x00, &res);
+    HAL_Delay(1);
+
+    /* 2. 软复位 */
+    BMI088_Acc_Write_Reg(0x7E, 0xB6);
+    HAL_Delay(80);
+
+    /* 3. 复位后再读两次 chip ID 确认传感器活着 */
+    BMI088_Acc_Read_Reg(0x00, &res);
+    HAL_Delay(1);
+    BMI088_Acc_Read_Reg(0x00, &res);
+    HAL_Delay(1);
+    /* ← 断点:res 应=0x1E,否则传感器未响应 */
+
+    /* 4. 使能 acc + active 模式 */
+    BMI088_Acc_Write_Reg(0x7D, 0x04);  /* ACC_PWR_CTRL: on */
+    HAL_Delay(1);
+    BMI088_Acc_Write_Reg(0x7C, 0x00);  /* ACC_PWR_CONF: active */
+    HAL_Delay(1);
+
+    /* 5. 配置 ODR + 带宽 + 量程 */
+    BMI088_Acc_Write_Reg(0x40, 0x80 | 0x0C);  /* 1600Hz + normal BW */
+    HAL_Delay(1);
+    BMI088_Acc_Write_Reg(0x41, 0x03);  /* ±24g */
+    HAL_Delay(1);
+}
+#endif
 void BMX055_Init_Mag(void)
 {
     BMX055_Write(MAG, 0x4B, 0x01);
@@ -533,18 +629,25 @@ void BMX055_Init_Mag(void)
 
 void IMU_Data_Read(void)
 {
-    BMX055_Read(ACC,0X02);
-    BMX055_Read(GYR,0X02);
-     
-    // BMX055_Read(MAG,0X42);
-    // 应用三维卡尔曼滤波 (使用修改后的函数)
+#if USE_BMI088
+    BMI088_Read_Acc();           /* BMI088 acc:burst 读7字节,数据从 rx[1] 开始 */
+#else
+    BMX055_Read(ACC, 0X02);      /* BMX055 acc 起始寄存器 0x02 */
+#endif
+    BMX055_Read(GYR, 0X02);      /* 陀螺两芯片完全共用 */
 }
 
 void IMU_Init(void)
 {
+#if USE_BMI088
+    BMI088_Init_Acc();
+    /* BMI088 gyro 初始化(只配基本通信,不需中断/DRDY) */
+    BMX055_Write(GYR, 0x0F, 0x00);       /* ±2000°/s */
+    BMX055_Write(GYR, 0x10, 0x02 | 0x80); /* bandwidth + MUST_SET bit */
+    BMX055_Write(GYR, 0x11, 0x00);       /* normal mode */
+#else
     BMX055_Init_Acc_Gyr();
-
-    // BMX055_Init_Mag();
+#endif
 }
 
 /*

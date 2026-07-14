@@ -391,7 +391,6 @@ void get_current_State(void)
     }
     if(
             Surface.Guidance_flag[1] == 1
-            ||Guidance_State == Terminal
     )
     {
             Buzzer_Remind();
@@ -415,6 +414,7 @@ void get_current_State(void)
     }
     else if (Guidance_State == Start )
     {
+            Vision_Transmit( Vision_Cmd_Record_Start );
         if(IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch+2.0f&&IMU_Data.Euler[NOW][PITCH]>=Shot_Pitch- 2.0f&&
            IMU_Data.Euler[NOW][ROLL]<=Shot_Roll+3.0f&&IMU_Data.Euler[NOW][ROLL]>=Shot_Roll- 3.0f)
         {
@@ -425,7 +425,6 @@ void get_current_State(void)
             Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL];
             Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW];
             Surface.Guidance_flag[1] = 1;
-            Vision_Transmit( Vision_Cmd_Record_Start );
         }
         if(Surface.Guidance_flag[1] == 1&&(IMU_Data.Velocity[Body][NOW][Z]<=-0.7f||(IMU_Data.Velocity[Body][NOW][Y]>=0.7f)))
         {
@@ -456,7 +455,7 @@ void get_current_State(void)
         }
         
     }
-    else 
+    else .............
     {
         Surface.Guidance_cnt[0] = 0;
         Surface.Guidance_cnt[1] = 0;
