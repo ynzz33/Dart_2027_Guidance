@@ -61,8 +61,6 @@ float dart_delta_max_rad = 1.0471975511965976f;   /* ±60° */
  *   飞镖俯仰主要靠镖架初始动力；0=全程控 pitch(旧行为)。调试器 Watch 在线切换做 A/B。详见 Euler_LQR_Cale 内说明。*/
 uint8_t lqr_pitch_terminal_only = 1;
 
-/* 速度调度开关：1=用 lqr_ctrl.K_d(由 50Hz 中断更新，默认)；0=退回旧静态 dart_lqr_K */
-uint8_t lqr_use_scheduled_K = 0;
 
 /* MATLAB 舵号(行序 delta1..4) → 本工程舵机索引(列序 UL/UR/DR/DL)··
  *   delta1=右上=UP_RIGHT, delta2=左上=UP_LEFT, delta3=左下=DOWN_LEFT, delta4=右下=DOWN_RIGHT */
@@ -241,20 +239,12 @@ void Euler_LQR_Cale(float dt)
  *============================================================================*/
 void LQR_Gain_Update50Hz(void)
 {
-    /* 速度调度关闭时固定使用当前设计点，不读取 EKF 速度。 */
-    if (!lqr_use_scheduled_K)
-    {
-        V_DART = 6.0f;
-    }
-    else
-    {
 
     /* 1) 取当前飞行速度标量(m/s)，从 EKF 世界速度算模长 */
     float vx = IMU_Data.Velocity[World][NOW][X];
     float vy = IMU_Data.Velocity[World][NOW][Y];
     float vz = IMU_Data.Velocity[World][NOW][Z];
     V_DART = sqrtf(vx * vx + vy * vy + vz * vz);
-    }
 
     /* 2) clamp 到拟合范围 */
     if (V_DART < DART_LQR_V_MIN) V_DART = DART_LQR_V_MIN;

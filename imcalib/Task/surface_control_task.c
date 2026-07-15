@@ -375,14 +375,14 @@ void get_current_State(void)
     //     cnt++;
     //         Vision_Transmit( Vision_Cmd_Record_Start );
     // }
-    if(Guidance_State>=Stable&&V_DART<=4.0f)
-    {
-        if(Surface.POWER_OFF_CNT++>500)
-        {
-            Guidance_State = End;
-        }
+    // if(Guidance_State>Stable&&V_DART<=4.0f)
+    // {
+    //     if(Surface.POWER_OFF_CNT++>500)
+    //     {
+    //         Guidance_State = End;
+    //     }
         
-    }
+    // }
     if(
             Surface.Guidance_flag[1] == 1
     )
@@ -439,7 +439,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&(V_DART<6.0f||IMU_Data.A_Normed[NOW][Y]>= 0.90f|| IMU_Data.A[NOW][Y]<= -1.3f))
+    else if (Guidance_State == Terminal &&(V_DART<3.0f||IMU_Data.A_Normed[NOW][Y]>= 0.90f|| IMU_Data.A[NOW][Y]<= -1.3f))
     {
         if(Surface.Guidance_cnt[3]++>50)
         {
