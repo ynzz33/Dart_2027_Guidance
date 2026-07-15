@@ -35,7 +35,7 @@ typedef struct
 } LQR_Integral_t;
 
 /* 速度调度范围(m/s)，与 MATLAB V_schedule_ac 对齐；超出 clamp 到边界 */
-#define DART_LQR_V_MIN       2.0f
+#define DART_LQR_V_MIN       1.0f
 #define DART_LQR_V_MAX       20.0f
 #define DART_LQR_V_NOM       4.0f   /* 标称速度(初始 K_d / EKF 不可用时的回退) */
 

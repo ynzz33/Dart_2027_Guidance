@@ -514,9 +514,9 @@ void BMI088_Read_Acc(void)
     BMX055_CS_Free(ACC);
 
     /* rx[2]=X_L, rx[3]=X_H, rx[4]=Y_L, rx[5]=Y_H, rx[6]=Z_L, rx[7]=Z_H */
-    IMU_Data.A[NOW][X] = ACC_SIGN_X * (float)((int16_t)((rx_buf[3] << 8) | rx_buf[2])) * ACC_LSB;
-    IMU_Data.A[NOW][Y] = ACC_SIGN_Y * (float)((int16_t)((rx_buf[5] << 8) | rx_buf[4])) * ACC_LSB;
-    IMU_Data.A[NOW][Z] = ACC_SIGN_Z * (float)((int16_t)((rx_buf[7] << 8) | rx_buf[6])) * ACC_LSB;
+    IMU_Data.A[NOW][Y] = ACC_SIGN_X * ((int16_t)((rx_buf[3] << 8) | rx_buf[2])) * ACC_LSB;
+    IMU_Data.A[NOW][X] = ACC_SIGN_Y * ((int16_t)((rx_buf[5] << 8) | rx_buf[4])) * ACC_LSB;
+    IMU_Data.A[NOW][Z] = ACC_SIGN_Z * ((int16_t)((rx_buf[7] << 8) | rx_buf[6])) * ACC_LSB;
 
     for (int k = 0; k < 3; k++)
     {
@@ -524,6 +524,7 @@ void BMI088_Read_Acc(void)
             IMU_Data.A[NOW][k] = IMU_Data.A[LAST][k];
     }
     IMU_Data.A[NOW][X] = KalmanFilter(&IMU_Kalman_Filter[ACC][X], IMU_Data.A[NOW][X], ACC_KF_Q, ACC_KF_R);
+
     IMU_Data.A[NOW][Y] = KalmanFilter(&IMU_Kalman_Filter[ACC][Y], IMU_Data.A[NOW][Y], ACC_KF_Q, ACC_KF_R);
     IMU_Data.A[NOW][Z] = KalmanFilter(&IMU_Kalman_Filter[ACC][Z], IMU_Data.A[NOW][Z], ACC_KF_Q, ACC_KF_R);
     for (int k = 0; k < 3; k++) IMU_Data.A[LAST][k] = IMU_Data.A[NOW][k];

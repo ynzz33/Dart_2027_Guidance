@@ -138,6 +138,7 @@ End ◄──(A_Normed[Y]≥0.9 且 A[Y]≥1.5，连续5；冲击检测)── T
  ▼ Vision 停录 → PROCESS_OK
 ```
 - **舵机仅在** `Guidance_State==Terminal || ==Self_Text_State || Stable_Flag==1` **时驱动**，否则回中(0)。
+- `End` 阶段发送视觉停录命令后进入 `PROCESS_OK`；断电必须走 `Guidance_Process_OK()` 的延时路径，不能在状态切换后的下一拍立即 `Power_OFF`，否则视觉端来不及关闭文件，SD 卡上的日志/视频可能保持 0KB。
 - `Stable_Flag` 在 Stable 且 `Euler[PITCH]≤30` 时置 1。
 - `Self_Text_State` 下四舵置 30°（自检摆舵）；`Start` 下置 0。
 - 各阶段目标：Start/Stable → ROLL/YAW 锁 `Stable_Euler_Angle`、PITCH=当前（只阻尼）；Terminal → ROLL 自稳，YAW/PITCH 视觉视线锁存（见 §9）。

@@ -157,15 +157,23 @@ void Euler_LQR_Cale(float dt)
     lqr_ctrl.x[5] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW])   ;
 
 
-    // if(Surf·ace.current_angle_Euler[NOW][PITCH]>=Shot_Pitch-10.0f)
+    // if(Surface.current_angle_Euler[NOW][PITCH]>=Shot_Pitch-10.0f)
+    // // if(Guidance_State<Terminal)
     // {
     //     lqr_ctrl.x[4] = 0;
-    //     // lqr_ctrl.x[3] = 0;
-    //     lqr_ctrl.x[5] = 0;
     // }
+    if(Guidance_State<Terminal||(Guidance_State==Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE))
+    { 
+        lqr_ctrl.x[4] = 0;
+    }
+    // if(Guidance_State==Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS&&Vision_Rx_Data.dist_cm<=150)
+    // { 
+    //     lqr_ctrl.x[1] = 0.5;
+    // }
+    
     if(Guidance_State<Terminal)
     {
-        lqr_ctrl.x[2] *= 0.3f;
+        lqr_ctrl.x[2] *= 0.5f;
     }
     /* 2) LQR 解算(rad)，已限幅 */
     /* Integral separation: freeze the integrator while the attitude error is large. */
@@ -257,7 +265,7 @@ void LQR_Gain_Update50Hz(void)
     /* 3) 调 MATLAB Coder 生成的方程（double 精度） */
     
     double K_flat[24];
-    LQR_K_Dart_d((double)V_DART, K_flat);
+    LQR_K_Dart_d((double)6, K_flat);
     // if(Guidance_State <= Stable)
     // {
     //     LQR_K_Dart_Stable_d((double)V, K_flat);

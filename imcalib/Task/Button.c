@@ -63,9 +63,8 @@ void Short_Press_Process(void)
                         // Total_Power_Control(Power_ON);
                         // ==================视觉自检，内录==============
                         Vision_Self_Text();
-                        // Guidance_State = End;
+                        // target_Cnt+=100;
                         // Vision_Transmit(Vision_Cmd_Work);
-                        Vision_Transmit( Vision_Cmd_Record_Start );
 
                 }break;
                 case 2:
@@ -89,7 +88,8 @@ void Short_Press_Process(void)
                 }break;
                 case 5:
                 {
-                        Vision_Transmit( Vision_Cmd_Record_Stop );
+                        // Vision_Transmit( Vision_Cmd_Record_Stop );
+                        Guidance_State = End;
                 }break;
                 case 8:
                 {

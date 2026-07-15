@@ -57,16 +57,16 @@ DIST_TIERS = [
         "threshold": (22, 90, -103, -20, 10, 109),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
                                                 # LAB 阈值 (L_min, L_max, A_min, A_max, B_min, B_max), 传给 find_blobs 粗筛;
                                                 # FAR 把 L_max 放到 100 让洗白中心也能进同 blob, A_max=-27 严格滤草坪/绿广告
-        "min_brightness": 17,                   # manual: 收紧 10% (15->17)
+        "min_brightness": 12,                   # manual: 收紧 10% (15->17)
         "max_brightness": 100,                  # L 均值上限; 100 = 几乎不限上限 (远距不会被压扁)
         "pixels_threshold": 4,                  # find_blobs 最小连通像素数; FAR 远距目标小, 必须设小
-        "roundness_min": 0.44,                  # manual: 收紧 10% (0.40->0.44)
-        "density_min": 0.06,                    # manual: 收紧 (0.05->0.06)
+        "roundness_min": 0.30,                  # manual: 收紧 10% (0.40->0.44)
+        "density_min": 0.04,                    # manual: 收紧 (0.05->0.06)
         "density_max": 0.95,                    # density 上限; >此值排除实心矩形 (路牌/墙壁等)
         "min_center_green": 1,                  # iter3: 2->1 (远距 LED 中心采样常只命中 1 绿)
         "min_center_saturated": 99,             # HALO 模式触发阈值; 99=禁用 HALO (远距 LED 不会饱和)
         "min_ring_green": 0,                    # HALO 模式: 外环最少绿点数; FAR 用不上 HALO 所以 0
-        "max_ring_noise": 4,                    # manual: 2->4 (小 blob 环采样大部分落背景, 放开噪声容忍)
+        "max_ring_noise": 6,                    # manual: 2->4 (小 blob 环采样大部分落背景, 放开噪声容忍)
     },
     # ---- 中档 (1-5m) ----
     # 工作区间, 大部分参数最标准. 调参时先把这一档调通, 再调远近两档.

@@ -19,48 +19,55 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 // //镖体1 红色
-// #define  Servo_UL_ZERO      1410
-// #define  Servo_UR_ZERO      1460
-// #define  Servo_DR_ZERO      1600
-// #define  Servo_DL_ZERO      1540    
-// #define Shot_Pitch 29
-// #define Shot_Roll -5  
+// #define  Servo_UL_ZERO      1470
+// #define  Servo_UR_ZERO      1530
+// #define  Servo_DR_ZERO      1610
+// #define  Servo_DL_ZERO      1530    
+// #define Shot_Pitch 30
+// #define Shot_Roll 0  
+// #define USE_BMX055   0
+// #define USE_BMI088   1
  
 // //镖体2 红色
-#define  Servo_UL_ZERO      1550
-#define  Servo_UR_ZERO      1510
-#define  Servo_DR_ZERO      1580
-#define  Servo_DL_ZERO      1475    
-#define Shot_Pitch 21.5
-#define Shot_Roll -7.5
-#define USE_BMX055   1
-#define USE_BMI088   0
-#if (USE_BMX055 + USE_BMI088) != 1
-  #error "Exactly one of USE_BMX055 / USE_BMI088 must be 1"
-#endif
+// #define  Servo_UL_ZERO      1690
+// #define  Servo_UR_ZERO      1530
+// #define  Servo_DR_ZERO      1590
+// #define  Servo_DL_ZERO      1415    
+// #define Shot_Pitch 20.5
+// #define Shot_Roll -8.5
+// #define USE_BMX055   1
+// #define USE_BMI088   0
 
 //镖体3 蓝色
-// #define  Servo_UL_ZERO      1660
-// #define  Servo_UR_ZERO      1550
-// #define  Servo_DR_ZERO      1580
-// #define  Servo_DL_ZERO      1480    
-// #define Shot_Pitch 24
-// #define Shot_Roll 5        
+// #define  Servo_UL_ZERO      1640
+// #define  Servo_UR_ZERO      1400
+// #define  Servo_DR_ZERO      1650
+// #define  Servo_DL_ZERO      1400    
+// #define Shot_Pitch 32
+// #define Shot_Roll 0        
+// #define USE_BMX055   0
+// #define USE_BMI088   1
 
 // // //镖体4 红色
-// #define  Servo_UL_ZERO      1630
-// #define  Servo_UR_ZERO      1570
-// #define  Servo_DR_ZERO      1540
-// #define  Servo_DL_ZERO      1480    
-// #define Shot_Pitch 24                   
-// #define Shot_Roll 4
+#define  Servo_UL_ZERO      1530
+#define  Servo_UR_ZERO      1510
+#define  Servo_DR_ZERO      1570
+#define  Servo_DL_ZERO      1490    
+#define Shot_Pitch 24                   
+#define Shot_Roll 4
+#define USE_BMX055   1
+#define USE_BMI088   0
+/* 力大概在轧带哪里 */
 
 
 /* ---- 加速度量程常量:按传感器型号切换 ---- */
+#if (USE_BMX055 + USE_BMI088) != 1
+  #error "Exactly one of USE_BMX055 / USE_BMI088 must be 1"
+#endif
 #if USE_BMI088
   /* BMI088 acc 16-bit 数据,敏感度 = 3/32768 * 量程倍数
    * ±3g 基准: 0.0008974358974f (例程 BMI088_ACCEL_3G_SEN), ±24g = ×8 */
-  #define ACC_LSB_24G   (0.0008974358974f * 8.0f)  /* BMI088 ±24g ≈ 0.007179 g/LSB */
+  #define ACC_LSB_24G (24.0f / 32768.0f)
   #define ACC_LSB       ACC_LSB_24G
   #define ACC_SAT_G     23.5f
 #elif USE_BMX055
@@ -279,6 +286,7 @@ extern float   pitch_glide_target, pitch_glide_blend;  /* Vofa/Watch:滑翔段�
 // extern float yaw_distance_gain;     /* ★封存 */
 // extern float pitch_distance_gain;   /* ★封存 */
 extern float LOOKING_DATA[10];
+extern int16_t target_Cnt ,cnt ;
 
 extern uint16_t current_tick;
 void surface_control_task(void);

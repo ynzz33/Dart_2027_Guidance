@@ -256,6 +256,11 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 
 ---
 
+### 2026-07-15：修复视觉内录结束时过早断电
+
+- **根因**：`Guidance_End()` 发送视觉停录命令并切到 `PROCESS_OK` 后，`get_current_State()` 原先下一拍立即执行 `Power_OFF`，绕过了 `Guidance_Process_OK()` 的保存等待，导致视觉端日志和视频文件可能均为 0KB。
+- **修改**：移除 `get_current_State()` 的立即断电路径，保留 `Guidance_Process_OK()` 的延时断电。未编译、未上板验证；待确认视觉端能收到 `(1,5)` 停录反馈并正常生成文件内容。
+
 ## 当前 TODO
 
 ### 🔬 2026-06-07 审计新发现
