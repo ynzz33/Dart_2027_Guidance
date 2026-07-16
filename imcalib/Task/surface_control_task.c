@@ -420,7 +420,7 @@ void get_current_State(void)
             Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW];
             Surface.Guidance_flag[1] = 1;
         }
-        if(Surface.Guidance_flag[1] == 1&&(IMU_Data.Velocity[Body][NOW][Z]<=-1.3f||(IMU_Data.Velocity[Body][NOW][Y]>=1.3f)))
+        if(Surface.Guidance_flag[1] == 1&&(IMU_Data.Velocity[Body][NOW][Z]<=-0.8f||(IMU_Data.Velocity[Body][NOW][Y]>=0.8f)))
         {
             Buzzer_Remind();
             Guidance_State = Stable;

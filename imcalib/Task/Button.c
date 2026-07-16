@@ -42,7 +42,7 @@ void Press_Remind(void)
                 {
                         if (Button_Data.Press_Long_Cnt!=0&&Button_Data.Press_Long_Cnt[NOW]<=10)
                         {
-                                Buzzer_message.note = Long_notes[Button_Data.Press_Long_Cnt[NOW]-1];
+ 				Buzzer_message.note = Long_notes[Button_Data.Press_Long_Cnt[NOW]-1];
                                 Buzzer_message.cmd = BUZZER_CMD_PLAY_NOTE;
                         }
                 }break;
