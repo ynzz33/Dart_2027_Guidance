@@ -63,7 +63,7 @@ void Short_Press_Process(void)
                         // Total_Power_Control(Power_ON);
                         // ==================视觉自检，内录==============
                         Vision_Self_Text();
-                        // target_Cnt+=100;
+                        target_Cnt+=100;
                         // Vision_Transmit(Vision_Cmd_Work);
 
                 }break;

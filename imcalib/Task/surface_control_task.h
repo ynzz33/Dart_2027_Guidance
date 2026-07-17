@@ -29,14 +29,14 @@
 // #define USE_BMI088   1
  
 // //镖体2 红色
-#define  Servo_UL_ZERO      1690
-#define  Servo_UR_ZERO      1530
-#define  Servo_DR_ZERO      1590
-#define  Servo_DL_ZERO      1415    
-#define Shot_Pitch 16
-#define Shot_Roll 7.5
-#define USE_BMX055   1
-#define USE_BMI088   0
+// #define  Servo_UL_ZERO      1690
+// #define  Servo_UR_ZERO      1530
+// #define  Servo_DR_ZERO      1590
+// #define  Servo_DL_ZERO      1415    
+// #define Shot_Pitch 16
+// #define Shot_Roll 7.5
+// #define USE_BMX055   1
+// #define USE_BMI088   0
 
 //镖体3 蓝色
 // #define  Servo_UL_ZERO      1640
@@ -69,14 +69,14 @@
 // #define USE_BMI088   0 
 
 // // //镖体6 红色
-// #define  Servo_UL_ZERO      1430
-// #define  Servo_UR_ZERO      1420
-// #define  Servo_DR_ZERO      1590 
-// #define  Servo_DL_ZERO      1410    
-// #define Shot_Pitch 24                   
-// #define Shot_Roll 4
-// #define USE_BMX055   1
-// #define USE_BMI088   0
+#define  Servo_UL_ZERO      1430
+#define  Servo_UR_ZERO      1420
+#define  Servo_DR_ZERO      1590 
+#define  Servo_DL_ZERO      1410    
+#define Shot_Pitch 24                   
+#define Shot_Roll 4
+#define USE_BMX055   1
+#define USE_BMI088   0
 /* 力大概在轧带哪里 */
 
 

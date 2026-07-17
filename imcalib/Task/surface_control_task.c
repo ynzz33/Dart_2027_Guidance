@@ -370,11 +370,11 @@ void get_current_Target(void)
 }   
 void get_current_State(void)
 {
-    // if(cnt<target_Cnt)
-    // {
-    //     cnt++;
-    //         Vision_Transmit( Vision_Cmd_Record_Start );
-    // }
+    if(cnt<target_Cnt)
+    {
+        cnt++;
+            Vision_Transmit( Vision_Cmd_Record_Start );
+    }
     // if(Guidance_State>Stable&&V_DART<=4.0f)
     // {
     //     if(Surface.POWER_OFF_CNT++>500)

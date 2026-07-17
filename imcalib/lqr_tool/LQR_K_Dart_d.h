@@ -9,7 +9,7 @@
  * File: LQR_K_Dart_d.h
  *
  * MATLAB Coder version            : 24.2
- * C/C++ source code generated on  : 2026-07-15 10:19:22
+ * C/C++ source code generated on  : 2026-07-17 12:58:33
  */
 
 #ifndef LQR_K_DART_D_H
