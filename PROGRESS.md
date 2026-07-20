@@ -328,6 +328,14 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 
 保留现有 `K_d[4][6]`，`lqr_use_scheduled_K=0` 时固定设计速度生成 K；新增 `LQR_t.integral` 统一管理积分状态、增益、限幅、积分分离和舵面饱和回退。积分分离开关为 1，大姿态误差冻结积分，输出饱和回退本拍积分。未编译，待 Keil/台架验证。
 
+### 2026-07-20：LQR 积分重写为 PID 积分并环 + 积分分离（清零版）
+
+- **动机**：旧 LQR 自维护积分（`lqr_ctrl.integral.err` 累加 `x[axis]*dt`）与 PID 积分是两套机制；积分分离为"冻结"（保留旧值）而非"清零"。
+- **方案**：新建 3 个专用 PID 结构体 `pid_i_for_lqr[3]`（P=D=0 纯积分，索引 [PITCH,ROLL,YAW]），用 `pid_calc()` 对误差积分，iout 叠加到 `err_deg` 再 DEG2RAD 进 LQR 状态 x。积分分离：`|err_deg| ≥ 0.5°` → 清零 iout；`< 0.5°` → `pid_calc()` 累积。分离阈值是唯一门控（PID deadband=0）。舵面饱和→回退本拍 iout（抗饱和）。
+- **符号**：`pid_calc(set=当前, get=目标)` → PID 误差 = current−target = LQR err_deg（同号），叠加方向正确。
+- **落地**：[lqr.c](imcalib/lqr_tool/lqr.c) `LQR_Init` 初始化 PID + `Euler_LQR_Cale` 积分块重写 + `LQR_Update` 移除旧积分代码；[lqr.h](imcalib/lqr_tool/lqr.h) 新增宏 `LQR_I_SEPARATION_DEG_DEFAULT`(0.5°)/`LQR_I_LIMIT_DEG_DEFAULT`(5°)/`LQR_I_KI_DEFAULT`(0.1) + `extern pid_t pid_i_for_lqr[3]`。
+- **未编译**(Keil/MDK)。**待台架**：验证积分分离清零行为、ki 0.1 保守起步上台架后按需调大、Vofa 拉 `lqr_ctrl.integral.err`(积分贡献度) + `pid_i_for_lqr[axis].iout` + `lqr_ctrl.err_deg`(原始误差) + `lqr_ctrl.x[0..2]`(增强后 rad)。
+
 ### 2026-07-14：BMI088 加速度计支持（BMX055 可切换）
 
 - **动机**：硬件换用 BMI088（6 轴 IMU，acc+gyro），需与原 BMX055 代码并存、运行时宏切换。

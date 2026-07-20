@@ -50,6 +50,12 @@
 float V_DART = 0.0f;   /* 当前拍速度(m/s，clamp 后) */
 
 /*============================================================================
+ *  PID-for-LQR 积分器(P=D=0 纯积分，对姿态误差 current−target 积分，iout 叠加到 err_deg)
+ *  索引 [PITCH,ROLL,YAW]，由 LQR_Init 初始化。详见 lqr.h 宏 + Euler_LQR_Cale。
+ *============================================================================*/
+pid_t pid_i_for_lqr[3];
+
+/*============================================================================
  *  全局实例 + 运行时旋钮
  *============================================================================*/
 LQR_t lqr_ctrl;   /* Vofa/Watch 可观测：状态 x、原始/限幅后舵偏、K_d(V) */
@@ -82,8 +88,7 @@ static const uint8_t K_ROW_TO_SERVO[DART_LQR_SERVO_NUM] = {
  *============================================================================*/
 void LQR_Update(const float x[DART_LQR_STATE_NUM], float u[DART_LQR_SERVO_NUM])
 {
-    const float (*K)[DART_LQR_STATE_NUM] = lqr_ctrl.K_d ;
-    lqr_ctrl.integral.saturated = 0;
+    float (*K)[DART_LQR_STATE_NUM] = lqr_ctrl.K_d;
 
     for (uint8_t i = 0; i < DART_LQR_SERVO_NUM; i++)
     {
@@ -91,22 +96,13 @@ void LQR_Update(const float x[DART_LQR_STATE_NUM], float u[DART_LQR_SERVO_NUM])
         for (uint8_t j = 0; j < DART_LQR_STATE_NUM; j++)
             ui -= K[i][j] * x[j];
 
-        /* Integral action reuses the first three K columns to preserve signs/mixing. */
-        if (lqr_ctrl.integral.enable)
-        {
-            for (uint8_t axis = 0; axis < 3; axis++)
-                ui -= K[i][axis] * lqr_ctrl.integral.gain[axis] * lqr_ctrl.integral.err[axis];
-        }
-
         if (ui >  dart_delta_max_rad)
         {
             ui = dart_delta_max_rad;
-            lqr_ctrl.integral.saturated = 1;
         }
         if (ui < -dart_delta_max_rad)
         {
             ui = -dart_delta_max_rad;
-            lqr_ctrl.integral.saturated = 1;
         }
         u[i] = ui;
     }
@@ -121,108 +117,71 @@ void LQR_Update(const float x[DART_LQR_STATE_NUM], float u[DART_LQR_SERVO_NUM])
  *============================================================================*/
 void Euler_LQR_Cale(float dt)
 {
-    float integral_prev[3];
-
-    for (uint8_t axis = 0; axis < 3; axis++)
-        integral_prev[axis] = lqr_ctrl.integral.err[axis];
- 
-    /* 1) 姿态误差 err = 测量 − 期望(配平/目标)，存入 lqr_ctrl.err_deg[roll,pitch,yaw](度，可观测)，
-     *    再转 rad 填 x[0..2]。yaw 为周期角须环绕到 ±180°；roll 按 roll_wrap 选择是否环绕。
+    /* 1) 姿态误差 err = 测量 − 期望(配平/目标)，存入 lqr_ctrl.err_deg[roll,pitch,yaw](度，可观测)。
+     *    yaw 为周期角须环绕到 ±180°；roll 按 roll_wrap 选择是否环绕。
      *    工程欧拉/角速度索引为 [PITCH,ROLL,YAW]；状态 x 顺序为 [roll,pitch,yaw,p,q,r]。*/
     lqr_ctrl.err_deg[0] = Surface.current_angle_Euler[NOW][ROLL]  - Surface.target_angle_Euler[NOW][ROLL];
-    lqr_ctrl.err_deg[1] = Surface.current_angle_Euler[NOW][PITCH] - Surface.target_angle_Euler[NOW][PITCH];
+    // lqr_ctrl.err_deg[1] = Surface.current_angle_Euler[NOW][PITCH] - Surface.target_angle_Euler[NOW][PITCH];
+    lqr_ctrl.err_deg[1] = 0;
     lqr_ctrl.err_deg[2] = Surface.current_angle_Euler[NOW][YAW]   - Surface.target_angle_Euler[NOW][YAW];
     if (lqr_ctrl.roll_wrap) lqr_ctrl.err_deg[0] = Angle_Wrap_180(lqr_ctrl.err_deg[0]);
     lqr_ctrl.err_deg[2] = Angle_Wrap_180(lqr_ctrl.err_deg[2]);   /* yaw 始终环绕，防跨 ±180° 爆冲 */
 
-    /* 1.1) 基于 roll 的机体系补偿(roll_comp=1)：把世界系 pitch/yaw 误差按当前横滚反旋到机体系。
-     *   依据：角度误差取自世界系 ZYX 欧拉(current_angle_Euler)，但 LQR 的 K/B 是机体舵效；机身横滚
-     *   Δ=current_roll−Stable_roll 后，世界系 (pitch_err,yaw_err) 要在机体系里旋一个 Δ 才对得上舵面。
-    *   只反旋角度误差的 pitch/yaw 这一对：roll_err 绕纵轴不变、p/q/r(x[3..5]) 已是机体陀螺(IMU.c) → 都不旋。
-     *   复用 Roll_Derotate_PitchYaw(与 PID 同一旋转、同一 ROLL_WORLD_COMP_SIGN)；★用独立临时量收结果，
-     *   绝不传同一变量当输入兼输出——该函数内部 *Pb=…Pw…; *Yb=…Pw… 会被 in-place 别名覆盖算错。
-     *   roll_comp=0 时直通=旧 LQR 行为(A/B 对照)。Stable 段 Δ≈0 自然恒等，主要在 Terminal 横滚时生效。*/
-    float err_roll  = lqr_ctrl.err_deg[0];
-    float err_pitch = lqr_ctrl.err_deg[1];
-    float err_yaw   = lqr_ctrl.err_deg[2]; 
-
-    lqr_ctrl.x[0] = DEG2RAD(err_roll) ;               /* roll 误差(绕纵轴，不反旋) */
-    lqr_ctrl.x[1] = DEG2RAD(err_pitch) ;             /* pitch 误差(roll_comp=1 时为反旋后机体系；err_deg[1] 仍存反旋前世界值供对照) */
-    lqr_ctrl.x[2] = DEG2RAD(err_yaw) ;               /* yaw   误差(同上) */
-
+    /* gyro 状态 x[3..5](机体角速度 rad/s)，不进积分 */
     lqr_ctrl.x[3] = DEG2RAD(Surface.current_gyro_Euler[NOW][ROLL]) ;
     lqr_ctrl.x[4] = DEG2RAD(Surface.current_gyro_Euler[NOW][PITCH])  ;
     lqr_ctrl.x[5] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW])   ;
 
 
-    
-    // if(Surface.current_angle_Euler[NOW][PITCH]<10&&Guidance_State==Stable)
-    // {
-    //     // if(abs(Surface.current_angle_Euler[NOW][PITCH]-15.0f) < 5.0f)
-    //     // if(Guidance_State<Terminal)
-    //     // {
-    //         lqr_ctrl.x[4] = 0;
-    //     // }
-    // }
-    if(Guidance_State<Terminal)
+    if(Guidance_State>Terminal)
     { 
-        lqr_ctrl.x[4]  *= 0.5f ;
-    }
-    else if(Guidance_State==Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
-    {
-        lqr_ctrl.x[4] = 0;
-    }
-    // if(Guidance_State<Terminal)
+        // lqr_ctrl.x[1]  = 0.0f ;
+        lqr_ctrl.x[4]   = 0.0f ;
+    }    
+    // else if(Guidance_State==Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
     // {
-    //     lqr_ctrl.x[2] *= 0.5f;
+    //     lqr_ctrl.x[4] = 0;
     // }
-    // lqr_ctrl.x[1] = 0;
-    // lqr_ctrl.x[4] = 0;
-    /* 2) LQR 解算(rad)，已限幅 */
-    /* Integral separation: freeze the integrator while the attitude error is large. */
-    if (!lqr_ctrl.integral.enable)
+    // else
+    // {
+    //     // lqr_ctrl.x[1]  = 0.0f ;
+    //     lqr_ctrl.x[4]  = 0.0f ;
+    // }
+
+    /* ---- PID-for-LQR 积分(yaw only)：用 pid_i_for_lqr[YAW] 对 yaw 误差(current−target)纯积分，
+     *    叠加到 yaw err_deg 后再 DEG2RAD 进 LQR 状态 x[2]。积分分离：|yaw_err|≥阈值→清零 iout；
+     *    |yaw_err|<阈值→pid_calc 累积。分离阈值是唯一门控(PID deadband=0)。
+     *    舵面饱和→回退本拍 iout(抗饱和)。roll/pitch 不积分，直通。---- */
     {
-        for (uint8_t axis = 0; axis < 3; axis++)
-            lqr_ctrl.integral.err[axis] = 0.0f;
-    }
-    else
-    {
-        for (uint8_t axis = 0; axis < 3; axis++)
+        /* yaw 积分分离 + PID 累积 */
+        if (fabsf(lqr_ctrl.err_deg[2]) >= LQR_I_SEPARATION_DEG_DEFAULT)
         {
-            if (lqr_ctrl.integral.separation &&
-                fabsf(lqr_ctrl.err_deg[axis]) >= lqr_ctrl.integral.separation_deg[axis])
-                continue;
-
-            lqr_ctrl.integral.err[axis] += lqr_ctrl.x[axis] * dt;
-            if (lqr_ctrl.integral.err[axis] > lqr_ctrl.integral.limit[axis])
-                lqr_ctrl.integral.err[axis] = lqr_ctrl.integral.limit[axis];
-            if (lqr_ctrl.integral.err[axis] < -lqr_ctrl.integral.limit[axis])
-                lqr_ctrl.integral.err[axis] = -lqr_ctrl.integral.limit[axis];
+            pid_i_for_lqr[YAW].iout = 0.0f;            /* 分离区外：清零积分 */
         }
-    }
+        else
+        {
+            /* set=当前yaw, get=目标yaw → PID err = current−target = LQR err_deg(同号) */
+            pid_calc(&pid_i_for_lqr[YAW],
+                     Surface.target_angle_Euler[NOW][YAW],
+                     Surface.current_angle_Euler[NOW][YAW],
+                     dt);
+        }
 
-    LQR_Update(lqr_ctrl.x, lqr_ctrl.u_rad);
 
-    /* Anti-windup: rollback this cycle's integral if any servo saturated. */
-    if (lqr_ctrl.integral.saturated)
-    {
-        for (uint8_t axis = 0; axis < 3; axis++)
-            lqr_ctrl.integral.err[axis] = integral_prev[axis];
+        /* roll/pitch: err_deg 直通；yaw: 增强误差 = err_deg + 积分(度) → rad */
+        lqr_ctrl.x[0] = DEG2RAD(lqr_ctrl.err_deg[0]);         /* roll  直通 rad */
+        // lqr_ctrl.x[1] = DEG2RAD(lqr_ctrl.err_deg[1]);         /* pitch 直通 rad */
+        lqr_ctrl.x[1] = 0.0f;         /* pitch 直通 rad */
+        lqr_ctrl.x[2] = DEG2RAD(lqr_ctrl.err_deg[2] + pid_i_for_lqr[YAW].iout); /* yaw 增强 rad */
+
+        /* yaw 死区：|误差| < 0.15° 不做 yaw 控制，清零 x[2] */
+        // if (fabsf(lqr_ctrl.err_deg[2]) < 0.05f)
+        // {
+        //     lqr_ctrl.x[2] = 0.0f;
+        //     lqr_ctrl.x[5] = 0.0f;
+        // }
         LQR_Update(lqr_ctrl.x, lqr_ctrl.u_rad);
     }
-
-    /* 2.5) 仅观测：从 u_rad 反解等效三轴指令(度)，类比 PID 的 output_gyro_Euler。
-     *      u_rad 为 MATLAB 舵号 delta1..4=[右上UR,左上UL,左下DL,右下DR]，按理想 X 翼 G 行模式投影：
-     *        roll  ∝ 四片同向和；pitch ∝ (δ1−δ2−δ3+δ4)；yaw ∝ (δ1+δ2−δ3−δ4)。
-     *      ×0.25 归一成"等效对称舵偏度数"。不参与控制，仅供观测对照。*/
-    {
-        float d1 = lqr_ctrl.u_rad[0], d2 = lqr_ctrl.u_rad[1];
-        float d3 = lqr_ctrl.u_rad[2], d4 = lqr_ctrl.u_rad[3];
-        lqr_ctrl.axis_cmd_deg[ROLL]  = RAD2DEG((d1 + d2 + d3 + d4) * 0.25f);
-        lqr_ctrl.axis_cmd_deg[PITCH] = RAD2DEG((d1 - d2 - d3 + d4) * 0.25f);
-        lqr_ctrl.axis_cmd_deg[YAW]   = RAD2DEG((d1 + d2 - d3 - d4) * 0.25f);
-    } 
-
     /* 3) 按 MATLAB 舵号→工程索引换序，转度，写舵机角(±SERVO_ANGLE_LIMIT)。
      *    ★ 不乘工程 SIGN_xx：那套是为 PID 的"共模逻辑列"设计的(C 阵 pitch 列四片同号)，
      *      而 MATLAB G 的 pitch/roll 已是差动；再乘 ×SIGN 会把 pitch/roll 打成共模(产生不了力矩)。
@@ -261,16 +220,6 @@ void LQR_Gain_Update50Hz(void)
     
     double K_flat[24];
     LQR_K_Dart_d((double)6, K_flat);
-    // if(Guidance_State <= Stable)
-    // {
-    //     LQR_K_Dart_Stable_d((double)V, K_flat);
-    // }
-    // else if(Guidance_State == Terminal)
-    // {
-    //     LQR_K_Dart_d((double)V, K_flat);
-    // }
-    /* 4) 列优先→行优先，写入 lqr_ctrl.K_d
-     *    MATLAB 按列排：K_flat[0..3]=col0(roll_err), K_flat[4..7]=col1(pitch_err), ... */
     for (uint8_t col = 0; col < DART_LQR_STATE_NUM; col++)
         for (uint8_t row = 0; row < DART_LQR_SERVO_NUM; row++)
             lqr_ctrl.K_d[row][col] = (float)K_flat[col * DART_LQR_SERVO_NUM + row];
@@ -289,18 +238,17 @@ void LQR_Init(void)
     lqr_ctrl.roll_comp = 0;         /* 默认关(直通=旧 LQR)；台架验 SIGN 后再 Watch 切 1 启用 roll 补偿(见 Euler_LQR_Cale) */
     lqr_ctrl.roll_comp_delta = 0.0f; 
 
-    for (uint8_t axis = 0; axis < 3; axis++) 
-    {
-        lqr_ctrl.integral.err[axis] = 0.0f;
-        lqr_ctrl.integral.gain[axis] = 1.0f;
-        lqr_ctrl.integral.limit[axis] = 0.5f;
-        lqr_ctrl.integral.separation_deg[axis] =0.5f;
-
-    }
-    lqr_ctrl.integral.enable = 1;   /* 阶段二：关闭积分，隔离 K(V) 问题 */
-    lqr_ctrl.integral.separation = 1;
-    lqr_ctrl.integral.saturated = 0;
-
+    /* ---- PID-for-LQR 积分器初始化(仅 yaw) ---- */
+    PID_struct_init(&pid_i_for_lqr[YAW], POSITION_PID,
+                    LQR_I_LIMIT_DEG_DEFAULT,  /* MaxOutput */
+                    LQR_I_LIMIT_DEG_DEFAULT,          /* IntegralLimit: iout 限幅(度) */
+                    0.0f,                             /* kp=0 */
+                    LQR_I_KI_DEFAULT ,                             /* ki: 台架可调 */
+                    0.0f,                             /* kd=0 */
+                    0.0f, 0.0f);                      /* 前馈关闭 */
+    pid_i_for_lqr[YAW].deadband   = 0.0f;             /* ★死区=0：分离阈值是唯一门控 */
+    pid_i_for_lqr[YAW].max_err    = 0.0f;
+    pid_i_for_lqr[YAW].angle_wrap = 0;                /* yaw 周期角环绕 */
     /* 初始化 MATLAB Coder 运行时（rt_InitInfAndNaN + 标志位） */
     LQR_K_Dart_d_initialize();
 

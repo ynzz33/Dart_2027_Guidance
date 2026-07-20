@@ -219,7 +219,7 @@ void Vision_Transmit_Debug(void)
     val[0]  = IMU_Data.Velocity[Body][NOW][X];                          /* 时间 s */
     val[1]  = IMU_Data.Velocity[Body][NOW][Y];                                   /* 速度 m/s */
     val[2]  = IMU_Data.Velocity[Body][NOW][Z]    ; /* delta1 rad */
-    val[3]  = Surface.output_angle_Servo[NOW][UP_RIGHT]   ; /* delta2 rad */
+    val[3]  = Surface.current_angle_Euler[NOW][PITCH]   ; /* delta2 rad */
     val[4]  = Surface.output_angle_Servo[NOW][DOWN_RIGHT] ; /* delta3 rad */
     val[5]  = Surface.output_angle_Servo[NOW][DOWN_LEFT]  ; /* delta4 rad */
     val[6]  =  Surface.target_angle_Euler[NOW][ROLL]  - Surface.current_angle_Euler[NOW][ROLL]  ;

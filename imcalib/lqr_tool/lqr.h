@@ -25,22 +25,11 @@
 #define DART_LQR_SERVO_NUM   4
 
 /* PID 积分分离阈值(度)——LQR 积分唯一的门控，新 PID deadband=0 */
-#define LQR_I_SEPARATION_DEG_DEFAULT  0.5f
+#define LQR_I_SEPARATION_DEG_DEFAULT  1.0f
 /* PID 积分限幅(度)——iout 上限，防积分深饱和 */
-#define LQR_I_LIMIT_DEG_DEFAULT       5.0f
+#define LQR_I_LIMIT_DEG_DEFAULT       10.0f
 /* PID ki 初值——台架可调 */
-#define LQR_I_KI_DEFAULT              0.1f
-
-typedef struct
-{
-    float err[3];
-    float gain[3];
-    float limit[3];
-    float separation_deg[3];
-    uint8_t enable;
-    uint8_t separation;
-    uint8_t saturated;
-} LQR_Integral_t;
+#define LQR_I_KI_DEFAULT              6.0f
 
 /* 速度调度范围(m/s)，与 MATLAB V_schedule_ac 对齐；超出 clamp 到边界 */
 #define DART_LQR_V_MIN       0.0f
@@ -63,9 +52,6 @@ typedef struct
     /* ---- 速度调度 K_d(V)(50Hz 中断更新，Vofa 可观测) ---- */
     float K_d[DART_LQR_SERVO_NUM][DART_LQR_STATE_NUM]; /* 当前拍 K 矩阵(由 LQR_Gain_Update50Hz 写入) */
     float V_lqr;                          /* 当前拍用于算 K 的速度(m/s，clamp 后) */
-
-    /* LQR+I：积分状态、积分分离和抗积分饱和，统一收进 LQR_t */
-    LQR_Integral_t integral;
 
     /* ---- 上车前需逐轴台架验证的符号/环绕(指南 §9) ---- */
     float   axis_sign[3];                 /* ★整轴极性[roll,pitch,yaw]，±1，默认+1。某轴打反/发散(如 roll 一直旋)
@@ -91,6 +77,10 @@ extern float dart_delta_max_rad;                            /* 舵偏限幅(rad)
 extern uint8_t lqr_pitch_terminal_only;                    /* 1=只在制导段(Terminal)+检测到目标时控 pitch(补偿)；0=全程控。见 lqr.c */
 extern uint8_t lqr_use_scheduled_K;                        /* 1=速度调度 K_d(V)(默认)；0=退回静态 dart_lqr_K */
 extern float V_DART;                                        /* 50Hz 中断算出的当前飞行速度(m/s)，clamp 到 [DART_LQR_V_MIN,DART_LQR_V_MAX] */
+
+/* PID-for-LQR 积分器：P=D=0 纯积分，对姿态误差(current−target)积分，iout 叠加到 err_deg 再进 LQR 状态 x。
+ * 索引 [PITCH,ROLL,YAW](对齐 surface_control_pid[Angle][axis])，由 LQR_Init 初始化。 */
+extern pid_t pid_i_for_lqr[3];
 /*============================================================================
  *  接口
  *============================================================================*/

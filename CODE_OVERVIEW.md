@@ -307,6 +307,15 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[−1,−1,−1,−
 
 ---
 *维护约定：本文与 PROGRESS.md / memory `control-tuning-progress` 三方同步；改代码后更新对应小节。*
-### LQR+I 积分扩展（2026-07-14）
+### LQR+I 积分扩展（2026-07-14 → 2026-07-20 重写为 PID 积分并环）
 
-`lqr_ctrl.integral` 统一保存三轴积分状态、作用增益、积分限幅、积分分离窗口、启用/分离/饱和标志。当前 `lqr_use_scheduled_K=0`，LQR 增益函数固定使用设计速度输入；积分分离开关为 1，大姿态误差时冻结积分，舵面饱和时回退本拍积分，保留现有 `K_d[4][6]` 的舵面分配和符号。参数以 `lqr.h/.c` 代码为准，未编译、待台架。
+积分机制已从 LQR 自维护 `lqr_ctrl.integral.err` 重写为 **PID 积分并环**：
+- **3 个专用 `pid_i_for_lqr[3]`**（PITCH/ROLL/YAW，`pid_t` 类型），P=D=0 纯积分，ki 默认 0.1（宏 `LQR_I_KI_DEFAULT`）
+- **积分分离**：`|err_deg| ≥ 0.5°`（`LQR_I_SEPARATION_DEG_DEFAULT`）→ 清零 iout；`< 0.5°` → `pid_calc()` 累积。分离阈值是唯一门控（PID deadband=0）
+- **并环**：`增强误差 = err_deg + pid_i_for_lqr[axis].iout`（度），再 DEG2RAD 进 LQR 状态 x[0..2]
+- **符号**：`pid_calc(set=当前角度, get=目标角度)` → PID 误差 = current−target = LQR err_deg，同号
+- **抗饱和**：舵面饱和时回退本拍 iout 到保存值，重算 LQR
+- 旧 `LQR_Update()` 中的积分贡献代码块已移除（积分已预叠加在 x 中）
+- 积分贡献 `pid_i_for_lqr[axis].iout` 写 `lqr_ctrl.integral.err` 供 Vofa 观测
+
+参数以 `lqr.h` 宏（`LQR_I_SEPARATION_DEG_DEFAULT`/`LQR_I_LIMIT_DEG_DEFAULT`/`LQR_I_KI_DEFAULT`）和 `lqr.c` `LQR_Init` 代码为准，未编译、待台架。
