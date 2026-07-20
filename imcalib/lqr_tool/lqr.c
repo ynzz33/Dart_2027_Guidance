@@ -164,12 +164,14 @@ void Euler_LQR_Cale(float dt)
     //         lqr_ctrl.x[4] = 0;
     //     // }
     // }
-    if(Guidance_State<Terminal||Guidance_State==Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
+    if(Guidance_State<Terminal)
     { 
-        // lqr_ctrl.x[4]  *= 0.1f ;
+        lqr_ctrl.x[4]  *= 0.5f ;
+    }
+    else if(Guidance_State==Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
+    {
         lqr_ctrl.x[4] = 0;
     }
-
     // if(Guidance_State<Terminal)
     // {
     //     lqr_ctrl.x[2] *= 0.5f;
@@ -291,7 +293,7 @@ void LQR_Init(void)
     {
         lqr_ctrl.integral.err[axis] = 0.0f;
         lqr_ctrl.integral.gain[axis] = 1.0f;
-        lqr_ctrl.integral.limit[axis] = 1.0f;
+        lqr_ctrl.integral.limit[axis] = 0.5f;
         lqr_ctrl.integral.separation_deg[axis] =0.5f;
 
     }

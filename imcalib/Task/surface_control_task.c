@@ -382,7 +382,7 @@ void get_current_State(void)
             Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW];
             Surface.Guidance_flag[1] = 1;
         }
-        if(Surface.Guidance_flag[1] == 1&&V_DART>=0.6f)
+        if(Surface.Guidance_flag[1] == 1&&V_DART>=0.5f&&fabs(IMU_Data.Velocity[Body][NOW][Y])>0.2f&&fabs(IMU_Data.Velocity[Body][NOW][X])<0.5)
         {
             Buzzer_Remind();
             Guidance_State = Stable;
@@ -401,7 +401,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&V_DART<6.0f)
+    else if (Guidance_State == Terminal &&V_DART<3.0f)
     {
         if(Surface.Guidance_cnt[3]++>50)
         {

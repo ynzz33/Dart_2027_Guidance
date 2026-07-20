@@ -216,10 +216,9 @@ void Vision_Transmit_Debug(void)
     // val[10] = lqr_ctrl.u_servo_deg[2];
     // val[11] = lqr_ctrl.u_servo_deg[3];
     
-    val[0]  = HAL_GetTick() / 1000.0f;                          /* 时间 s */
-    // val[0]  = Surface.Stable_Euler_Angle[ROLL];
-    val[1]  = Surface.current_angle_Euler[NOW][PITCH];                                   /* 速度 m/s */
-    val[2]  = Surface.output_angle_Servo[NOW][UP_LEFT]    ; /* delta1 rad */
+    val[0]  = IMU_Data.Velocity[Body][NOW][X];                          /* 时间 s */
+    val[1]  = IMU_Data.Velocity[Body][NOW][Y];                                   /* 速度 m/s */
+    val[2]  = IMU_Data.Velocity[Body][NOW][Z]    ; /* delta1 rad */
     val[3]  = Surface.output_angle_Servo[NOW][UP_RIGHT]   ; /* delta2 rad */
     val[4]  = Surface.output_angle_Servo[NOW][DOWN_RIGHT] ; /* delta3 rad */
     val[5]  = Surface.output_angle_Servo[NOW][DOWN_LEFT]  ; /* delta4 rad */

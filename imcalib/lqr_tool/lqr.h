@@ -14,6 +14,7 @@
 #define __LQR_H
 
 #include "stm32g4xx_hal.h"
+#include "pid.h"                        /* pid_t 类型，pid_i_for_lqr[3] 用 */
 
 /*============================================================================
  *  维度
@@ -22,6 +23,13 @@
  *============================================================================*/
 #define DART_LQR_STATE_NUM   6
 #define DART_LQR_SERVO_NUM   4
+
+/* PID 积分分离阈值(度)——LQR 积分唯一的门控，新 PID deadband=0 */
+#define LQR_I_SEPARATION_DEG_DEFAULT  0.5f
+/* PID 积分限幅(度)——iout 上限，防积分深饱和 */
+#define LQR_I_LIMIT_DEG_DEFAULT       5.0f
+/* PID ki 初值——台架可调 */
+#define LQR_I_KI_DEFAULT              0.1f
 
 typedef struct
 {
