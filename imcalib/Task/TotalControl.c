@@ -27,7 +27,7 @@ void TotalControl(void)
 		Vofa();
 	}
 	surface_control_task();
-	if(huart3.gState == HAL_UART_STATE_READY&&(Guidance_State == Stable||Guidance_State == Terminal))
+	if(huart3.gState == HAL_UART_STATE_READY&&(Guidance_State == Start||Guidance_State == Stable||Guidance_State == Terminal))
 	{
 		Vision_Transmit_Debug();
 		// ADC_Voltage_Real = 100;

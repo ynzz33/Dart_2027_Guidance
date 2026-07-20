@@ -45,79 +45,22 @@ uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
 int16_t target_Cnt = 0,cnt = 0;
 uint16_t current_tick;
 
-
-/* === 速度矢量追踪制导:三级串级 ===
- * 外环:速度方向追目标方向 → 输出 body 目标角
- * 中环:镖头追 body 目标角 → 输出 rate_cmd (复用角度环 PID)
- * 内环:角速度追 rate_cmd → 输出舵偏 (复用 gyro 环 PID)
- * vel_pursuit_mode=0 时退化为原两级 PID。*/
-uint8_t vel_pursuit_mode = 0;
-/* LADRC 控制选择：0=全 PID(安全默认), 1=三轴全 LADRC, 3=仅 Roll 用 LADRC(本次先试)
- * LADRC 旋钮在 ladrc_ctrl[轴].{wc,wo,b0}，可用调试器 Watch 在线改(见 adrc.c)。*/
-uint8_t ladrc_mode = 0;   /* ★ 先在 roll 上试 LADRC，pitch/yaw 仍走 PID；要回全 PID 就改 0 */
-
-/* LQR 控制选择：0=关(走 PID/LADRC，安全默认), 1=用 LQR 一步解算(6态→4舵，含混控，绕过 PID 与 Servo_Mix_*)
- * K 矩阵在 lqr.c 的 dart_lqr_K[4][6](MATLAB 粘贴区)；符号/换序见 lqr.c。优先级高于 ladrc_mode/vel_pursuit_mode。
- * ★ 未编译/待台架：上车前务必按指南 §9 逐轴阶跃验符号(飞镖一次性，G 符号反=正反馈)。*/
-uint8_t lqr_mode = 1;
-
-/* === 控制分配(混控)状态:整合为单一结构体 Alloc(原 Alloc_Mode/Prio/B、alloc_*、servo_lat_scale 散落全局) === */
-Alloc_t Alloc = {
-    .Mode = 2,                                 /* 默认最小能量;1=三轴限幅 0=旧PitchPriority对照 */
-    .Prio = { ROLL, YAW, PITCH },              /* 交付A(Mode1)逐级优先级:[0]最高=roll>yaw>pitch;Mode2 不读、其饱和优先级硬编码 pitch>横侧 */
-    /* 舵效矩阵 B (3x4): τ=B·u, 行[pitch,roll,yaw] 列[UL,UR,DR,DL]. 默认理想 X 阵(BBᵀ=4I).
-     * 台架辨识替换法:固定其余三舵=0,给第 j 舵单位阶跃 Δu_j,读三轴力矩响应 Δτ_p/r/y,
-     * 令 B[0..2][j]=Δτ_{p,r,y}/Δu_j;改这里即可换实测值,无需改算法,奇异自动退回理想阵闭式. */
-    .B = {
-        { -1.0f, -1.0f, -1.0f, -1.0f },        /* pitch (四片同号,逻辑列=−1, SIGN 翻转后=真俯仰) */
-        { +1.0f, -1.0f, -1.0f, +1.0f },        /* roll  */
-        { -1.0f, +1.0f, -1.0f, +1.0f },        /* yaw   */
-    },
-    .v_scale = 1.0f, .p_scale = 1.0f, .lat_scale = 1.0f,   /* 其余(u0/u_out/alpha/u0_span/infeasible/singular_flag)默认 0 */
-};
-
-
 float   vision_los_final[2][3],vision_los_current[3];   /* 末制导世界系视线终点:视觉新帧锁存,target 每 tick 斜坡逼近(方案3) */
 float   vision_los_rate[3] = {0};                    /* 末制导世界系惯性视线率λ̇(°/s):视觉帧间差分,PN超前用;丢帧保持/丢目标清0 */
-/* ★封存:下列 4 个 Vofa 观测全局随末制导增益调度/俯冲下限函数(本文件 #if 0 块)一并停用,确认无其它消费者 */
-// float   pitch_dive_floor = 0.0f, closeness_s = 0.0f; /* Vofa:末制导俯仰俯冲下限θ_floor° / 接近度s∈[0,1] */
-// float   yaw_distance_gain = 1.0f;                   /* Vofa:末制导 yaw 距离面积增益 */
-// float   pitch_distance_gain = 1.0f;                  /* Vofa:末制导 pitch 距离面积增益(远端小、近端大) */
-float pitch_control_limit_deg = -0.0f;//开始放开pitch控制的角度限制
-uint8_t pitch_glide_mode = 1;   /* 0=旧 pitch_control_limit 门限;1=主动滑翔→扎(本次新增),可 Watch 在线切回 0 做 A/B */
-float   pitch_glide_target = 0.0f, pitch_glide_blend = 0.0f;
+
+
+/* 末端姿态锁定(控制稳定后,近距离锁姿态+pitch偏置打实际目标装甲板) */
+TerminalLock_t TermLock = {
+    .enable        = 1,     /* 默认关,台架验证稳定后再开(Watch置1) */
+    .active        = 0,
+    .pitch_bias_deg = 5.0f, /* pitch抬高偏置°(+:灯在靶下方,抬高瞄准点),待台架标定 */
+    .locked_pitch  = 0.0f,
+    .locked_yaw    = 0.0f,
+};
+
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
-#if 1
-
-void Euler_Updata(void)
-{
-    //Updata
-    for (int i = 0;i<3;i++)
-    {
-        Surface.target_angle_Euler [LLAST][i] = Surface.target_angle_Euler [LAST][i];
-        Surface.target_angle_Euler [LAST ][i] = Surface.target_angle_Euler [NOW ][i];
-        Surface.current_angle_Euler[LLAST][i] = Surface.current_angle_Euler[LAST][i];
-        Surface.current_angle_Euler[LAST ][i] = Surface.current_angle_Euler[NOW ][i];
-    }
-}
-void Servo_Updata(void)
-{
-    /* X 翼跑 4 个舵机,十字翼跑 3 个;output_angle_Servo 共用 [3][4] 缓存 */
-    int n = (DART_TYPE == VECTOR_NOZZLE) ? 4 : 3;
-    for (int i = 0; i < n; i++)
-    {
-        Surface.output_angle_Servo[LLAST][i] = Surface.output_angle_Servo[LAST][i];
-        Surface.output_angle_Servo[LAST ][i] = Surface.output_angle_Servo[NOW ][i];
-    }
-}                    
-void Data_Updata(void)
-{
-    Euler_Updata();
-    Servo_Updata();
-    Surface.target_angle_Euler[LAST][YAW] = Surface.target_angle_Euler[NOW][YAW];
-}
-#if 1 //DART_TYPE == VECTOR_NOZZLE
+#if 1 
 /* X 翼 4 个舵机 PWM 写入:接 TIM3 CH2 TIM4 CH2-CH4 (PB6/PB7/PB8/PB9)
  * 输入 data 单位是度(±90 内), 内部映射到 PWM 微秒并做 ZERO 偏置 + 限幅
  */
@@ -169,13 +112,13 @@ void Wing_Control_VECTOR_NOZZLE(void)
         Wing_DR_Control(0.0f);
         return;
     }
+
         // Wing_UL_Control(0.0f);
         // Wing_UR_Control(0.0f);
         // Wing_DL_Control(0.0f);
         // Wing_DR_Control(0.0f);
 }
 
-#endif
 void Wing_Control(void)
 {
     if (Wing_Servo_Control_Flag == 1)
@@ -197,12 +140,39 @@ void Wing_Control(void)
         Wing_Control_VECTOR_NOZZLE();
     }
 }
-
+void Euler_Updata(void)
+{
+    //Updata
+    for (int i = 0;i<3;i++)
+    {
+        Surface.target_angle_Euler [LLAST][i] = Surface.target_angle_Euler [LAST][i];
+        Surface.target_angle_Euler [LAST ][i] = Surface.target_angle_Euler [NOW ][i];
+        Surface.current_angle_Euler[LLAST][i] = Surface.current_angle_Euler[LAST][i];
+        Surface.current_angle_Euler[LAST ][i] = Surface.current_angle_Euler[NOW ][i];
+    }
+}
+void Servo_Updata(void)
+{
+    /* X 翼跑 4 个舵机,十字翼跑 3 个;output_angle_Servo 共用 [3][4] 缓存 */
+    int n = (DART_TYPE == VECTOR_NOZZLE) ? 4 : 3;
+    for (int i = 0; i < n; i++)
+    {
+        Surface.output_angle_Servo[LLAST][i] = Surface.output_angle_Servo[LAST][i];
+        Surface.output_angle_Servo[LAST ][i] = Surface.output_angle_Servo[NOW ][i];
+    }
+}                    
+void Data_Updata(void)
+{
+    Euler_Updata();
+    Servo_Updata();
+    Surface.target_angle_Euler[LAST][YAW] = Surface.target_angle_Euler[NOW][YAW];
+}
 #endif
+
 void Guidance_Start(void)//自检后的判断
 {
-            Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-            Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
+        Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
+        Surface.target_angle_Euler[NOW][YAW]   = Surface.Stable_Euler_Angle[YAW];
         Surface.target_angle_Euler[NOW][ROLL]  =  
         Surface.Stable_Euler_Angle[ROLL];
 }
@@ -271,24 +241,16 @@ void Guidance_Terminal(void)//制导段
         los_rate_init = 0;
     }
 
-    /* 视觉目标 = 锁存的世界系视线终点(无额外平滑) */
-    {
-        /* 视觉目标 = 锁存的世界系视线终点 vision_los_final(新帧阶跃更新,帧间靠航位推算)。
-         * 原 LPF / 距离增益缩放(Yaw/Pitch_Gain_ByDist)已停用,此处直接取用,不再有中间滤波量。
-         * 丢目标(FAILURE)时 vision_los_final[NOW] 已在上方被置为当前姿态 → 自然就地保持。*/
-
-        /* YAW:直接追锁存视线终点 */
         Surface.target_angle_Euler[NOW][YAW] = vision_los_final[NOW][YAW];
-        if (Surface.current_angle_Euler[NOW][PITCH] <= pitch_control_limit_deg)
-        {
-            Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
-        }
-        else
-        {
-            Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-        }
-    }
-
+        Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
+        // if(Vision_Rx_Data.dist_cm<=150&&Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+        // {
+        //     Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH]+10;
+        // }
+        // else
+        // {
+        //     Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
+        // }
     /* PN 超前:暂时关闭,先用纯 PID 跟踪视觉目标验证基础跟踪性能。
      * 后续标定好 K_Dyn 后再打开 Mode1(速度²缩放)。*/
     #if 0
@@ -301,17 +263,13 @@ void Guidance_Terminal(void)//制导段
     #endif
 
 }
-void Guidance_End(void)
+void Guidance_End(void) 
 {
-    // Dart_Trigger_Power_Control( Power_OFF );
-    if(Surface.Guidance_cnt[4])
-    {
-        Vision_Transmit(Vision_Cmd_Record_Stop);
-        } 
-    if (Surface.Guidance_cnt[4]++>4000)
+    Vision_Transmit(Vision_Cmd_Record_Stop);
+    Buzzer_stop();
+    if (Surface.Guidance_cnt[4]++>3000)
     {
         Guidance_State = PROCESS_OK;
-        Buzzer_stop();
         Surface.Guidance_cnt[4] = 0;
     }
     Wing_Servo_Control_Flag = 0;
@@ -319,10 +277,10 @@ void Guidance_End(void)
 }
 void Guidance_Process_OK(void)
 {
-    if (Surface.Guidance_cnt[5]++>3000)
+    Buzzer_Remind();
+    if (Surface.Guidance_cnt[5]++>5000)
     {
 		Total_Power_Control(Power_OFF);
-        Surface.Guidance_cnt[5] = 0;
     }
 }
 
@@ -387,12 +345,15 @@ void get_current_State(void)
             Surface.Guidance_flag[1] == 1
     )
     {
-            Buzzer_Remind();
+        static uint16_t Text_cnt = 0;
+        if((Text_cnt++)%20==0)
+        {
+          Buzzer_Remind();
+        }
     }
     if (Self_Text.Self_Text_Process==Self_Text_OK&&Guidance_State == Self_Text_State)
     {
         if (Surface.Guidance_cnt[0]++>2000)
-        
         {
             Buzzer_Remind();
             Guidance_State = Start;
@@ -402,7 +363,6 @@ void get_current_State(void)
                 Self_Text.Self_Text_Process = 5; 
             } 
             Surface.Guidance_cnt[0] = 0;
-            Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
             // Shot_Pitch = IMU_Data.Euler[NOW][PITCH];
         }
     }
@@ -414,13 +374,15 @@ void get_current_State(void)
             Surface.Guidance_cnt[1]++;
             Vision_Transmit( Vision_Cmd_Record_Start );
         }
-        if(Surface.Guidance_cnt[1]>=500&&Surface.Guidance_flag[1]==0)
+        if(Surface.Guidance_cnt[1]>=50&&Surface.Guidance_flag[1]==0)
         {
+            Buzzer_Remind();
+            Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
             Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL];
             Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW];
             Surface.Guidance_flag[1] = 1;
         }
-        if(Surface.Guidance_flag[1] == 1&&(IMU_Data.Velocity[Body][NOW][Z]<=-0.8f||(IMU_Data.Velocity[Body][NOW][Y]>=0.8f)))
+        if(Surface.Guidance_flag[1] == 1&&V_DART>=0.6f)
         {
             Buzzer_Remind();
             Guidance_State = Stable;
@@ -428,7 +390,7 @@ void get_current_State(void)
             Surface.Guidance_flag[1] = 2; 
         }
     }
-    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=10.0f||Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
+    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=0.0f||Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
     {
         Vision_Transmit( Vision_Cmd_Work );
         if(Surface.Guidance_cnt[2]++>5)
@@ -439,7 +401,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&(V_DART<3.0f||IMU_Data.A_Normed[NOW][Y]>= 0.90f|| IMU_Data.A[NOW][Y]<= -1.3f))
+    else if (Guidance_State == Terminal &&V_DART<6.0f)
     {
         if(Surface.Guidance_cnt[3]++>50)
         {

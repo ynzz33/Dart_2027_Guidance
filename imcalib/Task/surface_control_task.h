@@ -39,44 +39,54 @@
 // #define USE_BMI088   0
 
 //镖体3 蓝色
-// #define  Servo_UL_ZERO      1640
-// #define  Servo_UR_ZERO      1400
-// #define  Servo_DR_ZERO      1650
-// #define  Servo_DL_ZERO      1400    
-// #define Shot_Pitch 32
-// #define Shot_Roll 0        
+#define  Servo_UL_ZERO      1570
+#define  Servo_UR_ZERO      1600
+#define  Servo_DR_ZERO      1550
+#define  Servo_DL_ZERO      1440    
+#define Shot_Pitch 28
+#define Shot_Roll -6        
+#define USE_BMX055   1
+#define USE_BMI088   0
+
+// // //镖体4 红色
+// #define  Servo_UL_ZERO      1550
+// #define  Servo_UR_ZERO      1570
+// #define  Servo_DR_ZERO      1550
+// #define  Servo_DL_ZERO      1490    
+// #define Shot_Pitch 31.5                   
+// #define Shot_Roll 0.5                                                                                                                                
 // #define USE_BMX055   0
 // #define USE_BMI088   1
 
-// // //镖体4 红色
-// #define  Servo_UL_ZERO      1530
-// #define  Servo_UR_ZERO      1510
-// #define  Servo_DR_ZERO      1570
-// #define  Servo_DL_ZERO      1490    
-// #define Shot_Pitch 24                   
-// #define Shot_Roll 4                                                                                                                                
-// #define USE_BMX055   1
-// #define USE_BMI088   0
-
 // // //镖体5 红色
-// #define  Servo_UL_ZERO      1560
+// #define  Servo_UL_ZERO      1630
 // #define  Servo_UR_ZERO      1430
 // #define  Servo_DR_ZERO      1510
-// #define  Servo_DL_ZERO      1450    
-// #define Shot_Pitch 27                   
-// #define Shot_Roll -5
-// #define USE_BMX055   1
-// #define USE_BMI088   0 
+// #define  Servo_DL_ZERO      1540    
+// #define Shot_Pitch 31                   
+// #define Shot_Roll 0 
+// #define USE_BMX055   0  
+// #define USE_BMI088   1 
+// % ---------------------- LQR 权重 ----------------------
+// % 状态顺序：x = [d_phi, d_theta, d_psi, p, q, r]
+// % Q 越大，越希望对应状态更快收敛。
+// %rpy
+// lqr_Q = diag([150.0 ,5000.0,  2500.0 ...
+//              , 1, 1.0, 0.95]);
+    
+// % 控制量顺序：u = [delta1, delta2, delta3, delta4]
+// % R 越大，舵偏越保守；如果仿真持续撞限位，优先增大 R。
+// lqr_R = diag([20.0, 20.0, 20.0, 20.0]);
 
 // // //镖体6 红色
-#define  Servo_UL_ZERO      1430
-#define  Servo_UR_ZERO      1420
-#define  Servo_DR_ZERO      1590 
-#define  Servo_DL_ZERO      1410    
-#define Shot_Pitch 24                   
-#define Shot_Roll 4
-#define USE_BMX055   1
-#define USE_BMI088   0
+// #define  Servo_UL_ZERO      1520
+// #define  Servo_UR_ZERO      1420
+// #define  Servo_DR_ZERO      1540 
+// #define  Servo_DL_ZERO      1410    
+// #define Shot_Pitch 24                   
+// #define Shot_Roll 4
+// #define USE_BMX055   1
+// #define USE_BMI088   0
 /* 力大概在轧带哪里 */
 
 
@@ -191,6 +201,14 @@
 #define  GLIDE_LOS_HI_DEG   (10.0f)  /* 视线俯角≥此值(灯浅/远)→纯滑翔 blend=0 */
 #define  GLIDE_LOS_LO_DEG   (0.0f)  /* 视线俯角≤此值(灯陡/近)→纯扎 blend=1(追视觉目标),与 PITCH_INCIDENT_DEG≈-27 衔接 */
 
+/* === 末端姿态锁定(控制稳定后,近距离锁姿态+pitch偏置打实际目标) ===
+ * 原理:控制稳定后飞镖已指向引导灯;在1.5-3m区间一次性冻结当前pitch/yaw/roll姿态作为目标,
+ * 再对pitch加一个抬高偏置 → 飞镖不再跟灯、固定指向实际目标装甲板(灯上方)飞完最后一段。
+ * 末端锁定只影响目标赋值,不改变vision_los_final的更新(Vofa观测仍可见原始锁存视线)。*/
+#define  TERMINAL_LOCK_DIST_CM       (250.0f)  /* 末端锁定触发距离(cm):dist_cm<此值→进入触发检查,待台架标定(1.5-3m区间) */
+#define  TERMINAL_LOCK_ERR_PITCH_DEG (0.5f)    /* 末端锁定pitch误差阈值°:跟踪误差<此值才允许锁定 */
+#define  TERMINAL_LOCK_ERR_YAW_DEG   (0.5f)    /* 末端锁定yaw误差阈值°:跟踪误差<此值才允许锁定 */
+
  enum
 {
     Wing_left,
@@ -290,6 +308,17 @@ typedef struct {
     uint8_t singular_flag; /* Vofa:求逆奇异退回 */
 }Alloc_t;
 
+/* 末端姿态锁定:控制稳定后,近距离一次性冻结姿态+pitch偏置打实际目标装甲板。
+ * 原理:飞镖已指向引导灯;在~1.5-3m区间冻结当前pitch/yaw/roll作目标+pitch抬高偏置,
+ * 飞镖不再跟灯、固定指向实际目标(灯上方)飞完最后一段。Watch在线切enable/调bias。*/
+typedef struct {
+    uint8_t enable;          /* 0=关(默认) 1=末端锁定,距离<TERMINAL_LOCK_DIST_CM→触发一次冻结,Watch在线切A/B */
+    uint8_t active;          /* Vofa:锁定已触发(1=锁定中,目标冻结不再跟视觉) */
+    float   pitch_bias_deg;  /* 末端锁定pitch偏置°(+:抬高瞄准点补偿灯-靶偏移),Watch在线调,待台架标定 */
+    float   locked_pitch;    /* (内部)锁定时冻结的pitch目标°(触发瞬间current+bias捕捉) */
+    float   locked_yaw;      /* (内部)锁定时冻结的yaw目标°(触发瞬间current捕捉) */
+}TerminalLock_t;
+
 extern float Stable_Euler_Angle[3];
 extern float pitch_control_limit_deg;   /* 放开 pitch 控制的俯冲角阈值°(<此值才主动制导 pitch);PNG_Apply_Lead 引用 */
 extern Surface_t Surface;
@@ -297,6 +326,7 @@ extern Self_Text_t Self_Text;
 extern uint8_t Guidance_State;
 extern uint8_t Wing_Servo_Control_Flag;
 extern Alloc_t Alloc;   /* 控制分配状态(整合原 Alloc_Mode/Prio/B、alloc_*、servo_lat_scale 散落全局) */
+extern TerminalLock_t TermLock;  /* 末端姿态锁定(稳定后近距离锁姿态+pitch偏置打实际目标) */
 extern float vision_los_final[2][3];   /* Vofa:末制导锁存的世界系视线终点(目标斜坡逼近它),帧间不变、仅新帧阶跃更新 */
 extern float vision_los_rate[3];    /* Vofa:世界系惯性视线率λ̇(°/s,PN用),视觉帧间差分、丢帧保持/丢目标清0 */
 // extern float pitch_dive_floor;      /* ★封存:随俯冲下限函数停用(见 .c #if 0 块) */

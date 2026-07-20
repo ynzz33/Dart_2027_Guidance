@@ -78,7 +78,6 @@ void Self_Text_Task(void)
     if (Self_Text.Vision_Self_Text_flag == Self_Text_Failure)
     {
         Vision_Self_Text();  
-        Vision_Rx_Data.Vision_Receive_Cnt++;
         return;
     }
     if (Self_Text.Dart_Trigger_Self_Text_flag == Self_Text_Failure)

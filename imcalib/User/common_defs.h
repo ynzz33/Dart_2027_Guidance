@@ -26,14 +26,6 @@
 #define GYRO_SAT_DPS         1900.0f
 
 
-/* ========== 传感器选型: BMX055(原) / BMI088 — 改这里切芯片 ========== */
-#define USE_BMX055   0
-#define USE_BMI088   1
-#if (USE_BMX055 + USE_BMI088) != 1
-  #error "Exactly one of USE_BMX055 / USE_BMI088 must be 1"
-#endif
-/* ACC_LSB / ACC_SAT_G 按传感器型号切换,定义在 surface_control_task.h (方便调参) */
-
 /* 速度全局限幅(m/s):飞镖标称~7m/s,20 只截真正的 IMU 积分发散,不削正常飞行波动。
  * EKF publish() 内 abs_limit 钳位 X[3..5];IMU.c 冗余兜底非 EKF 路径。 */
 #define VEL_MAX_MS            20.0f

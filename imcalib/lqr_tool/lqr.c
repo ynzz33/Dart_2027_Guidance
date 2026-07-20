@@ -155,24 +155,27 @@ void Euler_LQR_Cale(float dt)
     lqr_ctrl.x[5] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW])   ;
 
 
-    // if(Surface.current_angle_Euler[NOW][PITCH]>=Shot_Pitch-10.0f)
-    // // if(Guidance_State<Terminal)
+    
+    // if(Surface.current_angle_Euler[NOW][PITCH]<10&&Guidance_State==Stable)
     // {
-    //     lqr_ctrl.x[4] = 0;
+    //     // if(abs(Surface.current_angle_Euler[NOW][PITCH]-15.0f) < 5.0f)
+    //     // if(Guidance_State<Terminal)
+    //     // {
+    //         lqr_ctrl.x[4] = 0;
+    //     // }
     // }
-    if(Guidance_State<Terminal||(Guidance_State==Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE))
+    if(Guidance_State<Terminal||Guidance_State==Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
     { 
+        // lqr_ctrl.x[4]  *= 0.1f ;
         lqr_ctrl.x[4] = 0;
     }
-    // if(Guidance_State==Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS&&Vision_Rx_Data.dist_cm<=150)
-    // { 
-    //     lqr_ctrl.x[1] = 0.5;
+
+    // if(Guidance_State<Terminal)
+    // {
+    //     lqr_ctrl.x[2] *= 0.5f;
     // }
-    
-    if(Guidance_State<Terminal)
-    {
-        lqr_ctrl.x[2] *= 0.5f;
-    }
+    // lqr_ctrl.x[1] = 0;
+    // lqr_ctrl.x[4] = 0;
     /* 2) LQR 解算(rad)，已限幅 */
     /* Integral separation: freeze the integrator while the attitude error is large. */
     if (!lqr_ctrl.integral.enable)
@@ -278,20 +281,21 @@ void LQR_Init(void)
 {
     for (uint8_t i = 0; i < DART_LQR_STATE_NUM; i++) lqr_ctrl.x[i] = 0.0f;
     for (uint8_t i = 0; i < DART_LQR_SERVO_NUM; i++) lqr_ctrl.u_rad[i] = 0.0f;
-    for (uint8_t i = 0; i < SERVO_COUNT_X;      i++) lqr_ctrl.u_servo_deg[i] = 0.0f;
+    for (uint8_t i = 0; i < SERVO_COUNT_X     ; i++) lqr_ctrl.u_servo_deg[i] = 0.0f;
     lqr_ctrl.axis_cmd_deg[0] = lqr_ctrl.axis_cmd_deg[1] = lqr_ctrl.axis_cmd_deg[2] = 0.0f;
     lqr_ctrl.roll_wrap = 0;         /* 与 PID roll 默认对齐(roll 不环绕)；yaw 恒环绕 */
     lqr_ctrl.roll_comp = 0;         /* 默认关(直通=旧 LQR)；台架验 SIGN 后再 Watch 切 1 启用 roll 补偿(见 Euler_LQR_Cale) */
-    lqr_ctrl.roll_comp_delta = 0.0f;
+    lqr_ctrl.roll_comp_delta = 0.0f; 
 
-    for (uint8_t axis = 0; axis < 3; axis++)
+    for (uint8_t axis = 0; axis < 3; axis++) 
     {
         lqr_ctrl.integral.err[axis] = 0.0f;
         lqr_ctrl.integral.gain[axis] = 1.0f;
         lqr_ctrl.integral.limit[axis] = 1.0f;
-        lqr_ctrl.integral.separation_deg[axis] = 2.0f;
+        lqr_ctrl.integral.separation_deg[axis] =0.5f;
+
     }
-    lqr_ctrl.integral.enable = 1;
+    lqr_ctrl.integral.enable = 1;   /* 阶段二：关闭积分，隔离 K(V) 问题 */
     lqr_ctrl.integral.separation = 1;
     lqr_ctrl.integral.saturated = 0;
 

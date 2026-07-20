@@ -157,7 +157,7 @@ void Vision_Receive(uint8_t* Buf)
         Vision_Rx_Data.Vision_Recog_Cnt++;          /* 识别成功帧计数(纯统计) */
         Vision_Rx_Data.Vision_New_Data_flag = 1;    /* 视觉新有效数据到达 → 控制端 Guidance_Terminal 据此锁存世界系视线,消费后清0 */
         HAL_GPIO_WritePin( LED_PORT,LED_PIN,GPIO_PIN_SET );
-    if (Guidance_State==Terminal)
+        if (Guidance_State==Terminal)
         {
             Buzzer_Remind();
         }
@@ -203,7 +203,6 @@ void Vision_Transmit_Debug(void)
     uint8_t *src;
     uint8_t  i;
 
-    const float DEG2RAD = 0.0174532925f;   /* π/180 */    
     // val[0]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
     // val[1]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
     // val[2]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.Velocity[Body][NOW][YAW]*10;
@@ -215,21 +214,26 @@ void Vision_Transmit_Debug(void)
     // val[8]  = lqr_ctrl.u_servo_deg[0];
     // val[9]  = lqr_ctrl.u_servo_deg[1];
     // val[10] = lqr_ctrl.u_servo_deg[2];
-    // val[11] = lqr_ctrl.u_servo_deg[3];x
+    // val[11] = lqr_ctrl.u_servo_deg[3];
     
     val[0]  = HAL_GetTick() / 1000.0f;                          /* 时间 s */
     // val[0]  = Surface.Stable_Euler_Angle[ROLL];
-    val[1]  = V_DART;                                   /* 速度 m/s */
-    val[2]  = lqr_ctrl.err_deg[0] ;                  /* roll  err rad */
-    val[3]  = lqr_ctrl.err_deg[1] ;                   /* pitch err rad */
-    val[4]  = lqr_ctrl.err_deg[2] ;                   /* yaw   err rad */
-    val[5]  = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
-    val[6]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
-    val[7]  = Vision_Rx_Data.y[NOW]*1000.0f+IMU_Data.Velocity[Body][NOW][YAW]*10;
-    val[8]  = Surface.output_angle_Servo[NOW][UP_LEFT]    ; /* delta1 rad */
-    val[9]  = Surface.output_angle_Servo[NOW][UP_RIGHT]   ; /* delta2 rad */
-    val[10] = Surface.output_angle_Servo[NOW][DOWN_RIGHT] ; /* delta3 rad */
-    val[11] = Surface.output_angle_Servo[NOW][DOWN_LEFT]  ; /* delta4 rad */
+    val[1]  = Surface.current_angle_Euler[NOW][PITCH];                                   /* 速度 m/s */
+    val[2]  = Surface.output_angle_Servo[NOW][UP_LEFT]    ; /* delta1 rad */
+    val[3]  = Surface.output_angle_Servo[NOW][UP_RIGHT]   ; /* delta2 rad */
+    val[4]  = Surface.output_angle_Servo[NOW][DOWN_RIGHT] ; /* delta3 rad */
+    val[5]  = Surface.output_angle_Servo[NOW][DOWN_LEFT]  ; /* delta4 rad */
+    val[6]  =  Surface.target_angle_Euler[NOW][ROLL]  - Surface.current_angle_Euler[NOW][ROLL]  ;
+    val[7]  =  Surface.target_angle_Euler[NOW][PITCH] - Surface.current_angle_Euler[NOW][PITCH] ;
+    val[8]  =  Surface.target_angle_Euler[NOW][YAW]   - Surface.current_angle_Euler[NOW][YAW]   ;
+    val[9]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
+    val[10] = Vision_Rx_Data.y[NOW]*1000.0f+V_DART;
+    val[11] = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
+
+
+
+
+
 
     // val[3]  = Surface.current_angle_Euler[NOW][YAW];
     // val[4]  = Surface.target_angle_Euler[NOW][YAW]; 
