@@ -216,17 +216,17 @@ void Vision_Transmit_Debug(void)
     // val[10] = lqr_ctrl.u_servo_deg[2];
     // val[11] = lqr_ctrl.u_servo_deg[3];
     
-    val[0]  = IMU_Data.Velocity[Body][NOW][X];                          /* 时间 s */
-    val[1]  = IMU_Data.Velocity[Body][NOW][Y];                                   /* 速度 m/s */
-    val[2]  = IMU_Data.Velocity[Body][NOW][Z]    ; /* delta1 rad */
-    val[3]  = Surface.current_angle_Euler[NOW][PITCH]   ; /* delta2 rad */
+    val[0]  = V_DART  ;
+    val[1]  = IMU_Data.Velocity[Body][NOW][Y] ;
+    val[2]  = Surface.current_angle_Euler[NOW][YAW]   ;
+    val[3]  = Surface.output_angle_Servo[NOW][UP_RIGHT]   ; /* delta2 rad */
     val[4]  = Surface.output_angle_Servo[NOW][DOWN_RIGHT] ; /* delta3 rad */
     val[5]  = Surface.output_angle_Servo[NOW][DOWN_LEFT]  ; /* delta4 rad */
     val[6]  =  Surface.target_angle_Euler[NOW][ROLL]  - Surface.current_angle_Euler[NOW][ROLL]  ;
     val[7]  =  Surface.target_angle_Euler[NOW][PITCH] - Surface.current_angle_Euler[NOW][PITCH] ;
     val[8]  =  Surface.target_angle_Euler[NOW][YAW]   - Surface.current_angle_Euler[NOW][YAW]   ;
     val[9]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
-    val[10] = Vision_Rx_Data.y[NOW]*1000.0f+V_DART;
+    val[10] = Vision_Rx_Data.y[NOW]*1000.0f;
     val[11] = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
 
 

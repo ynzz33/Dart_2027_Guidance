@@ -154,18 +154,22 @@ void Euler_LQR_Cale(float dt)
      *    舵面饱和→回退本拍 iout(抗饱和)。roll/pitch 不积分，直通。---- */
     {
         /* yaw 积分分离 + PID 累积 */
-        if (fabsf(lqr_ctrl.err_deg[2]) >= LQR_I_SEPARATION_DEG_DEFAULT)
+        if(Guidance_State >= Terminal)
         {
-            pid_i_for_lqr[YAW].iout = 0.0f;            /* 分离区外：清零积分 */
+            if (fabsf(lqr_ctrl.err_deg[2]) >= LQR_I_SEPARATION_DEG_DEFAULT)
+            {
+                pid_i_for_lqr[YAW].iout = 0.0f;            /* 分离区外：清零积分 */
+            }
+            else
+            {
+                /* set=当前yaw, get=目标yaw → PID err = current−target = LQR err_deg(同号) */
+                pid_calc(&pid_i_for_lqr[YAW],
+                        Surface.target_angle_Euler[NOW][YAW],
+                        Surface.current_angle_Euler[NOW][YAW],
+                        dt);
+            }
         }
-        else
-        {
-            /* set=当前yaw, get=目标yaw → PID err = current−target = LQR err_deg(同号) */
-            pid_calc(&pid_i_for_lqr[YAW],
-                     Surface.target_angle_Euler[NOW][YAW],
-                     Surface.current_angle_Euler[NOW][YAW],
-                     dt);
-        }
+
 
 
         /* roll/pitch: err_deg 直通；yaw: 增强误差 = err_deg + 积分(度) → rad */

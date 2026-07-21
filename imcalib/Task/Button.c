@@ -78,12 +78,14 @@ void Short_Press_Process(void)
                 }break;
                 case 3:
                 {
-                        // ==================阵营切换-红==============
+                        // ======                                            ============阵营切换-红==============
+                        // Guidance_State = Stable;
                         Dart_Trriger_Color_Set(Team_RED);
                 }break;
                 case 4:
                 {
                         // ==================阵营切换-蓝==============
+                        // Guidance_State = Terminal;
                         Dart_Trriger_Color_Set(Team_Blue);
                 }break;
                 case 5:

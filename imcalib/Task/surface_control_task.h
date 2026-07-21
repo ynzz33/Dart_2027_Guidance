@@ -15,18 +15,18 @@
 //硬件原因导致左上舵机接在了 TIM3 上，所以单独写函数控制
 #define  Servo_UL_Channel   TIM_CHANNEL_2   /* htim3 CH2 → PB5 - UP_LEFT (硬件原因独占 TIM3) */
 #define  Servo_UR_Channel   TIM_CHANNEL_2   /* htim4 CH2 → PB7 - UP_RIGHT   */
-#define  Servo_DR_Channel   TIM_CHANNEL_3   /* htim4 CH3 → PB8 - DOWN_RIGHT  */
+#define  Servo_DR_Channel   TIM_CHANNEL_3   /* htim4 CH3 → PB8 - DOWN_RIGHT  */   
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-#define  Servo_UL_ZERO      1510
-#define  Servo_UR_ZERO      1520
-#define  Servo_DR_ZERO      1530
-#define  Servo_DL_ZERO      1500    
-#define Shot_Pitch 30
+#define  Servo_UL_ZERO      1480
+#define  Servo_UR_ZERO      1350
+#define  Servo_DR_ZERO      1510
+#define  Servo_DL_ZERO      1500      
+#define Shot_Pitch       33
 #define Shot_Roll 0  
-#define USE_BMX055   0
-#define USE_BMI088   1
+#define USE_BMX055   1
+#define USE_BMI088   0
  
 // //镖体2 红色
 // #define  Servo_UL_ZERO      1690
@@ -63,28 +63,18 @@
 // #define  Servo_UR_ZERO      1430
 // #define  Servo_DR_ZERO      1510
 // #define  Servo_DL_ZERO      1540    
-// #define Shot_Pitch 31                   
+// #define Shot_Pitch 31                    
 // #define Shot_Roll 0 
 // #define USE_BMX055   0  
 // #define USE_BMI088   1 
-// % ---------------------- LQR 权重 ----------------------
-// % 状态顺序：x = [d_phi, d_theta, d_psi, p, q, r]
-// % Q 越大，越希望对应状态更快收敛。
-// %rpy
-// lqr_Q = diag([150.0 ,5000.0,  2500.0 ...
-//              , 1, 1.0, 0.95]);
-    
-// % 控制量顺序：u = [delta1, delta2, delta3, delta4]
-// % R 越大，舵偏越保守；如果仿真持续撞限位，优先增大 R。
-// lqr_R = diag([20.0, 20.0, 20.0, 20.0]);
 
 // // //镖体6 红色
-// #define  Servo_UL_ZERO      1520
+// #define  Servo_UL_ZERO      1420
 // #define  Servo_UR_ZERO      1420
-// #define  Servo_DR_ZERO      1540 
+// #define  Servo_DR_ZERO      1410 
 // #define  Servo_DL_ZERO      1410    
-// #define Shot_Pitch 24                   
-// #define Shot_Roll 4
+// #define Shot_Pitch 27.5                  
+// #define Shot_Roll -14.5                                                                                                                                
 // #define USE_BMX055   1
 // #define USE_BMI088   0
 /* 力大概在轧带哪里 */

@@ -96,7 +96,6 @@ void Wing_DR_Control(float data)
 void Wing_Control_VECTOR_NOZZLE(void)
 {
     if (Guidance_State == Terminal||Guidance_State == Self_Text_State||Stable_Flag ==1 )
-    // if (Guidance_State == Self_Text_State)
     {
         Wing_UL_Control(Surface.output_angle_Servo[NOW][UP_LEFT]    );
         Wing_UR_Control(Surface.output_angle_Servo[NOW][UP_RIGHT]   );
@@ -373,6 +372,7 @@ void get_current_State(void)
         {
             Surface.Guidance_cnt[1]++;
             Vision_Transmit( Vision_Cmd_Record_Start );
+
         }
         if(Surface.Guidance_cnt[1]>=50&&Surface.Guidance_flag[1]==0)
         {
@@ -382,7 +382,7 @@ void get_current_State(void)
             Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW];
             Surface.Guidance_flag[1] = 1;
         }
-        if(Surface.Guidance_flag[1] == 1&&V_DART>=0.8f&&fabs(IMU_Data.Velocity[Body][NOW][Y])>0.8f&&fabs(IMU_Data.Velocity[Body][NOW][X])<0.5)
+        if(Surface.Guidance_flag[1] == 1&&V_DART>=0.8f&&fabs(IMU_Data.Velocity[Body][NOW][Y])>0.4f)
         {
             Buzzer_Remind();
             Guidance_State = Stable;
@@ -390,7 +390,7 @@ void get_current_State(void)
             Surface.Guidance_flag[1] = 2; 
         }
     }
-    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=0.0f||Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
+    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch-15.0f&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
     {
         Vision_Transmit( Vision_Cmd_Work );
         if(Surface.Guidance_cnt[2]++>5)
@@ -401,7 +401,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&V_DART<6.0f)
+    else if (Guidance_State == Terminal &&(V_DART<4.0f||IMU_Data.A[NOW][Y]<-0.8f))
     {
         if(Surface.Guidance_cnt[3]++>50)
         {

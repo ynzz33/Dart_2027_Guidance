@@ -21,7 +21,7 @@ import math
 import struct
 import mjpeg
 from array import array
-# ======================== 常用可调参数区 ========================
+# ======================== 常用可调参数区 ============ ============
 # ----- 硬件 & 通信 -----
 UART_BUS = 3                       # UART3 = TX:P4 / RX:P5
 UART_BAUDRATE = 115200             # 与飞控约定的波特率
@@ -29,17 +29,17 @@ UART_BAUDRATE = 115200             # 与飞控约定的波特率
 DEBUG_AUTO_RECORD = True           # True SD 挂载后自动开始录像, 不等 0x03. 比赛改 False.
 ENABLE_LOG_RECORDING = True        # True=记录日志, False=不记录日志
 ENABLE_VIDEO_RECORDING = True     # True=录视频, False=不录视频
-RECORD_QUALITY = 80                # JPEG quality 0-100
+RECORD_QUALITY = 60                # JPEG quality 0-100
 RECORD_EVERY_N_FRAMES = 2          # 每 N 帧录 1 帧
 # ----- 图像坐标系 (QVGA 320×240) -----
 # 输出坐标以画面中心为原点: x 向右为正, y 向上为正 (符合飞控期望).
 FRAME_CENTER_X = 120               # 画面宽度的一半
-FRAME_CENTER_Y = 160               # 画面高度的一半
-FRAME_Y_OFFSET = 0+60                # Y 输出额外加这个数, 用于补偿飞控固有俯仰偏置
-FRAME_X_OFFSET = 0+7
+FRAME_CENTER_Y = 160                # 画面高度的一半
+FRAME_Y_OFFSET = 0+145
+FRAME_X_OFFSET = 0-15
 # FRAME_X_OFFSET = 0-13
 # ----- 曝光 & 增益 & 白平衡 -----
-LOCKED_EXPOSURE_US = 1000
+LOCKED_EXPOSURE_US = 1300
 LOCKED_GAIN_DB = 10.0
 LOCKED_RGB_GAIN_DB = (64.54, 60.21, 61.30)
 
@@ -52,21 +52,21 @@ DIST_TIERS = [
     # roundness 放到 0.40 (远距倾斜更明显), halo 禁用 (远距通常不会过曝).
     {
         "name": "FAR",                          # 档名, 仅用于切档时的串口打印 / HUD 显示
-        "pixels_min": 2,                        # 本档对应的 blob 像素数下界 (含); 改它要同步改前一档的 pixels_max
+        "pixels_min": 1,                        # 本档对应的 blob 像素数下界 (含); 改它要同步改前一档的 pixels_max
         "pixels_max": 18,                       # iter4: 25->18 (排十字 px=20+)
         "threshold": (22, 90, -103, -20, 10, 109),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
                                                 # LAB 阈值 (L_min, L_max, A_min, A_max, B_min, B_max), 传给 find_blobs 粗筛;
                                                 # FAR 把 L_max 放到 100 让洗白中心也能进同 blob, A_max=-27 严格滤草坪/绿广告
-        "min_brightness": 12,                   # manual: 收紧 10% (15->17)
+        "min_brightness": 13,                   # manual: 收紧 10% (15->17)
         "max_brightness": 100,                  # L 均值上限; 100 = 几乎不限上限 (远距不会被压扁)
         "pixels_threshold": 4,                  # find_blobs 最小连通像素数; FAR 远距目标小, 必须设小
-        "roundness_min": 0.30,                  # manual: 收紧 10% (0.40->0.44)
+        "roundness_min": 0.36,                  # manual: 收紧 10% (0.40->0.44)
         "density_min": 0.04,                    # manual: 收紧 (0.05->0.06)
         "density_max": 0.95,                    # density 上限; >此值排除实心矩形 (路牌/墙壁等)
         "min_center_green": 1,                  # iter3: 2->1 (远距 LED 中心采样常只命中 1 绿)
         "min_center_saturated": 99,             # HALO 模式触发阈值; 99=禁用 HALO (远距 LED 不会饱和)
         "min_ring_green": 0,                    # HALO 模式: 外环最少绿点数; FAR 用不上 HALO 所以 0
-        "max_ring_noise": 6,                    # manual: 2->4 (小 blob 环采样大部分落背景, 放开噪声容忍)
+        "max_ring_noise": 4,                    # manual: 2->4 (小 blob 环采样大部分落背景, 放开噪声容忍)
     },
     # ---- 中档 (1-5m) ----
     # 工作区间, 大部分参数最标准. 调参时先把这一档调通, 再调远近两档.
@@ -76,17 +76,17 @@ DIST_TIERS = [
         "pixels_max": 3000,                     # 像素数上界, 衔接 NEAR 的 pixels_min
         "threshold": (24, 93, -109, -32, -78, 112),  # user manual baseline (L order corrected)
                                                 # 标准 LAB 阈值; L 下放到 25 兼容稍弱光
-        "min_brightness": 40,                   # 标准亮度区间, 与户外环境光配合; tune-auto iter4: 30->40 (iter6 revert 35->40)
+        "min_brightness": 32,                   # 标准亮度区间, 与户外环境光配合; tune-auto iter4: 30->40 (iter6 revert 35->40)
         "max_brightness": 100,                  # 比 FAR 严, 过亮的灯反而被判为白灯排除; tune-auto iter2: 80->100
         "pixels_threshold": 4,                  # 与 FAR 同, 兼容中距偏远的小目标
-        "roundness_min": 0.50,                  # 中距 LED 倾斜不严重, 圆度可以严一点压杂噪
+        "roundness_min": 0.40,                  # 中距 LED 倾斜不严重, 圆度可以严一点压杂噪
                                                 # tune-auto iter2:0.40->0.45 iter3:0.45->0.50
-        "density_min": 0.20,                    # 比 FAR 稍宽, 中距 blob 可能不那么紧凑; tune-auto iter2: 0.25->0.20
+        "density_min": 0.10,                    # 比 FAR 稍宽, 中距 blob 可能不那么紧凑; tune-auto iter2: 0.25->0.20
         "density_max": 0.95,                    # 同 FAR, 排矩形
         "min_center_green": 2,                  # 中心绿点要求, 中距能稳定见到绿核
         "min_center_saturated": 3,              # MID 距离也可能轻微饱和, 给 HALO 留个保底入口
-        "min_ring_green": 2,                    # HALO 模式: 外环至少 2 点见绿才算 LED, 排除纯白灯
-        "max_ring_noise": 2,                    # 比 FAR 严, 中距外环杂色多说明不是单 LED
+        "min_ring_green": 1,                    # HALO 模式: 外环至少 2 点见绿才算 LED, 排除纯白灯
+        "max_ring_noise": 3,                    # 比 FAR 严, 中距外环杂色多说明不是单 LED
     },
     # ---- 近档 (<1m) ----
     # LED 占屏面积非常大, 中心几乎必然过曝白化, 只能靠"白核+绿环"形态兜底.
@@ -356,8 +356,10 @@ def Uart_Rx_Data():
                 current_state = STATE_Self_Text
             elif cmd == 0x03:
                 Record_State = STATE_RECORD_START
+                print("1")
             elif cmd == 0x04:
                 Record_State = STATE_RECORD_STOP
+                print("2")
             i += Rx_Length
             continue
 
@@ -1057,9 +1059,12 @@ try:
                 send_distance(estimate_distance_cm(track_pixels), track_pixels)
         else:
             send_none(0, 0)                           # 没识别 → 心跳"无目标"包
-    elif current_state == STATE_Self_Text:
-        current_state = STATE_IDLE                    # 自检一次性, 回包后立即回 IDLE
-        send_Self_Text_data()
+    if current_state == STATE_Self_Text:
+        i = 0
+        if(i<10):
+            i+=1
+            current_state = STATE_IDLE                    # 自检一次性, 回包后立即回 IDLE
+            send_Self_Text_data()
 
 
 except KeyboardInterrupt:
@@ -1076,8 +1081,7 @@ finally:
             print("mjpeg close failed: {}".format(e))
     # 关闭日志文件
     if log_file is not None:
-        try:
-            log_file.close()
+        try: ile.close()
             print("log closed")
         except Exception as e:
             print("log close failed: {}".format(e))
@@ -1086,3 +1090,4 @@ finally:
         print("sd synced")
     except Exception as e:
         print("sync failed: {}".format(e))
+0
