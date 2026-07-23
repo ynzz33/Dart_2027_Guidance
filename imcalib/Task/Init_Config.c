@@ -11,6 +11,7 @@
 #include "pid.h"
 #include "adrc.h"              /* LADRC 线性自抗扰控制器(文件名仍 adrc.*) */
 #include "../lqr_tool/lqr.h"  /* LQR 姿态控制器(6态→4舵)；未编译需手动加入工程 */
+#include "../lqi_tool/lqi_torque.h"  /* LQI 力矩控制器(9态→3轴力矩)；未编译需手动加入工程 */
 #include "surface_control_task.h"
 #include "usart.h"
 #include "PNG_Task.h"
@@ -49,6 +50,8 @@ void TotalInitTask(void)
 		LADRC_Init_All();   /* LADRC 控制器初始化(3 通道，单环二阶) */
 
 		LQR_Init();         /* LQR 控制器初始化(清零状态/默认符号)；lqr_mode 默认 0 不参与控制 */
+
+		LQI_Init();         /* LQI 力矩控制器初始化(清零状态/加载标称 K_lqi)；lqi_mode 默认 0 不参与控制 */
 
 		Total_Power_Control(Power_ON);
 }

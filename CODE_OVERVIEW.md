@@ -47,6 +47,8 @@ imcalib/                ← 用户应用代码（核心都在这）
 │   ├── pid.c/.h               PID（位置/增量）+ 死区软化 + 角度环绕 + 前馈FFC（FFC 当前关）+ 速度方向外环
 │   ├── adrc.c/.h              LADRC 线性自抗扰控制器（单环二阶 LESO+LSEF，文件名不变内部全换）
 │   ├── lqr.c/.h               LQR 姿态控制器（6态→4舵一步解算 u=-K_d·x，含混控；lqr_mode 切档，未编译/待台架）
+│   ├── lqi_torque.c/.h         LQI 力矩控制器（9态→3轴力矩 N·m；lqi_mode 切档，未编译/待台架）★ NEW
+│   ├── torque_allocator.c/.h   Pitch 保护型零空间舵面分配器（力矩→4舵，未编译/待台架）★ NEW
 │   ├── filter.c/.h            标量卡尔曼(激活) + 2D卡尔曼(速度EKF已#if0禁用) + 低通 + CMSIS矩阵宏别名
 │   ├── vision_ins.c/.h        视觉/IMU 紧耦合 6 态 EKF(世界系 p,v)，给不漂的速度+距离估计
 │   ├── ADC_Battery.c/.h       电池电压 ADC（DMA + 标量卡尔曼）
@@ -190,6 +192,45 @@ End ◄──(A_Normed[Y]≥0.9 且 A[Y]≥1.5，连续5；冲击检测)── T
 **K 矩阵** = [lqr.c](imcalib/Tool/lqr.c) 的 `dart_lqr_K[4][6]`（MATLAB 同名同形「粘贴区」）：在 [lqr_czn/dart_attitude_LQR_v1.m](lqr_czn/dart_attitude_LQR_v1(1)(1).m) 调好 Q/R/惯量/速度，跑 Step5 把打印的 4 行整块覆盖粘贴即可。⚠ MATLAB 舵号(delta1=右上,2=左上,3=左下,4=右下) ≠ 工程索引(UL/UR/DR/DL)，在 `K_ROW_TO_SERVO[]` 换序；上车前必按移植指南 §9 逐轴阶跃验符号（飞镖一次性，G 符号反=正反馈）。详见 [lqr.c](imcalib/Tool/lqr.c) 头注 + [lqr_czn/MCU_LQR_PORTING_GUIDE(1).md](lqr_czn/MCU_LQR_PORTING_GUIDE(1).md)。
 
 > 未编译：新增 `lqr.c` 需手动加入 Keil/eIDE 工程编译列表（AI 编不了）。
+
+### LQI 力矩控制器 + Pitch 保护型零空间分配（`lqi_torque.c/.h` + `torque_allocator.c/.h`，2026-07-23 新增，**未编译/待台架**）
+
+**与 LQR 的本质区别**：LQR 一步输出 4 舵角（K 含混控），LQI 拆成两步——先 LQI 输出 3 轴物理力矩 N·m，再零空间分配器把力矩翻译成 4 舵角。
+
+`lqi_mode` 运行时切档（surface_control_task.c，**当前值=0 默认关**，优先级高于 `lqr_mode`）：
+- **0**=关（走 LQR，默认安全路径）
+- **1**=LQI 力矩控制 + Pitch 保护零空间分配
+
+**状态与输出**：
+- 状态 `xa[9]` = `[e_roll, e_pitch, e_yaw, p, q, r, ∫e_r, ∫e_p, ∫e_y]`（rad, rad/s, rad·s）
+- LQI 输出 `tau[3]` = `[Mx, My, Mz]`（N·m）
+- K_lqi[3][9] 由 MATLAB dlqr 生成（[matlab_script/](matlab_script/)目录）
+- 舵面顺序全线统一为 `[UL, UR, DR, DL]`，C 端不再换序
+
+**H_tau 力矩矩阵**（3×4，N·m/rad）：从舵面几何（`r_i × n_i`）× 动压 × 面积 × 舵效显式计算，替代旧集总 G 矩阵。当前所有气动参数为占位符（待 SolidWorks/CFD）。
+
+**零空间分配算法**（`torque_allocator.c`）：
+1. 先满足 Roll/Yaw 力矩（2×4 子矩阵伪逆 → delta0）
+2. 在 Roll/Yaw 零空间内优化（2×2 解析求解）：
+   - 最小化 Pitch 力矩（权重 λ_pitch=100）
+   - 最小化总舵面动作（权重 λ_servo=1）
+3. 舵面限幅 + 统一缩放 + 回算实际力矩
+4. 饱和/不可达 → 冻结积分
+
+**关键文件**：
+- MATLAB：[matlab_script/dart_lqi_parameters.m](matlab_script/dart_lqi_parameters.m)（参数配置）、[dart_attitude_lqi_torque_pitch_protected.m](matlab_script/dart_attitude_lqi_torque_pitch_protected.m)（主脚本）、[dart_lqi_export_c.m](matlab_script/dart_lqi_export_c.m)（C 导出）
+- C：[lqi_torque.c](imcalib/lqi_tool/lqi_torque.c)/[.h](imcalib/lqi_tool/lqi_torque.h)（控制器）、[torque_allocator.c](imcalib/lqi_tool/torque_allocator.c)/[.h](imcalib/lqi_tool/torque_allocator.h)（分配器）
+- 表：[lqi_gain_table.h](imcalib/lqi_tool/lqi_gain_table.h)（K_lqi 表）、[lqi_geometry_table.h](imcalib/lqi_tool/lqi_geometry_table.h)（H_tau 表 + 零空间）
+- 计划：[PLAN_LQI_TORQUE_PITCH_PROTECTED.md](PLAN_LQI_TORQUE_PITCH_PROTECTED.md)
+
+**⚠ 占位符清单（需 SolidWorks/CFD/台架数据后重新生成所有表）**：
+- 交叉惯量 Ixy/Ixz/Iyz（当前 = 0）
+- 舵面位置 r_i（当前从 r_ac=0.150/a_ac=0.120 反推）
+- 舵面面积 S_i（当前 0.005 m²）
+- 舵效系数 C_Fδ（当前 5.0，占位 ≈ CLα）
+- 气动阻尼/恢复系数（当前全 0，未启用）
+
+> 未编译：新增 4 个 .c 文件需手动加入 Keil/eIDE 工程编译列表（AI 编不了）。
 
 ---
 

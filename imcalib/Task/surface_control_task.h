@@ -73,8 +73,8 @@
 #define  Servo_UR_ZERO      1540
 #define  Servo_DR_ZERO      1410 
 #define  Servo_DL_ZERO      1400    
-#define Shot_Pitch 27.5             
-#define Shot_Roll -14.5                 
+#define Shot_Pitch 26.5             
+#define Shot_Roll -13.5                 
 // #define Shot_Pitch 25.5             
 // #define Shot_Roll -11.5                                                                                                                                 
 #define USE_BMX055   1
@@ -334,6 +334,8 @@ extern uint16_t current_tick;
 void surface_control_task(void);
 extern uint8_t vel_pursuit_mode;   /* 0=原Euler_pid 1=速度矢量追踪三级串级 */
 extern uint8_t lqr_mode;           /* 0=关(PID/LADRC) 1=LQR一步6态→4舵(含混控,绕过Servo_Mix_*)；见 lqr.c */
+extern uint8_t lqi_mode;           /* 0=关(LQR) 1=LQI力矩分配(3轴力矩→4舵)；见 lqi_torque.c；优先级高于 lqr_mode */
+extern uint8_t lqi_alloc_mode;     /* 0=简单pinv(H_tau)全轴最小舵量(等价旧G矩阵) 1=零空间Pitch保护(先满足Roll+Yaw再压低Pitch)；见 torque_allocator.c */
 void Velocity_Pursuit_Cale(float delta_time);
 void Roll_Derotate_PitchYaw(float Pw, float Yw, float *Pb, float *Yb);
 void Servo_Mix_AxisLimit(float p, float r, float y);

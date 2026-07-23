@@ -20,6 +20,9 @@
 #include "pid.h"
 #include "adrc.h"           /* LADRC 线性自抗扰控制器(文件名仍 adrc.*) */
 #include "../lqr_tool/lqr.h"  /* LQR 姿态控制器(6态→4舵一步解算，含混控)；未编译需手动加入工程 */
+#include "../lqi_tool/lqi_torque.h"        /* LQI 力矩控制器(9态→3轴力矩)；未编译需手动加入工程 */
+#include "../lqi_tool/torque_allocator.h"  /* 力矩→舵面零空间分配器 */
+#include "../lqi_tool/lqi_geometry_table.h"/* H_tau 表 + 零空间 N_ry */
 #include "cmsis_os.h"
 #include "FreeRTOS.h"
 #include "IMU.h"
@@ -319,10 +322,12 @@ void get_current_Target(void)
         }
         
         /* ROLL 始终自稳(与视觉新数据无关),每 tick 刷新 */
-        // Surface.target_angle_Euler[NOW][YAW]  =  
-        // Surface.Stable_Euler_Angle[YAW];
-        // Surface.target_angle_Euler[NOW][PITCH]  =  
-        // Surface.current_angle_Euler[NOW][PITCH];
+        Surface.target_angle_Euler[NOW][YAW]  =  
+        0;
+        Surface.target_angle_Euler[NOW][PITCH]  =  
+        0;
+        Surface.target_angle_Euler[NOW][ROLL]  =  
+        0;
 
 }   
 void get_current_State(void)
@@ -390,7 +395,7 @@ void get_current_State(void)
             Surface.Guidance_flag[1] = 2; 
         }
     }
-    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch-10.0f&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
+    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=0.0f&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
     {
         Vision_Transmit( Vision_Cmd_Work );
         if(Surface.Guidance_cnt[2]++>5)
@@ -448,7 +453,16 @@ void surface_control_task(void)
     if ((Guidance_State==Stable||Guidance_State==Terminal)&&(imu_is_static==0))
     {
         Surface.pid_cale_flag = 1;
-        Euler_LQR_Cale(delta_time);
+        if (lqi_mode == 1)
+        {
+            /* LQI 力矩控制 + Pitch 保护零空间分配（3轴力矩→4舵） */
+            Euler_LQI_Cale(delta_time);
+        }
+        else
+        {
+            /* 旧 LQR 一步 6态→4舵（默认路径） */
+            Euler_LQR_Cale(delta_time);
+        }
         for (int i = 0; i < 4; i++)                    /* 安全网:分配已保证在限内,此处仅兜底 FP 误差 */
             abs_limit(&Surface.output_angle_Servo[NOW][i], SERVO_ANGLE_LIMIT);
     }

@@ -3,7 +3,8 @@ name: Dart_2027_Guidance_Ynzz
 type: ARM
 deviceName: null
 packDir: null
-srcDirs: []
+srcDirs:
+  - imcalib/lqi_tool
 virtualFolder:
   name: <virtual_root>
   files: []

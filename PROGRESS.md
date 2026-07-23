@@ -334,6 +334,31 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **方案**：新建 3 个专用 PID 结构体 `pid_i_for_lqr[3]`（P=D=0 纯积分，索引 [PITCH,ROLL,YAW]），用 `pid_calc()` 对误差积分，iout 叠加到 `err_deg` 再 DEG2RAD 进 LQR 状态 x。积分分离：`|err_deg| ≥ 0.5°` → 清零 iout；`< 0.5°` → `pid_calc()` 累积。分离阈值是唯一门控（PID deadband=0）。舵面饱和→回退本拍 iout（抗饱和）。
 - **符号**：`pid_calc(set=当前, get=目标)` → PID 误差 = current−target = LQR err_deg（同号），叠加方向正确。
 - **落地**：[lqr.c](imcalib/lqr_tool/lqr.c) `LQR_Init` 初始化 PID + `Euler_LQR_Cale` 积分块重写 + `LQR_Update` 移除旧积分代码；[lqr.h](imcalib/lqr_tool/lqr.h) 新增宏 `LQR_I_SEPARATION_DEG_DEFAULT`(0.5°)/`LQR_I_LIMIT_DEG_DEFAULT`(5°)/`LQR_I_KI_DEFAULT`(0.1) + `extern pid_t pid_i_for_lqr[3]`。
+
+### 2026-07-23：LQI 力矩控制器 + Pitch 保护型零空间分配（未编译/待台架）
+
+- **动机**：把控制链路从「LQR 一步 6态→4舵（K 含混控）」升级为「LQI 输出三轴物理力矩 N·m → 零空间分配器把力矩翻译成 4 舵」。拆开后 LQI 不关心舵面几何，舵面几何只影响 H_tau 表和分配器，改哪边都不影响另一边。
+- **核心变化**：
+  - LQI 输出 3×1 力矩 [Mx, My, Mz]（N·m），不是 4×1 舵角
+  - H_tau(3×4) 从几何显式推导（r×n），替代集总 G 矩阵 + k_aero
+  - 零空间分配器：先满足 Roll/Yaw → 零空间压低 Pitch 力矩 → 限幅
+  - 舵面顺序全线统一 [UL, UR, DR, DL]，C 端不换序
+  - 保留 lqr_mode 旧开关，新增 lqi_mode=0 默认关
+- **MATLAB**：[matlab_script/](matlab_script/) 三件套（参数→主脚本→C导出）
+- **嵌入式 C**：[imcalib/lqi_tool/](imcalib/lqi_tool/) 四个新文件
+  - `lqi_torque.c/.h`：LQI 控制器（9态→3力矩 + Euler_LQI_Cale 桥接）
+  - `torque_allocator.c/.h`：Pitch 保护零空间分配器（2×4 伪逆 + 2×2 解析优化 + 限幅）
+  - `lqi_gain_table.h`：K_lqi[20][3][9] 静态表（20 个速度点，线性插值）
+  - `lqi_geometry_table.h`：H_tau 表 + 零空间 N_ry(4×2) + 权重/限幅宏
+- **修改**：surface_control_task.c 加 lqi_mode 分派 + Init_Config.c 加 LQI_Init()
+- **积分**：阶段 1 权重 = 0（纯 LQR 验证基本结构），稳定后再加 Roll/Yaw 积分；Pitch 积分不开放
+- **⚠ 占位符清单**（待 SolidWorks/CFD 数据后重新生成所有表）：
+  - 交叉惯量 Ixy/Ixz/Iyz（=0）
+  - 舵面位置 r_i（从 r_ac=0.150/a_ac=0.120 反推）
+  - 舵面面积 S_i（0.005 m²）
+  - 舵效系数 C_Fδ（5.0，≈ CLα 占位）
+  - 气动阻尼/恢复系数（全 0，未启用）
+- **未编译**(Keil/MDK)，4 个新 .c 需手动加入 Keil 工程编译列表。待台架。
 - **未编译**(Keil/MDK)。**待台架**：验证积分分离清零行为、ki 0.1 保守起步上台架后按需调大、Vofa 拉 `lqr_ctrl.integral.err`(积分贡献度) + `pid_i_for_lqr[axis].iout` + `lqr_ctrl.err_deg`(原始误差) + `lqr_ctrl.x[0..2]`(增强后 rad)。
 
 ### 2026-07-14：BMI088 加速度计支持（BMX055 可切换）

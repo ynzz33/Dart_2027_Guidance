@@ -11,6 +11,7 @@
 #include "buzzer.h"
 #include "FreeRTOS.h"
 #include "surface_control_task.h"
+#include "../lqi_tool/lqi_torque.h"     /* LQI_Velocity_Update50Hz */
 #include "task.h"
 #include <math.h>
 #include "TotalControl.h"
@@ -216,16 +217,16 @@ void Vision_Transmit_Debug(void)
     // val[10] = lqr_ctrl.u_servo_deg[2];
     // val[11] = lqr_ctrl.u_servo_deg[3];
     
-    val[0]  = V_DART  ;
-    val[1]  = IMU_Data.Velocity[Body][NOW][Y] ;
-    val[2]  = Surface.current_angle_Euler[NOW][YAW]   ;
-    val[3]  = Surface.output_angle_Servo[NOW][UP_RIGHT]   ; /* delta2 rad */
-    val[4]  = Surface.output_angle_Servo[NOW][DOWN_RIGHT] ; /* delta3 rad */
-    val[5]  = Surface.output_angle_Servo[NOW][DOWN_LEFT]  ; /* delta4 rad */
-    val[6]  =  Surface.target_angle_Euler[NOW][ROLL]  - Surface.current_angle_Euler[NOW][ROLL]  ;
-    val[7]  =  Surface.target_angle_Euler[NOW][PITCH] - Surface.current_angle_Euler[NOW][PITCH] ;
-    val[8]  =  Surface.target_angle_Euler[NOW][YAW]   - Surface.current_angle_Euler[NOW][YAW]   ;
-    val[9]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real;
+    val[0]  = lqi_ctrl.attitude_error_rad[0],
+    val[1]  = lqi_ctrl.attitude_error_rad[1],
+    val[2]  = lqi_ctrl.attitude_error_rad[2],
+    val[3]  = lqi_ctrl.torque_cmd_Nm[0],
+    val[4]  = lqi_ctrl.torque_cmd_Nm[1],
+    val[5]  = lqi_ctrl.torque_cmd_Nm[2],
+    val[6]  = lqi_ctrl.torque_achieved_Nm[0],
+    val[7]  = lqi_ctrl.torque_achieved_Nm[1],
+    val[8]  = lqi_ctrl.torque_achieved_Nm[2],
+    val[9]  = Vision_Rx_Data.x[NOW]*1000.0f+ADC_Voltage_Real; 
     val[10] = Vision_Rx_Data.y[NOW]*1000.0f;
     val[11] = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100+Surface.current_gyro_Euler[NOW][ROLL]/10.0f;
 
@@ -429,6 +430,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
      else if (htim->Instance == TIM7)
      {
          LQR_Gain_Update50Hz();   /* 50Hz 更新 LQR 速度调度增益 K_d(V) */
+        LQI_Velocity_Update50Hz();  /* 50Hz 缓存速度，供 1kHz 计算 H_tau(V) */
      }
      else if (htim->Instance == TIM15)
      {

@@ -79,7 +79,8 @@ void Short_Press_Process(void)
                 case 3:
                 {
                         // ======                                            ============阵营切换-红==============
-                        // Guidance_State = Stable;
+                        Guidance_State = Stable;
+                        Vision_Transmit( Vision_Cmd_Record_Start );
                         Dart_Trriger_Color_Set(Team_RED);
                 }break;
                 case 4:
