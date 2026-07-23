@@ -1,6 +1,6 @@
 /*
  * LQR weights used for this gain (discrete-time dlqr with Ts = 0.001 s):
- *   Q = diag([80.000, 1.000, 1200.000, 1.000, 1.000, 0.700])
+ *   Q = diag([50.000, 1.000, 100.000, 1.000, 0.500, 1.000])
  *   R = diag([20.000, 20.000, 20.000, 20.000])
  * Fit range: 1.0 <= V <= 20.0 m/s, V_ref = 6.0 m/s
  */
@@ -9,7 +9,7 @@
  * File: LQR_K_Dart_d.h
  *
  * MATLAB Coder version            : 24.2
- * C/C++ source code generated on  : 2026-07-22 04:18:15
+ * C/C++ source code generated on  : 2026-07-23 09:17:23
  */
 
 #ifndef LQR_K_DART_D_H

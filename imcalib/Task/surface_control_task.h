@@ -19,14 +19,14 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-#define  Servo_UL_ZERO      1480
-#define  Servo_UR_ZERO      1350
-#define  Servo_DR_ZERO      1510
-#define  Servo_DL_ZERO      1500      
-#define Shot_Pitch       33
-#define Shot_Roll 0  
-#define USE_BMX055   1
-#define USE_BMI088   0
+// #define  Servo_UL_ZERO      1480
+// #define  Servo_UR_ZERO      1350
+// #define  Servo_DR_ZERO      1510
+// #define  Servo_DL_ZERO      1500      
+// #define Shot_Pitch       33
+// #define Shot_Roll 0  
+// #define USE_BMX055   1
+// #define USE_BMI088   0
  
 // //镖体2 红色
 // #define  Servo_UL_ZERO      1690
@@ -69,14 +69,16 @@
 // #define USE_BMI088   1 
 
 // // //镖体6 红色
-// #define  Servo_UL_ZERO      1420
-// #define  Servo_UR_ZERO      1420
-// #define  Servo_DR_ZERO      1410 
-// #define  Servo_DL_ZERO      1410    
-// #define Shot_Pitch 27.5                  
-// #define Shot_Roll -14.5                                                                                                                                
-// #define USE_BMX055   1
-// #define USE_BMI088   0
+#define  Servo_UL_ZERO      1530
+#define  Servo_UR_ZERO      1540
+#define  Servo_DR_ZERO      1410 
+#define  Servo_DL_ZERO      1400    
+#define Shot_Pitch 27.5             
+#define Shot_Roll -14.5                 
+// #define Shot_Pitch 25.5             
+// #define Shot_Roll -11.5                                                                                                                                 
+#define USE_BMX055   1
+#define USE_BMI088   0
 /* 力大概在轧带哪里 */
 
 

@@ -135,18 +135,8 @@ void Euler_LQR_Cale(float dt)
 
     if(Guidance_State>Terminal)
     { 
-        // lqr_ctrl.x[1]  = 0.0f ;
         lqr_ctrl.x[4]   = 0.0f ;
     }    
-    // else if(Guidance_State==Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
-    // {
-    //     lqr_ctrl.x[4] = 0;
-    // }
-    // else
-    // {
-    //     // lqr_ctrl.x[1]  = 0.0f ;
-    //     lqr_ctrl.x[4]  = 0.0f ;
-    // }
 
     /* ---- PID-for-LQR 积分(yaw only)：用 pid_i_for_lqr[YAW] 对 yaw 误差(current−target)纯积分，
      *    叠加到 yaw err_deg 后再 DEG2RAD 进 LQR 状态 x[2]。积分分离：|yaw_err|≥阈值→清零 iout；
