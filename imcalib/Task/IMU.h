@@ -122,7 +122,8 @@ typedef struct
     float temp[2][3];       /* 暂存(3维加速度卡尔曼用,当前 #if0 禁用) */
     float G_Offset[3];      /* 陀螺零偏(上电2s静态标定均值),IMU_Data_Read 中扣除 */
     float A_Offset[3];      /* 加速度零偏(标定均值,Z 已扣 1g);当前未回扣主环 */
-    uint8_t calib_done;     /* 0=标定中(不减偏) 1=标定完成 2=已锁 Stable 姿态角 */
+    int8_t calib_done;     /* 0=标定中(不减偏) 1=标定完成 2=已锁 Stable 姿态角 */
+    int8_t mahony_flag;
 }
 IMU_DATA_t;
 

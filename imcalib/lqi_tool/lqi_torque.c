@@ -4,7 +4,7 @@
  * @details 控制律: tau_cmd = -K_lqi * xa
  *
  *          ★ K_lqi 与速度无关（B_tau = I⁻¹ 不含气动），存单矩阵。
- *          ★ H_tau(V) = (V/V_ref)² * H_tau_Vref，每拍解析计算。
+ *          ★ H_tau(V_DART_Lqi) = (V_DART_Lqi/V_ref)² * H_tau_Vref，每拍解析计算。
  *          ★ 力矩→舵面由 torque_allocator 独立完成。
  *
  *          [扩展] 启用气动阻尼(DART_LQI_ENABLE_AERO_A=true)后：
@@ -12,7 +12,7 @@
  *              find_speed_index()、LQI_InterpolateK() 架构
  *            - MATLAB 重新生成 lqi_gain_table.h（多速点表）
  *            - LQI_Init 改为加载标称速 K，LQI_Gain_Update50Hz
- *              恢复为 LQI_InterpolateK(V, lqi_ctrl.K_lqi)
+ *              恢复为 LQI_InterpolateK(V_DART_Lqi, lqi_ctrl.K_lqi)
  *
  *          ★ 未编译：需手动加入 Keil/eIDE 工程编译列表。待台架。
  *
@@ -36,6 +36,7 @@
 LQI_Control_t lqi_ctrl;
 uint8_t lqi_mode = 1;       /* 0=关(LQR) 1=LQI力矩分配 */
 uint8_t lqi_alloc_mode = 0; /* 0=简单pinv(H_tau) 1=零空间Pitch保护 */
+float V_DART_Lqi = 0;
 
 /*============================================================================
  *  LQI 控制更新
@@ -116,7 +117,7 @@ void LQI_Update(float dt)
 }
 
 /*============================================================================
- *  50Hz 速度更新（仅缓存 V，供 1kHz 计算 H_tau(V) 用）
+ *  50Hz 速度更新（仅缓存 V，供 1kHz 计算 H_tau(V_DART_Lqi) 用）
  *============================================================================*/
 
 void LQI_Velocity_Update50Hz(void)
@@ -126,13 +127,13 @@ void LQI_Velocity_Update50Hz(void)
     float vx = IMU_Data.Velocity[World][NOW][X];
     float vy = IMU_Data.Velocity[World][NOW][Y];
     float vz = IMU_Data.Velocity[World][NOW][Z];
-    float V = sqrtf(vx * vx + vy * vy + vz * vz);
+    V_DART_Lqi = sqrtf(vx * vx + vy * vy + vz * vz);
 
-    /* clamp 防止 V=0 导致除零 */
-    if (V < LQI_V_MIN) V = LQI_V_MIN;
-    if (V > LQI_V_MAX) V = LQI_V_MAX;
+    /* clamp 防止 V_DART_Lqi=0 导致除零 */
+    if (V_DART_Lqi < LQI_V_MIN) V_DART_Lqi = LQI_V_MIN;
+    if (V_DART_Lqi > LQI_V_MAX) V_DART_Lqi = LQI_V_MAX;
 
-    lqi_ctrl.cached_V = V;
+    lqi_ctrl.cached_V = V_DART_Lqi;
 }
 
 /*============================================================================
@@ -196,34 +197,30 @@ void Euler_LQI_Cale(float dt)
     lqi_ctrl.body_rate_rad_s[0] = DEG2RAD(Surface.current_gyro_Euler[NOW][ROLL]);
     lqi_ctrl.body_rate_rad_s[1] = DEG2RAD(Surface.current_gyro_Euler[NOW][PITCH]);
     lqi_ctrl.body_rate_rad_s[2] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW]);
-    if (Guidance_State >= Terminal)
-    {
-        lqi_ctrl.body_rate_rad_s[1] = 0;                                                                    
-    }
+    // if (IMU_Data.Euler[NOW][PITCH]<=10.0)
+    // {
+    //     lqi_ctrl.body_rate_rad_s[1] = 0;                                                                    
+    // }
     /* ---- 3) Pitch 门控：非 Terminal 段不追 Pitch 角度，但保留角速度阻尼 ---- */
     if (Guidance_State < Terminal)
     {
+        // lqi_ctrl.attitude_error_rad[2] = 0.0f;   /* 不追     YAW 角度 */
+        lqi_ctrl.integral_error[2]     = 0.0f;   /* 强制清零 YAW 积分 */
+        lqi_ctrl.freeze_integrator[2]  = 1;      /* 永久冻结 YAW 积分 */
+    }
+
         // lqi_ctrl.attitude_error_rad[0] = 0.0f;   /* 不追     ROLL 角度 */
         lqi_ctrl.integral_error[0]     = 0.0f;   /* 强制清零 ROLL 积分 */
         lqi_ctrl.freeze_integrator[0]  = 1;      /* 永久冻结 ROLL 积分 */
 
         lqi_ctrl.integral_error[1]     = 0.0f;   /* 强制清零 Pitch 积分 */
         lqi_ctrl.freeze_integrator[1]  = 1;      /* 永久冻结 Pitch 积分 */
-
-        // lqi_ctrl.attitude_error_rad[2] = 0.0f;   /* 不追     YAW 角度 */
-        lqi_ctrl.integral_error[2]     = 0.0f;   /* 强制清零 YAW 积分 */
-        lqi_ctrl.freeze_integrator[2]  = 1;      /* 永久冻结 YAW 积分 */
-
-    }
-
-        lqi_ctrl.integral_error[1]     = 0.0f;   /* 强制清零 Pitch 积分 */
-        lqi_ctrl.freeze_integrator[1]  = 1;      /* 永久冻结 Pitch 积分 */
     /* ---- 4) LQI 解算力矩 ---- */
     LQI_Update(dt);
 
-    /* ---- 5) 计算 H_tau(V) = (V/V_ref)² * H_tau_Vref ---- */
-    float V  = lqi_ctrl.cached_V;
-    // float Vs = (V / LQI_V_REF) * (V / LQI_V_REF);   /* (V/V_ref)² */
+    /* ---- 5) 计算 H_tau(V_DART_Lqi) = (V_DART_Lqi/V_ref)² * H_tau_Vref ---- */
+    float V_DART_Lqi  = lqi_ctrl.cached_V;
+    // float Vs = (V_DART_Lqi / LQI_V_REF) * (V_DART_Lqi / LQI_V_REF);   /* (V_DART_Lqi/V_ref)² */
     float Vs = 6;
     float H_tau[3][4];
     for (uint8_t row = 0; row < 3; row++)

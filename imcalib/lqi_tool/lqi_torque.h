@@ -43,12 +43,12 @@
  *============================================================================*/
 #define LQI_INTEG_LIMIT_ROLL   0.174532925f   /* 10°·s */
 #define LQI_INTEG_LIMIT_PITCH  0.0f           /* 0：Pitch 不做积分追踪 */
-#define LQI_INTEG_LIMIT_YAW    0.174532925f   /* 10°·s */
+#define LQI_INTEG_LIMIT_YAW    0.0174532925f   /* 10°·s */
 
 /* 积分力矩限幅：积分贡献的力矩上限 N·m（防止积分过强导致舵面饱和/振荡） */
 #define LQI_INTEG_TORQUE_LIMIT_ROLL   0.0f
 #define LQI_INTEG_TORQUE_LIMIT_PITCH  0.0f    /* Pitch 积分关闭 */
-#define LQI_INTEG_TORQUE_LIMIT_YAW    0.0f
+#define LQI_INTEG_TORQUE_LIMIT_YAW    0.1f
 
 /*============================================================================
  *  NaN/Inf 安全兜底
@@ -96,6 +96,7 @@ typedef struct
  *============================================================================*/
 extern LQI_Control_t lqi_ctrl;
 extern uint8_t lqi_mode;             /* 0=关(LQR) 1=LQI力矩+零空间分配；优先级高于 lqr_mode */
+extern float V_DART_Lqi;
 
 /*============================================================================
  *  接口

@@ -181,13 +181,16 @@ void Guidance_Start(void)//自检后的判断
 void Guidance_Stable(void)//自稳
 {
             // Buzzer_Remind();
-        Surface.target_angle_Euler[NOW][PITCH] = 
+        Surface.target_angle_Euler[NOW][PITCH] =
         Surface.current_angle_Euler[NOW][PITCH];
-        Surface.target_angle_Euler[NOW][YAW]   = 
+        Surface.target_angle_Euler[NOW][YAW]   =
         Surface.Stable_Euler_Angle[YAW];
-        Surface.target_angle_Euler[NOW][ROLL]  =  
+        Surface.target_angle_Euler[NOW][ROLL]  =
         Surface.Stable_Euler_Angle[ROLL];
 }
+
+
+
 void Guidance_Terminal(void)//制导段
 {
     /* PN 视线率状态(函数级静态,帧间保持):上帧世界系视线终点 / 自上帧起累计的控制拍数 / 首帧标志 */
@@ -229,6 +232,7 @@ void Guidance_Terminal(void)//制导段
             vis_dt_cnt      = 0;
         }
         Vision_Rx_Data.Vision_New_Data_flag = 0;   /* 新数据处理完毕,置回0 */
+
     }
     if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE) 
     {
@@ -267,10 +271,10 @@ void Guidance_Terminal(void)//制导段
 }
 void Guidance_End(void) 
 {
-    Vision_Transmit(Vision_Cmd_Record_Stop);
     Buzzer_stop();
-    if (Surface.Guidance_cnt[4]++>3000)
+    if (Surface.Guidance_cnt[4]++>4000)
     {
+        Vision_Transmit(Vision_Cmd_Record_Stop);
         Guidance_State = PROCESS_OK;
         Surface.Guidance_cnt[4] = 0;
     }
@@ -279,6 +283,7 @@ void Guidance_End(void)
 }
 void Guidance_Process_OK(void)
 {
+    Vision_Transmit(Vision_Cmd_Record_Stop);
     Buzzer_Remind();
     if (Surface.Guidance_cnt[5]++>5000)
     {
@@ -289,8 +294,6 @@ void Guidance_Process_OK(void)
 void get_current_Target(void)
 {
         // Guidance_State = Stable;
-        Surface.target_angle_Euler[NOW][ROLL]  =  
-        Surface.Stable_Euler_Angle[ROLL];
         Stable_Flag = 0;
         switch(Guidance_State)
         {
@@ -321,13 +324,15 @@ void get_current_Target(void)
             }break;
         }
         
-        /* ROLL 始终自稳(与视觉新数据无关),每 tick 刷新 */
-        Surface.target_angle_Euler[NOW][YAW]  =  
-        0;
-        Surface.target_angle_Euler[NOW][PITCH]  =  
-        0;
         Surface.target_angle_Euler[NOW][ROLL]  =  
-        0;
+        Surface.Stable_Euler_Angle[ROLL];
+        /* ROLL 始终自稳(与视觉新数据无关),每 tick 刷新 */
+        // Surface.target_angle_Euler[NOW][YAW]  =  
+        // 0;
+        // Surface.target_angle_Euler[NOW][PITCH]  =  
+        // 0;
+        // Surface.target_angle_Euler[NOW][ROLL]  =  
+        // 0;
 
 }   
 void get_current_State(void)
@@ -335,16 +340,8 @@ void get_current_State(void)
     if(cnt<target_Cnt)
     {
         cnt++;
-            Vision_Transmit( Vision_Cmd_Record_Start );
+        Vision_Transmit( Vision_Cmd_Record_Start );
     }
-    // if(Guidance_State>Stable&&V_DART<=4.0f)
-    // {
-    //     if(Surface.POWER_OFF_CNT++>500)
-    //     {
-    //         Guidance_State = End;
-    //     }
-        
-    // }
     if(
             Surface.Guidance_flag[1] == 1
     )
@@ -382,20 +379,20 @@ void get_current_State(void)
         if(Surface.Guidance_cnt[1]>=50&&Surface.Guidance_flag[1]==0)
         {
             Buzzer_Remind();
-            Surface.Stable_Euler_Angle[PITCH] = IMU_Data.Euler[NOW][PITCH];
-            Surface.Stable_Euler_Angle[ROLL]  = IMU_Data.Euler[NOW][ROLL];
-            Surface.Stable_Euler_Angle[YAW]   = IMU_Data.Euler[NOW][YAW];
+            Surface.Stable_Euler_Angle[ROLL]  = Surface.current_angle_Euler[NOW][ROLL];
+            Surface.Stable_Euler_Angle[YAW]   = Surface.current_angle_Euler[NOW][YAW];
+            Surface.Stable_Euler_Angle[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
             Surface.Guidance_flag[1] = 1;
         }
-        if(Surface.Guidance_flag[1] == 1&&V_DART>=0.8f&&fabs(IMU_Data.Velocity[Body][NOW][Y])>0.4f)
+        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.3f&&fabs(IMU_Data.Velocity[Body][NOW][Y])>0.4f)
         {
             Buzzer_Remind();
             Guidance_State = Stable;
             Surface.Guidance_cnt[1] = 0;
-            Surface.Guidance_flag[1] = 2; 
+            Surface.Guidance_flag[1] = 2;
         }
     }
-    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=0.0f&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
+    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch-10.0&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
     {
         Vision_Transmit( Vision_Cmd_Work );
         if(Surface.Guidance_cnt[2]++>5)
@@ -406,7 +403,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&(V_DART<4.0f||IMU_Data.A[NOW][Y]<-0.8f))
+    else if (Guidance_State == Terminal &&(V_DART_Lqi<4.0f||IMU_Data.A[NOW][Y]<-0.8f))
     {
         if(Surface.Guidance_cnt[3]++>50)
         {
@@ -450,7 +447,8 @@ void surface_control_task(void)
     get_current_Target();
     /*pid/adrc，算输出值*/
     Surface.pid_cale_flag = 0;
-    if ((Guidance_State==Stable||Guidance_State==Terminal)&&(imu_is_static==0))
+    // if (((Surface.Guidance_flag[2] == 1&&Guidance_State == Stable)||Guidance_State==Terminal)&&imu_is_static==0)
+    if ((Guidance_State == Stable||Guidance_State==Terminal)&&imu_is_static==0)
     {
         Surface.pid_cale_flag = 1;
         if (lqi_mode == 1)

@@ -19,12 +19,12 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-// #define  Servo_UL_ZERO      1480
-// #define  Servo_UR_ZERO      1350
-// #define  Servo_DR_ZERO      1510
-// #define  Servo_DL_ZERO      1500      
-// #define Shot_Pitch       33
-// #define Shot_Roll 0  
+// #define  Servo_UL_ZERO      1590
+// #define  Servo_UR_ZERO      1520
+// #define  Servo_DR_ZERO      1380
+// #define  Servo_DL_ZERO      1430      
+// #define Shot_Pitch       32
+// #define Shot_Roll -3  
 // #define USE_BMX055   1
 // #define USE_BMI088   0
  
@@ -68,16 +68,14 @@
 // #define USE_BMX055   0  
 // #define USE_BMI088   1 
 
-// // //镖体6 红色
-#define  Servo_UL_ZERO      1530
-#define  Servo_UR_ZERO      1540
-#define  Servo_DR_ZERO      1410 
-#define  Servo_DL_ZERO      1400    
-#define Shot_Pitch 26.5             
-#define Shot_Roll -13.5                 
-// #define Shot_Pitch 25.5             
-// #define Shot_Roll -11.5                                                                                                                                 
-#define USE_BMX055   1
+// 镖体6 红色
+#define  Servo_UL_ZERO      1420
+#define  Servo_UR_ZERO      1440
+#define  Servo_DR_ZERO      1650 
+#define  Servo_DL_ZERO      1430    
+#define Shot_Pitch 23.5                   
+#define Shot_Roll -10.5                                                                                                                                     
+#define USE_BMX055   1 
 #define USE_BMI088   0
 /* 力大概在轧带哪里 */
 
@@ -174,8 +172,8 @@
  * 近处 blob 大(半径~30px),同样像素偏移对应更小实际角度。
  * 归一化到参考半径:normalized_angle = angle × (REF_RADIUS / radius),
  * 使控制增益不随距离变化。REF_RADIUS 按典型标定距离的 blob 半径设定。*/
-#define  REF_RADIUS             (50.0f)   /* 参考半径(像素):标定距离处的 blob 等效半径 */
-#define  REF_RADIUS_MIN         (3.0f)    /* 半径下限(像素):防 radius=0/异常除零 */
+#define  REF_RADIUS             (10.0f)   /* 参考半径(像素):标定距离处的 blob 等效半径 */
+#define  REF_RADIUS_MIN         (0.5f)    /* 半径下限(像素):防 radius=0/异常除零 */
 
 /* === 末制导混合导引:视线率PN超前 + 配平迎角前馈(均不依赖会漂的IMU积分速度) ===
  * PN:目标角按"世界系惯性视线率λ̇"超前——λ̇由锁存视线帧间差分得(纯视觉),驱动λ̇→0=碰撞航线,
@@ -267,7 +265,7 @@ typedef struct
     float Finally_Angle      [3][4];  /* 最终写定时器的 PWM 比较值 µs(各舵 ZERO + 角度映射) */
     float Stable_Euler_Angle[3];      /* 自稳基准角:自检后锁存,作 Start/Stable/Terminal 的 roll/yaw(及保持时 pitch)目标 */
     int16_t Guidance_cnt[6];          /* 制导状态机各跳变的去抖计数 */
-    int8_t  Guidance_flag[6];          /* 制导状态机各跳变的去抖计数 */
+    uint16_t  Guidance_flag[6];          /* 制导状态机各跳变的去抖计数 */
     uint8_t pid_cale_flag;            /* 本拍是否跑了 PID(Vofa 观测) */
     uint8_t Text_Flag;                /* 自检标志(预留) */
     int16_t POWER_OFF_CNT;             /* 末制导低速超时计数 */

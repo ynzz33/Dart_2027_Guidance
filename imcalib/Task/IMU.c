@@ -76,13 +76,6 @@ void IMU_Attitude_Algorithm(void)
     /* G 机体Z(上)=chipZ */  gz = GYR_SIGN_Z * IMU_Data.G_Rad[NOW][YAW  ],
     /* 重力加速度,方便归一*/  gravity = GRAVITY_MS2;
 #endif
-#if 1   /*内环角速度反馈(deg):用原始测量(未叠Mahony),用户极性 抬头+/右滚+/右偏+*/
-    /* 串级内环要求"角速度 = 对应欧拉角的导数"。pitch(绕右)/roll(绕前)与右手机体角速度同号直通;
-       yaw 右偏+ = −绕上(右手) → 取 −gz,与新欧拉角 YAW(右+)一致。gx/gy/gz 此刻是原始测量。*/
-    Surface.current_gyro_Euler[NOW][PITCH] =  RAD2DEG(gx);
-    Surface.current_gyro_Euler[NOW][ROLL ] =  RAD2DEG(gy);
-    Surface.current_gyro_Euler[NOW][YAW  ] = -RAD2DEG(gz);
-#endif
 #if 1   /*mahony补偿*/
     /*逆旋转矩阵的转化*/
     IMU_Data.R_matrix_T[0][0] = 1-2*(q2*q2+q3*q3);      IMU_Data.R_matrix_T[0][1] = 2*(q1*q2+q0*q3);        IMU_Data.R_matrix_T[0][2] = 2*(q1*q3-q0*q2);
@@ -118,8 +111,15 @@ void IMU_Attitude_Algorithm(void)
     /* 方案B:发射后整个飞行段无"干净重力相"(推力→气动减速→冲击),气动减速幅度有时≈1g却方向朝后
      * 会骗过幅度门控;故状态机一旦判出已发射(Start→Stable 用 A_Normed[Y]≥0.8),全程硬置0、纯靠
      * (已去零偏的)陀螺 coast。Guidance_State/枚举见 surface_control_task.h(IMU.c 已 include)。*/
-    // if ((Guidance_State == Stable || Guidance_State == Terminal || Guidance_State == End)&&imu_is_static==0)
-    //     acc_trust = 0.0f;
+    if ((Guidance_State == Stable || Guidance_State == Terminal || Guidance_State == End)&&imu_is_static==0)
+    {
+        acc_trust = 0.0f;
+        /* 硬门控生效时清 Mahony 积分:发射前学的零偏补偿不再适用飞行段,不清会导致
+         * 旧的 iout 持续叠加到陀螺 → 姿态估计不是纯陀螺积分 → 与 Stable_Euler_Angle 间产生差值。*/
+        mahony_pid[X].iout = 0.0f;
+        mahony_pid[Y].iout = 0.0f;
+        mahony_pid[Z].iout = 0.0f;
+    }
     // acc_trust = 1.0f;
     /* 计算误差(误差先乘可信度:trust=0 时 err=0 → 比例项=0 且 pid 积分停止累加=冻结零偏估计不被污染,
      * 同时 pid 内 iout 保留发射前学到的好零偏值继续补偿陀螺,正是 coast 想要的)*/
@@ -133,8 +133,15 @@ void IMU_Attitude_Algorithm(void)
     gx += mahony_temp[X];
     gy += mahony_temp[Y];
     gz += mahony_temp[Z];
-
     /*计算修正后的陀螺仪数据（比例+积分补偿）*/
+
+#if 1   /*内环角速度反馈(deg):用原始测量(未叠Mahony),用户极性 抬头+/右滚+/右偏+*/
+    /* 串级内环要求"角速度 = 对应欧拉角的导数"。pitch(绕右)/roll(绕前)与右手机体角速度同号直通;
+       yaw 右偏+ = −绕上(右手) → 取 −gz,与新欧拉角 YAW(右+)一致。gx/gy/gz 此刻是原始测量。*/
+    Surface.current_gyro_Euler[NOW][PITCH] =  RAD2DEG(gx);
+    Surface.current_gyro_Euler[NOW][ROLL ] =  RAD2DEG(gy);
+    Surface.current_gyro_Euler[NOW][YAW  ] = -RAD2DEG(gz);
+#endif
 #endif
 
 #if 1   
@@ -649,6 +656,8 @@ void IMU_Init(void)
 #else
     BMX055_Init_Acc_Gyr();
 #endif
+
+        IMU_Data.mahony_flag = 1;
 }
 
 /*
