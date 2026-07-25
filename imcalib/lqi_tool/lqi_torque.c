@@ -208,6 +208,10 @@ void Euler_LQI_Cale(float dt)
         lqi_ctrl.integral_error[2]     = 0.0f;   /* 强制清零 YAW 积分 */
         lqi_ctrl.freeze_integrator[2]  = 1;      /* 永久冻结 YAW 积分 */
     }
+    else
+    {
+        lqi_ctrl.freeze_integrator[2] = 0;
+    }
 
         // lqi_ctrl.attitude_error_rad[0] = 0.0f;   /* 不追     ROLL 角度 */
         lqi_ctrl.integral_error[0]     = 0.0f;   /* 强制清零 ROLL 积分 */
@@ -217,6 +221,33 @@ void Euler_LQI_Cale(float dt)
         lqi_ctrl.freeze_integrator[1]  = 1;      /* 永久冻结 Pitch 积分 */
     /* ---- 4) LQI 解算力矩 ---- */
     LQI_Update(dt);
+
+    // /* ---- 4a) Yaw 优先级门控 + 固定阻尼限幅 ----
+    //  *  保证 pitch 阻尼力矩不超限、不跟 yaw 抢舵面。
+    //  *  yaw 误差 > YAW_DEADZONE_DEG 时压缩 pitch 阻尼；
+    //  *  yaw 在死区内时恢复固定阻尼。
+    //  */
+    // {
+    //     float yaw_err_deg = RAD2DEG(fabsf(lqi_ctrl.attitude_error_rad[2]));
+    //     float My = lqi_ctrl.torque_cmd_Nm[1];
+
+    //     /* yaw 死区阈值：yaw 误差超过此值 → pitch 阻尼压缩让路 */
+    //     static const float YAW_DEADZONE_DEG = 2.0f;     /* ★ 可调 */
+    //     /* 固定阻尼上限：pitch 力矩不超过此值，确保不干扰 yaw 机动 */
+    //     static const float PITCH_DAMP_MAX_NM = 0.02f;  /* ★ 可调，小值起步 */
+
+    //     if (My >  PITCH_DAMP_MAX_NM) My =  PITCH_DAMP_MAX_NM;
+    //     if (My < -PITCH_DAMP_MAX_NM) My = -PITCH_DAMP_MAX_NM;
+
+    //     /* Yaw 门控：yaw 还没到死区 → pitch 阻尼再压缩 */
+    //     if (yaw_err_deg > YAW_DEADZONE_DEG)
+    //     {
+    //         My *= 0.1f;  /* 只留 10%，几乎全让给 yaw */
+    //     }
+    //     /* else: yaw 在死区内 → My 保持 clamp 后的固定阻尼值 */
+
+    //     lqi_ctrl.torque_cmd_Nm[1] = My;
+    // }
 
     /* ---- 5) 计算 H_tau(V_DART_Lqi) = (V_DART_Lqi/V_ref)² * H_tau_Vref ---- */
     float V_DART_Lqi  = lqi_ctrl.cached_V;
@@ -288,6 +319,19 @@ void Euler_LQI_Cale(float dt)
         lqi_ctrl.freeze_integrator[1] = 1;
         lqi_ctrl.freeze_integrator[2] = 1;
     }
+    else
+    {
+        lqi_ctrl.freeze_integrator[0] = 0;
+        lqi_ctrl.freeze_integrator[1] = 0;
+        lqi_ctrl.freeze_integrator[2] = 0;
+    }
+
+    // lqi_ctrl.attitude_error_rad[0] = 0.0f;   /* 不追     ROLL 角度 */
+    lqi_ctrl.integral_error[0]     = 0.0f;   /* 强制清零 ROLL 积分 */
+    lqi_ctrl.freeze_integrator[0]  = 1;      /* 永久冻结 ROLL 积分 */
+
+    lqi_ctrl.integral_error[1]     = 0.0f;   /* 强制清零 Pitch 积分 */
+    lqi_ctrl.freeze_integrator[1]  = 1;      /* 永久冻结 Pitch 积分 */
 
     // /* 逐轴抗饱和：力矩误差大 → 该轴积分冻结（替代全轴一刀切） */
     // {

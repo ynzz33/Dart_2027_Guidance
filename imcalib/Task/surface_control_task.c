@@ -362,7 +362,7 @@ void get_current_State(void)
             if (Self_Text.Self_Text_Process<5)
             {
                 Self_Text.Self_Text_Process = 5; 
-            } 
+            }    
             Surface.Guidance_cnt[0] = 0;
             // Shot_Pitch = IMU_Data.Euler[NOW][PITCH];
         }
@@ -384,10 +384,11 @@ void get_current_State(void)
             Surface.Stable_Euler_Angle[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
             Surface.Guidance_flag[1] = 1;
         }
-        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.3f&&fabs(IMU_Data.Velocity[Body][NOW][Y])>0.4f)
+        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.3f&&fabs(IMU_Data.Velocity[Body][NOW][Y])>0.3f)
         {
             Buzzer_Remind();
             Guidance_State = Stable;
+            Surface.Stable_Euler_Angle[YAW]   = Surface.current_angle_Euler[NOW][YAW];
             Surface.Guidance_cnt[1] = 0;
             Surface.Guidance_flag[1] = 2;
         }
@@ -409,7 +410,7 @@ void get_current_State(void)
         {
             Buzzer_Remind();
             Guidance_State = End;
-            Surface.Guidance_cnt[3] = 0;
+            Surface.Guidance_cnt[3] = 0; 
         }
         
     }

@@ -34,7 +34,7 @@
  *  姿态误差 ≥ 此值 → 清零并冻结积分（P/D 主导拉回）
  *  姿态误差 <  此值 → 开启积分（消静差）
  *============================================================================*/
-#define LQI_INTEG_THRESHOLD_RAD  0.008726646f   /* 0.5° → rad */
+#define LQI_INTEG_THRESHOLD_RAD  0.008726646f*3.0f   /* 0.5° → rad */
 
 /*============================================================================
  *  积分限幅（防 deep windup）
@@ -43,12 +43,12 @@
  *============================================================================*/
 #define LQI_INTEG_LIMIT_ROLL   0.174532925f   /* 10°·s */
 #define LQI_INTEG_LIMIT_PITCH  0.0f           /* 0：Pitch 不做积分追踪 */
-#define LQI_INTEG_LIMIT_YAW    0.0174532925f   /* 10°·s */
+#define LQI_INTEG_LIMIT_YAW    0.0174532925f*2.0f   /* 10°·s */
 
 /* 积分力矩限幅：积分贡献的力矩上限 N·m（防止积分过强导致舵面饱和/振荡） */
 #define LQI_INTEG_TORQUE_LIMIT_ROLL   0.0f
 #define LQI_INTEG_TORQUE_LIMIT_PITCH  0.0f    /* Pitch 积分关闭 */
-#define LQI_INTEG_TORQUE_LIMIT_YAW    0.1f
+#define LQI_INTEG_TORQUE_LIMIT_YAW    0.3f
 
 /*============================================================================
  *  NaN/Inf 安全兜底
