@@ -223,7 +223,7 @@ void Vision_Transmit_Debug(void)
     val[3]  = lqi_ctrl.torque_achieved_Nm[0],
     val[4]  = lqi_ctrl.torque_achieved_Nm[1],
     val[5]  = lqi_ctrl.torque_achieved_Nm[2],
-    val[6]  = lqi_ctrl.integral_error[2],
+    val[6]  = RAD2DEG(lqi_ctrl.integral_error[2]),
     val[7]  = Surface.current_gyro_Euler[NOW][YAW],
     val[8]  = Vision_Rx_Data.x[NOW],
     val[9]  = V_DART_Lqi,

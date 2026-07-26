@@ -46,7 +46,7 @@ float V_DART_Lqi = 0;
  * @brief 组装增广状态，执行 tau = -K_lqi * xa，更新积分
  * @param dt  采样周期 (s)
  */
-void LQI_Update(float dt)
+void  LQI_Update(float dt)
 {
     float (*K)[LQI_STATE_DIM] = lqi_ctrl.K_lqi;
 
