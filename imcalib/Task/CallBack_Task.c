@@ -18,6 +18,7 @@
 #include "Vofa_send.h"
 #include "adrc.h"
 #include "../lqr_tool/lqr.h"
+#include "PNG_Task.h"
 uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Vision_Tx_Buf[3] = {0x5A,0,0xA5},Vision_TxDebug_Buf[50],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5],flag = 0;
 Dart_Trigger_Data_t Dart_Trigger_Data = {.Frame_Head = 0xAA,.Frame_Tail = 0x00};
 Vision_Rx_Buf_t Vision_Rx_Data ;
@@ -224,7 +225,7 @@ void Vision_Transmit_Debug(void)
     val[4]  = lqi_ctrl.torque_achieved_Nm[1],
     val[5]  = lqi_ctrl.torque_achieved_Nm[2],
     val[6]  = RAD2DEG(lqi_ctrl.integral_error[2]),
-    val[7]  = Surface.current_gyro_Euler[NOW][YAW],
+    val[7]  = PNG_Data.lead_corr[YAW],
     val[8]  = Vision_Rx_Data.x[NOW],
     val[9]  = V_DART_Lqi,
     val[10] = ADC_Voltage_Real,

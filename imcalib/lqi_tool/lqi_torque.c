@@ -197,10 +197,16 @@ void Euler_LQI_Cale(float dt)
     lqi_ctrl.body_rate_rad_s[0] = DEG2RAD(Surface.current_gyro_Euler[NOW][ROLL]);
     lqi_ctrl.body_rate_rad_s[1] = DEG2RAD(Surface.current_gyro_Euler[NOW][PITCH]);
     lqi_ctrl.body_rate_rad_s[2] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW]);
-    // if (IMU_Data.Euler[NOW][PITCH]<=10.0)
-    // {
-    //     lqi_ctrl.body_rate_rad_s[1] = 0;                                                                    
-    // }
+    if (IMU_Data.Euler[NOW][PITCH]<=0.0)
+    {
+        static int16_t cnt;
+        cnt++;
+        lqi_ctrl.body_rate_rad_s[1] = lqi_ctrl.body_rate_rad_s[1]/cnt;        
+        if(cnt>=100)
+        {
+            cnt = 100;
+        }      
+    }
     /* ---- 3) Pitch 门控：非 Terminal 段不追 Pitch 角度，但保留角速度阻尼 ---- */
     if (Guidance_State < Terminal)
     {

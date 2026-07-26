@@ -19,7 +19,10 @@
 #define PNG_K_VC           0.01f
 #define PNG_VC_MIN         0.50f    /* Vc 下限钳位(m/s):防 Vc≈0 时 PN 消失 */
 #define PNG_VC_MAX         8.0f   /* Vc 上限钳位(m/s):防异常大 Vc 放大超前 */
-#define PNG_LEAD_LIMIT_DEG 8.0f    /* 单轴 PN 超前角限幅(deg):丢帧/速度异常时防爆冲 */
+#define PNG_LEAD_LIMIT_DEG 2.0f    /* 单轴 PN 超前角限幅(deg):丢帧/速度异常时防爆冲 */
+#define PNG_MODE0_YAW_SIGN  (-1.0f) /* ★台架待定★ Mode0 Yaw 超前符号：+1 或 -1。
+                                     远靶时看 vision_los_rate[YAW] 与 lead_corr[YAW] 是否同号、
+                                     舵面是否减小视线率；反了翻此号。不动 LQI/舵面 SIGN。 */
 
 #include <stdint.h>
 #include "CallBack_Task.h"

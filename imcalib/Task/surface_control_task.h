@@ -22,7 +22,7 @@
 // #define  Servo_UL_ZERO      1590
 // #define  Servo_UR_ZERO      1460
 // #define  Servo_DR_ZERO      1380
-// #define  Servo_DL_ZERO      1490      
+// #define  Servo_DL_ZERO      1510      
 // #define Shot_Pitch       32
 // #define Shot_Roll -3  
 // #define USE_BMX055   1
@@ -61,8 +61,8 @@
 // // //镖体5 红色
 // #define  Servo_UL_ZERO      1630
 // #define  Servo_UR_ZERO      1430
-// #define  Servo_DR_ZERO      1510
-// #define  Servo_DL_ZERO      1540    
+// #define  Servo_DR_ZERO      1590
+// #define  Servo_DL_ZERO      1440    
 // #define Shot_Pitch 31                    
 // #define Shot_Roll 0 
 // #define USE_BMX055   0  
@@ -72,7 +72,7 @@
 #define  Servo_UL_ZERO      1420
 #define  Servo_UR_ZERO      1440
 #define  Servo_DR_ZERO      1650 
-#define  Servo_DL_ZERO      1420      
+#define  Servo_DL_ZERO      1400      
 #define Shot_Pitch 30.5                 
 #define Shot_Roll 0.5    
 // #define Shot_Pitch 23.5                 

@@ -249,16 +249,21 @@ void Guidance_Terminal(void)//制导段
 
         Surface.target_angle_Euler[NOW][YAW] = vision_los_final[NOW][YAW];
         Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
-        // if(Vision_Rx_Data.dist_cm<=150&&Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
-        // {
-        //     Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH]+10;
-        // }
-        // else
-        // {
-        //     Surface.target_angle_Euler[NOW][PITCH] = vision_los_final[NOW][PITCH];
-        // }
-    /* PN 超前:暂时关闭,先用纯 PID 跟踪视觉目标验证基础跟踪性能。
-     * 后续标定好 K_Dyn 后再打开 Mode1(速度²缩放)。*/
+
+    /* PNG Mode0 Yaw 超前：在 target 赋值为 vision_los_final 之后叠加超前角。
+     * vision_los_rate 已在上面 New_Data_flag 块内由帧间差分更新（或保持上帧值），
+     * 每 tick 执行：target 会被 line 250 重置为 vision_los_final → 不累积。
+     * 运行时开关：PNG_Mode=0 启用 Mode0，PNG_Yaw_Flag=1 启用 Yaw 轴。
+     * 台架 A/B：切 #if 0 即退回纯 PID/LQI 跟踪（不叠加 PNG 超前）。 */
+    #if 0
+    if (PNG_Mode == 0 && PNG_Yaw_Flag
+        && Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+    {
+        PNG_Apply_Lead_Yaw(&Surface, &IMU_Data);
+    }
+    #endif
+
+    /* [历史] 旧 PNG 调用（Mode1 EKF 全量，基于 vins_out.locked）——保留作对照 */
     #if 0
     if (vins_out.locked)
     {

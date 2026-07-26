@@ -20,8 +20,8 @@ static void png_common_calc(float *corr_yaw, float *corr_pitch);
 
 /* 速度PN开关默认值:先上 yaw(=1)、pitch 后续(=0)、稳健 Vc 缩放档(Mode0);三者均可 Vofa/调试器在线改 */
 uint8_t PNG_Yaw_Flag   = 1;
-uint8_t PNG_Pitch_Flag = 1;
-uint8_t PNG_Mode       = 1;
+uint8_t PNG_Pitch_Flag = 0;  /* 第一阶段暂不启用 Pitch PNG，只上 Yaw */
+uint8_t PNG_Mode       = 0;  /* 0=Mode0(Vc缩放/vision_los_rate,稳健) 1=Mode1(EKF p×v真PN) */
 
 void PNG_Init(PNG_Data_t* PNG_Data)
 {
@@ -51,27 +51,31 @@ void PNG_Apply_Lead(Surface_t* Surface , IMU_DATA_t* IMU_Data)
 {
 	(void)IMU_Data;   /* 预留(Mode1 如需机体量再用);当前世界系量直接取 vins_*/
 
-	/* 1) 接近速度 Vc:未锁定退化为标称 V_NOM;取模长后钳到 [VC_MIN,VC_MAX] 防 0 失效/异常放大 */
-	float vc = vins_out.locked ? fabsf(vins_out.vc) : V_NOM_MS;
-	if (vc < PNG_VC_MIN) vc = PNG_VC_MIN;
-	if (vc > PNG_VC_MAX) vc = PNG_VC_MAX;
-	PNG_Data.vc_used = vc;
-
-	/* 2) 每轴视线率 λ̇ 与超前角 corr(deg)。corr 取「+号=该轴目标应被超前减小的量」,与原 -= 约定一致 */
+	/* 1) Mode0 第一阶段：固定标称速度，不使用 EKF Vc（EKF 速度可信度低） */
 	float corr_yaw, corr_pitch;
 	if (PNG_Mode == 0)
 	{
+		float vc = V_NOM_MS;
+		if (vc < PNG_VC_MIN) vc = PNG_VC_MIN;
+		if (vc > PNG_VC_MAX) vc = PNG_VC_MAX;
+		PNG_Data.vc_used = vc;
+
 		/* Mode0:世界系 Euler 视线率(deg/s,已被 LOS_RATE_LIMIT_DPS 限幅) */
 		float rate_yaw   = vision_los_rate[YAW];
 		float rate_pitch = vision_los_rate[PITCH];
 		PNG_Data.los_rate_used[YAW]   = rate_yaw;
 		PNG_Data.los_rate_used[PITCH] = rate_pitch;
 		float k = PNG_K_VC * vc;                 /* Vc 缩放增益 */
-		corr_yaw   = k * rate_yaw;
+		corr_yaw   = PNG_MODE0_YAW_SIGN * k * rate_yaw;
 		corr_pitch = k * rate_pitch;
 	}
 	else
 	{
+		/* Mode1: Vc 从 EKF 取，未锁定退回 V_NOM_MS */
+		float vc = vins_out.locked ? fabsf(vins_out.vc) : V_NOM_MS;
+		if (vc < PNG_VC_MIN) vc = PNG_VC_MIN;
+		if (vc > PNG_VC_MAX) vc = PNG_VC_MAX;
+		PNG_Data.vc_used = vc;
 		/* Mode1:EKF 世界系几何视线率 ω=(p×v)/|p|² (rad/s)。
 		 * p = vins_out.p_world = 镖−靶(世界 ENU:X右/东,Y前/北,Z上);v = vins_out.v_world。
 		 * yaw 面(绕世界 Z/上):ω_z = (px·vy − py·vx)/|p|²。
@@ -137,23 +141,28 @@ void PNG_Apply_Lead(Surface_t* Surface , IMU_DATA_t* IMU_Data)
 /* 公共计算:Vc + 视线率 + 每轴 corr 值(写 PNG_Data,输出 corr_yaw/corr_pitch) */
 static void png_common_calc(float *corr_yaw, float *corr_pitch)
 {
-	float vc = vins_out.locked ? fabsf(vins_out.vc) : V_NOM_MS;
-	if (vc < PNG_VC_MIN) vc = PNG_VC_MIN;
-	if (vc > PNG_VC_MAX) vc = PNG_VC_MAX;
-	PNG_Data.vc_used = vc;
-
+	/* Mode0 第一阶段：固定标称速度，不使用 EKF Vc（EKF 速度可信度低） */
 	if (PNG_Mode == 0)
 	{
+		float vc = V_NOM_MS;
+		if (vc < PNG_VC_MIN) vc = PNG_VC_MIN;
+		if (vc > PNG_VC_MAX) vc = PNG_VC_MAX;
+		PNG_Data.vc_used = vc;
+
 		float rate_yaw   = vision_los_rate[YAW];
 		float rate_pitch = vision_los_rate[PITCH];
 		PNG_Data.los_rate_used[YAW]   = rate_yaw;
 		PNG_Data.los_rate_used[PITCH] = rate_pitch;
 		float k = PNG_K_VC * vc;
-		*corr_yaw   = k * rate_yaw;
+		*corr_yaw   = PNG_MODE0_YAW_SIGN * k * rate_yaw;
 		*corr_pitch = k * rate_pitch;
 	}
 	else
 	{
+		float vc = vins_out.locked ? fabsf(vins_out.vc) : V_NOM_MS;
+		if (vc < PNG_VC_MIN) vc = PNG_VC_MIN;
+		if (vc > PNG_VC_MAX) vc = PNG_VC_MAX;
+		PNG_Data.vc_used = vc;
 		float px = vins_out.p_world[X], py = vins_out.p_world[Y], pz = vins_out.p_world[Z];
 		float vx = vins_out.v_world[X], vy = vins_out.v_world[Y], vz = vins_out.v_world[Z];
 		float p2  = px*px + py*py + pz*pz;

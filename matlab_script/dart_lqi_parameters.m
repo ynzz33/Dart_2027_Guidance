@@ -151,9 +151,9 @@ Cm_yaw_ref   = 0;   % yaw restoring, 1/s²    PLACEHOLDER  (应为负)
 Q_aug = diag([ ... 
     20.0,   ...  % e_roll  角度误差权重（高：roll 要追准）
     0.05,   ...  % e_pitch 角度误差权重（极低：不主动追 pi tch 角度）
-    100,    ...  % e_yaw   角度误差权重（高：yaw 要追准）
+    200,    ...  % e_yaw   角度误差权重（高：yaw 要追准）
     1.0,    ...  % p (roll rate)  权重
-    0.1,    ...  % q (pitch rate) 权重（低：只做弱阻尼）
+    0.4,    ...  % q (pitch rate) 权重（低：只做弱阻尼）
     0.8,    ...  % r (yaw rate)   权重
     0.0001, ...  % ∫e_roll  积分权重（阶段 1 = 0，稳定后再加）
     0.0001, ...  % ∫e_pitch 积分权重（= 0：pitch 不做积分追踪，仅阻尼）
