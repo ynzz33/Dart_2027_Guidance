@@ -69,6 +69,11 @@ typedef struct
     float xa[LQI_STATE_DIM];          /* 增广状态 [e_roll,e_pitch,e_yaw,p,q,r,I_roll,I_pitch,I_yaw] */
 
     /* ---- 输出 ---- */
+    /* LQI 三类状态反馈对三轴力矩的实际贡献(N·m)，已包含 LQI_GAIN_SCALAR */
+    float torque_angle_Nm[LQI_TORQUE_DIM];         /* 角度误差项: xa[0..2] */
+    float torque_rate_Nm[LQI_TORQUE_DIM];          /* 角速度项:   xa[3..5] */
+    float torque_integral_raw_Nm[LQI_TORQUE_DIM];  /* 积分项，限幅前 */
+    float torque_integral_Nm[LQI_TORQUE_DIM];      /* 积分项，限幅后/实际参与合成 */
     float torque_cmd_Nm[LQI_TORQUE_DIM];      /* 指令力矩 [Mx,My,Mz], N·m */
     float torque_achieved_Nm[LQI_TORQUE_DIM]; /* 实际力矩(限幅/不可达后), N·m */
     float torque_error_Nm[LQI_TORQUE_DIM];    /* 力矩误差, N·m */

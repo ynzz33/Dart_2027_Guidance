@@ -224,11 +224,11 @@ void Vision_Transmit_Debug(void)
     val[3]  = lqi_ctrl.torque_achieved_Nm[0],
     val[4]  = lqi_ctrl.torque_achieved_Nm[1],
     val[5]  = lqi_ctrl.torque_achieved_Nm[2],
-    val[6]  = RAD2DEG(lqi_ctrl.integral_error[2]),
-    val[7]  = PNG_Data.lead_corr[YAW],
-    val[8]  = Vision_Rx_Data.x[NOW],
-    val[9]  = V_DART_Lqi,
-    val[10] = ADC_Voltage_Real,
+    val[6]  = lqi_ctrl.torque_angle_Nm[2]    ,
+    val[7]  = lqi_ctrl.torque_rate_Nm[2]     ,
+    val[8]  = lqi_ctrl.torque_integral_Nm[2] ,
+    val[9]  = lqi_ctrl.integral_error[2],
+    val[10] = ADC_Voltage_Real/0.1f*1000+V_DART_Lqi,
     val[11] = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100;
 
 

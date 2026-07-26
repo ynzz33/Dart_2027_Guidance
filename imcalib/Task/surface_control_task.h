@@ -27,6 +27,7 @@
 // #define Shot_Roll -3  
 // #define USE_BMX055   1
 // #define USE_BMI088   0
+// ////////////////镖架力是2870
  
 // //镖体2 红色
 // #define  Servo_UL_ZERO      1690
@@ -39,14 +40,14 @@
 // #define USE_BMI088   0
 
 //镖体3 蓝色
-// #define  Servo_UL_ZERO      1460
-// #define  Servo_UR_ZERO      1620
-// #define  Servo_DR_ZERO      1450
-// #define  Servo_DL_ZERO      1440    
-// #define Shot_Pitch 31
-// #define Shot_Roll 0         
-// #define USE_BMX055   0
-// #define USE_BMI088   1
+#define  Servo_UL_ZERO      1540
+#define  Servo_UR_ZERO      1620
+#define  Servo_DR_ZERO      1450
+#define  Servo_DL_ZERO      1550    
+#define Shot_Pitch 7.5                   
+#define Shot_Roll -4.5                                                                                                                                
+#define USE_BMX055   1
+#define USE_BMI088   0
 
 // // // //镖体4 红色
 // #define  Servo_UL_ZERO      1640
@@ -58,7 +59,7 @@
 // #define USE_BMX055   1
 // #define USE_BMI088   0
 
-// // //镖体5 红色
+// // // //镖体5 红色
 // #define  Servo_UL_ZERO      1630
 // #define  Servo_UR_ZERO      1430
 // #define  Servo_DR_ZERO      1590
@@ -67,18 +68,20 @@
 // #define Shot_Roll 0 
 // #define USE_BMX055   0  
 // #define USE_BMI088   1 
+//////////////////////3030
 
 // 镖体6 红色
-#define  Servo_UL_ZERO      1420
-#define  Servo_UR_ZERO      1440
-#define  Servo_DR_ZERO      1650 
-#define  Servo_DL_ZERO      1400      
-#define Shot_Pitch 30.5                 
-#define Shot_Roll 0.5    
-// #define Shot_Pitch 23.5                 
-// #define Shot_Roll -10.5                                                                                                                                     
-#define USE_BMX055   0 
-#define USE_BMI088   1
+// #define  Servo_UL_ZERO      1420
+// #define  Servo_UR_ZERO      1440
+// #define  Servo_DR_ZERO      1650 
+// #define  Servo_DL_ZERO      1400      
+// #define Shot_Pitch 30.5                 
+// #define Shot_Roll 0.5    
+// // #define Shot_Pitch 23.5                 
+// // #define Shot_Roll -10.5                                                                                                                                     
+// #define USE_BMX055   0 
+// #define USE_BMI088   1
+////////////////镖架力是2920
 /* 力大概在轧带哪里 */
 
 

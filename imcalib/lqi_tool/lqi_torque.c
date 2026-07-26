@@ -29,6 +29,7 @@
 #include "../User/common_defs.h"           /* DEG2RAD / RAD2DEG */
 #include <math.h>                          /* sqrtf, fabsf */
 #include <string.h>                        /* memset, memcpy */
+#include "CallBack_Task.h"
 
 /*============================================================================
  *  全局实例 + 运行时旋钮
@@ -71,21 +72,31 @@ void  LQI_Update(float dt)
         };
         for (uint8_t i = 0; i < LQI_TORQUE_DIM; i++)
         {
-            float tau_noI = 0.0f;  /* 非积分贡献：角度误差 + 角速度 */
-            float tau_I   = 0.0f;  /* 积分贡献 */
-            for (uint8_t j = 0; j < LQI_STATE_DIM; j++)
+            float tau_angle  = 0.0f; /* 角度误差贡献，限幅前 */
+            float tau_rate   = 0.0f; /* 角速度贡献，限幅前 */
+            float tau_I_raw  = 0.0f; /* 积分贡献，限幅前 */
+            float tau_I_used = 0.0f; /* 积分贡献，限幅后 */
+            for (uint8_t j = 0; j < 3; j++)
             {
-                float term = -K[i][j] * lqi_ctrl.xa[j];
-                if (j >= 6)  /* xa[6..8] = ∫e_roll, ∫e_pitch, ∫e_yaw */
-                    tau_I += term;
-                else
-                    tau_noI += term;
+                tau_angle += -K[i][j]     * lqi_ctrl.xa[j];
+                tau_rate  += -K[i][j + 3] * lqi_ctrl.xa[j + 3];
+                tau_I_raw += -K[i][j + 6] * lqi_ctrl.xa[j + 6];
             }
             /* 积分部分限幅 */
             float lim = integ_torque_limits[i];
-            if (tau_I >  lim) tau_I =  lim;
-            if (tau_I < -lim) tau_I = -lim;
-            lqi_ctrl.torque_cmd_Nm[i] = (tau_noI + tau_I) * LQI_GAIN_SCALAR;
+            tau_I_used = tau_I_raw;
+            if (tau_I_used >  lim) tau_I_used =  lim;
+            if (tau_I_used < -lim) tau_I_used = -lim;
+
+            /* 保存实际三类力矩贡献；积分项同时保留限幅前/后的值 */
+            lqi_ctrl.torque_integral_raw_Nm[i] = tau_I_raw  * LQI_GAIN_SCALAR;
+            lqi_ctrl.torque_angle_Nm[i]        = tau_angle  * LQI_GAIN_SCALAR;
+            lqi_ctrl.torque_rate_Nm[i]         = tau_rate   * LQI_GAIN_SCALAR;
+            lqi_ctrl.torque_integral_Nm[i]     = tau_I_used * LQI_GAIN_SCALAR;
+            lqi_ctrl.torque_cmd_Nm[i] =
+                lqi_ctrl.torque_angle_Nm[i]
+              + lqi_ctrl.torque_rate_Nm[i]
+              + lqi_ctrl.torque_integral_Nm[i];
         }
     }
 
@@ -113,6 +124,7 @@ void  LQI_Update(float dt)
             if (lqi_ctrl.integral_error[i] >  lim) lqi_ctrl.integral_error[i] =  lim;
             if (lqi_ctrl.integral_error[i] < -lim) lqi_ctrl.integral_error[i] = -lim;
         }
+        RAD2DEG(lqi_ctrl.integral_error[2]);
     }
 }
 
@@ -186,9 +198,7 @@ void Euler_LQI_Cale(float dt)
 
     /* ---- 1) 姿态误差：测量 − 目标 ---- */
     lqi_ctrl.attitude_error_rad[0] = DEG2RAD(Surface.current_angle_Euler[NOW][ROLL]
-                                           - Surface.target_angle_Euler[NOW][ROLL]);
-    // lqi_ctrl.attitude_error_rad[1] = DEG2RAD(Surface.current_angle_Euler[NOW][PITCH]
-    //                                        - Surface.target_angle_Euler[NOW][PITCH]);
+                                           - Surface.target_angle_Euler[NOW][ROLL]); 
     lqi_ctrl.attitude_error_rad[1] = 0;
     lqi_ctrl.attitude_error_rad[2] = DEG2RAD(Surface.current_angle_Euler[NOW][YAW]
                                            - Surface.target_angle_Euler[NOW][YAW]);
@@ -197,15 +207,21 @@ void Euler_LQI_Cale(float dt)
     lqi_ctrl.body_rate_rad_s[0] = DEG2RAD(Surface.current_gyro_Euler[NOW][ROLL]);
     lqi_ctrl.body_rate_rad_s[1] = DEG2RAD(Surface.current_gyro_Euler[NOW][PITCH]);
     lqi_ctrl.body_rate_rad_s[2] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW]);
-    if (IMU_Data.Euler[NOW][PITCH]<=0.0)
+    if (IMU_Data.Euler[NOW][PITCH]<=5.0)
     {
         static int16_t cnt;
         cnt++;
-        lqi_ctrl.body_rate_rad_s[1] = lqi_ctrl.body_rate_rad_s[1]/cnt;        
-        if(cnt>=100)
+        lqi_ctrl.body_rate_rad_s[1] = lqi_ctrl.body_rate_rad_s[1]/cnt;     
+        if(cnt>=500)
         {
-            cnt = 100;
+            cnt = 500;
         }      
+    }
+    if(Vision_Rx_Data.dist_cm<=80&&Guidance_State >= Terminal&&Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+    { 
+        lqi_ctrl.attitude_error_rad[2] = 0;
+        lqi_ctrl.body_rate_rad_s[2]    = 0;
+        lqi_ctrl.integral_error[2]     = 0;
     }
     /* ---- 3) Pitch 门控：非 Terminal 段不追 Pitch 角度，但保留角速度阻尼 ---- */
     if (Guidance_State < Terminal)
@@ -225,6 +241,8 @@ void Euler_LQI_Cale(float dt)
 
         lqi_ctrl.integral_error[1]     = 0.0f;   /* 强制清零 Pitch 积分 */
         lqi_ctrl.freeze_integrator[1]  = 1;      /* 永久冻结 Pitch 积分 */
+    
+
     /* ---- 4) LQI 解算力矩 ---- */
     LQI_Update(dt);
 
