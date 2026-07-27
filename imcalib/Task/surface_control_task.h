@@ -40,24 +40,24 @@
 // #define USE_BMI088   0
 
 //镖体3 蓝色
-#define  Servo_UL_ZERO      1580
-#define  Servo_UR_ZERO      1410
-#define  Servo_DR_ZERO      1600
-#define  Servo_DL_ZERO      1650    
-#define Shot_Pitch 31.5                   
-#define Shot_Roll 0                                                                                                                                
-#define USE_BMX055   0
-#define USE_BMI088   1
+// #define  Servo_UL_ZERO      1580
+// #define  Servo_UR_ZERO      1410
+// #define  Servo_DR_ZERO      1600
+// #define  Servo_DL_ZERO      1650    
+// #define Shot_Pitch 31.5                   
+// #define Shot_Roll 0                                                                                                                                
+// #define USE_BMX055   0 
+// #define USE_BMI088   1
 
 // // // //镖体4 红色
-// #define  Servo_UL_ZERO      1540
-// #define  Servo_UR_ZERO      1660
-// #define  Servo_DR_ZERO      1570
-// #define  Servo_DL_ZERO      1580    
-// #define Shot_Pitch 27.5                   
-// #define Shot_Roll -5                                                                                                                                
-// #define USE_BMX055   1
-// #define USE_BMI088   0
+#define  Servo_UL_ZERO      1540
+#define  Servo_UR_ZERO      1660
+#define  Servo_DR_ZERO      1570
+#define  Servo_DL_ZERO      1580    
+#define Shot_Pitch 27.5                   
+#define Shot_Roll -5                                                                                                                                
+#define USE_BMX055   1
+#define USE_BMI088   0
 
 // // // //镖体5 红色
 // #define  Servo_UL_ZERO      1550

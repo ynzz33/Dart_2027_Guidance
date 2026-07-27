@@ -32,14 +32,24 @@ rho_ac = 1.225;          % 海平面空气密度，kg/m³
 % ======================== 转动惯量（SolidWorks） ========================
 % 单位：kg·m²
 % 来源：SolidWorks 截图，已换算 g·mm² → kg·m²（×1e-9）
-Ixx_ac = 307131.230e-9;    % 绕 roll 轴（机体 X = 右）
-Iyy_ac = 1580238.787e-9;   % 绕 pitch 轴（机体 Y = 前）
-Izz_ac = 1589776.981e-9;   % 绕 yaw 轴（机体 Z = 上）
+% 98a材料
+% Ixx_ac = 307131.230e-9;    % 绕 roll 轴（机体 X = 右）
+% Iyy_ac = 1580238.787e-9;   % 绕 pitch 轴（机体 Y = 前）
+% Izz_ac = 1589776.981e-9;   % 绕 yaw 轴（机体 Z = 上）
+% 64d材料
+Ixx_ac = 340571.699e-9;    % 绕 roll 轴（机体 X = 右）
+Iyy_ac = 1576894.553e-9;   % 绕 pitch 轴（机体 Y = 前）
+Izz_ac = 1611712.832e-9;   % 绕 yaw 轴（机体 Z = 上）
 
 % PLACEHOLDER: 交叉惯量暂设 0，待 SolidWorks 数据
+% 98a材料
 Ixy_ac = 15335.950e-9;     % = -Lxy （交叉惯量积）
 Ixz_ac = 2976.203e-9;      % = -Lxz
 Iyz_ac = -4624.159e-9;     % = -Lyz （注意负号！）
+% % 64d材料
+% Ixy_ac = 7573.604e-9;     % = -Lxy （交叉惯量积）
+% Ixz_ac = -17253.760e-9;      % = -Lxz
+% Iyz_ac = -17328.569e-9;     % = -Lyz （注意负号！）
 
 % 完整惯量矩阵（3×3，对称正定）
 I_body = [ Ixx_ac, -Ixy_ac, -Ixz_ac;
@@ -193,11 +203,11 @@ Cm_yaw_ref   = 0;   % yaw restoring, 1/s²    PLACEHOLDER  (应为负)
 % Q_aug: 9×9 状态权重（角度误差 + 角速度 + 积分误差）
 % 状态顺序：[e_roll, e_pitch, e_yaw, p, q, r, ∫e_roll, ∫e_pitch, ∫e_yaw]
 Q_aug = diag([ ... 
-    5.0,   ...  % e_roll  角度误差权重（高：roll 要追准）
+    20.0,   ...  % e_roll  角度误差权重（高：roll 要追准）
     0.05,   ...  % e_pitch 角度误差权重（极低：不主动追 pi tch 角度）
-    10,    ...  % e_yaw   角度误差权重（高：yaw 要追准）
+    140,    ...  % e_yaw   角度误差权重（高：yaw 要追准）
     1.0,    ...  % p (roll rate)  权重
-    0.70,    ...  % q (pitch rate) 权重（低：只做弱阻尼）
+    0.60,    ...  % q (pitch rate) 权重（低：只做弱阻尼）
     1.00,    ...  % r (yaw rate)   权重
     0.0001, ...  % ∫e_roll  积分权重（阶段 1 = 0，稳定后再加）
     0.0001, ...  % ∫e_pitch 积分权重（= 0：pitch 不做积分追踪，仅阻尼）
