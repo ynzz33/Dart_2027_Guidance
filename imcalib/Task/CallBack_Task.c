@@ -231,7 +231,25 @@ void Vision_Transmit_Debug(void)
     val[10] = ADC_Voltage_Real/0.1f*1000+V_DART_Lqi,
     val[11] = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100;
 
+    /* 气动辨识 12 列格式（与 dart_aero_identification.m 对齐）:
+     * [0] 时间戳(s)  [1] V_DART_Lqi(m/s)  [2] Pitch欧拉角(°)
+     * [3] Gyro Pitch(°/s)  [4] Gyro Roll(°/s)  [5] Gyro Yaw(°/s)
+     * [6] 舵面UL(°)  [7] 舵面UR(°)  [8] 舵面DR(°)  [9] 舵面DL(°)
+     * [10] 占位  [11] 占位 */
+    // val[0]  = (float)HAL_GetTick() / 1000.0f,
+    // val[1]  = V_DART_Lqi,
+    // val[2]  = Surface.current_angle_Euler[NOW][PITCH],
+    // val[3]  = Surface.current_gyro_Euler[NOW][PITCH],
+    // val[4]  = Surface.current_gyro_Euler[NOW][ROLL],
+    // val[5]  = Surface.current_gyro_Euler[NOW][YAW],
+    // val[6]  = Surface.output_angle_Servo[NOW][UP_LEFT],
+    // val[7]  = Surface.output_angle_Servo[NOW][UP_RIGHT],
+    // val[8]  = Surface.output_angle_Servo[NOW][DOWN_RIGHT] ,
+    // val[9]  = Surface.output_angle_Servo[NOW][DOWN_LEFT] ,
+    // val[10] = lqi_ctrl.torque_angle_Nm[2]    ,
+    // val[11] = lqi_ctrl.torque_rate_Nm[2]     ,
 
+  
 
 
 
