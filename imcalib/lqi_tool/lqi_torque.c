@@ -207,7 +207,7 @@ void Euler_LQI_Cale(float dt)
     lqi_ctrl.body_rate_rad_s[0] = DEG2RAD(Surface.current_gyro_Euler[NOW][ROLL]);
     lqi_ctrl.body_rate_rad_s[1] = DEG2RAD(Surface.current_gyro_Euler[NOW][PITCH]);
     lqi_ctrl.body_rate_rad_s[2] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW]); 
-    if(IMU_Data.Euler[NOW][PITCH]<=5.0)
+    if(IMU_Data.Euler[NOW][PITCH]<=0.0)
     {
         static int16_t cnt;
         cnt++;
