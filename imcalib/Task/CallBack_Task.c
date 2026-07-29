@@ -220,10 +220,10 @@ void Vision_Transmit_Debug(void)
     
     val[0]  = Surface.current_angle_Euler[NOW][ROLL]-Surface.target_angle_Euler[NOW][ROLL];
     val[1]  = Surface.current_angle_Euler[NOW][YAW]-Surface.target_angle_Euler[NOW][YAW];
-    val[2]  = ADC_Voltage_Real/0.1f*1000+V_DART_Lqi,
+    val[2]  = ADC_Voltage_Real+Guidance_State*10000,
     val[3]  = lqi_ctrl.torque_achieved_Nm[0],
     val[4]  = lqi_ctrl.torque_achieved_Nm[2],
-    val[5]  = Surface.current_gyro_Euler[NOW][YAW]+Guidance_State*10000,
+    val[5]  = lqi_ctrl.torque_achieved_Nm[1],
     val[6]  = lqi_ctrl.torque_angle_Nm[2]    ,
     val[7]  = Surface.output_angle_Servo[NOW][UP_LEFT],
     val[8]  = Surface.output_angle_Servo[NOW][UP_RIGHT],
