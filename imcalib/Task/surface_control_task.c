@@ -277,7 +277,7 @@ void Guidance_Terminal(void)//制导段
 void Guidance_End(void) 
 {
     Buzzer_stop();
-    if (Surface.Guidance_cnt[4]++>1000)
+    if (Surface.Guidance_cnt[4]++>2000)
     {
         Vision_Transmit(Vision_Cmd_Record_Stop);
         Guidance_State = PROCESS_OK;

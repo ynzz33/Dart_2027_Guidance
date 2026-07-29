@@ -219,17 +219,17 @@ void Vision_Transmit_Debug(void)
     // val[11] = lqr_ctrl.u_servo_deg[3];
     
     val[0]  = Surface.current_angle_Euler[NOW][ROLL]-Surface.target_angle_Euler[NOW][ROLL];
-    val[1]  = Surface.current_angle_Euler[NOW][PITCH]-Surface.target_angle_Euler[NOW][PITCH];
-    val[2]  = Surface.current_angle_Euler[NOW][YAW]-Surface.target_angle_Euler[NOW][YAW];
+    val[1]  = Surface.current_angle_Euler[NOW][YAW]-Surface.target_angle_Euler[NOW][YAW];
+    val[2]  = ADC_Voltage_Real/0.1f*1000+V_DART_Lqi,
     val[3]  = lqi_ctrl.torque_achieved_Nm[0],
-    val[4]  = lqi_ctrl.torque_achieved_Nm[1],
-    val[5]  = lqi_ctrl.torque_achieved_Nm[2],
+    val[4]  = lqi_ctrl.torque_achieved_Nm[2],
+    val[5]  = Surface.current_gyro_Euler[NOW][YAW]+Guidance_State*10000,
     val[6]  = lqi_ctrl.torque_angle_Nm[2]    ,
-    val[7]  = lqi_ctrl.torque_rate_Nm[2]     ,
-    val[8]  = lqi_ctrl.torque_integral_Nm[2] ,
-    val[9]  = lqi_ctrl.integral_error[2],
-    val[10] = ADC_Voltage_Real/0.1f*1000+V_DART_Lqi,
-    val[11] = (Vision_Rx_Data.Vision_Recog_Cnt%10)*1000+Guidance_State*100;
+    val[7]  = Surface.output_angle_Servo[NOW][UP_LEFT],
+    val[8]  = Surface.output_angle_Servo[NOW][UP_RIGHT],
+    val[9]  = lqi_ctrl.torque_rate_Nm[2]     ,
+    val[10] = Surface.output_angle_Servo[NOW][DOWN_RIGHT] ,
+    val[11] = Surface.output_angle_Servo[NOW][DOWN_LEFT] ,
 
     /* 气动辨识 12 列格式（与 dart_aero_identification.m 对齐）:
      * [0] 时间戳(s)  [1] V_DART_Lqi(m/s)  [2] Pitch欧拉角(°)

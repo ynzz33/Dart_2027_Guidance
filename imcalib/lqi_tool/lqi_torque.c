@@ -211,24 +211,20 @@ void Euler_LQI_Cale(float dt)
     {
         static int16_t cnt;
         cnt++;
-        lqi_ctrl.body_rate_rad_s[1] = lqi_ctrl.body_rate_rad_s[1]/cnt;    
-        if(cnt>=500)
+        lqi_ctrl.body_rate_rad_s[1] /= cnt;    
+        if(cnt>=1000)
         {
-            cnt = 500;
+            cnt = 1000;
         }      
     }
     /* ---- 3) Pitch 门控：非 Terminal 段不追 Pitch 角度，但保留角速度阻尼 ---- */
-    if (Guidance_State < Terminal)
+    if (Guidance_State <= Terminal&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
     {
-        // lqi_ctrl.attitude_error_rad[2] = 0.0f;   /* 不追     YAW 角度 */
-        lqi_ctrl.integral_error[2]     = 0.0f;   /* 强制清零 YAW 积分 */
-        lqi_ctrl.freeze_integrator[2]  = 1;      /* 永久冻结 YAW 积分 */
-    }
-    else
-    {
-        lqi_ctrl.freeze_integrator[2] = 0;
+        lqi_ctrl.attitude_error_rad[2]*=0.1;
     }
 
+        lqi_ctrl.integral_error[2]     = 0.0f;   /* 强制清零 YAW 积分 */
+        lqi_ctrl.freeze_integrator[2]  = 1;      /* 永久冻结 YAW 积分 */
         // lqi_ctrl.attitude_error_rad[0] = 0.0f;   /* 不追     ROLL 角度 */
         lqi_ctrl.integral_error[0]     = 0.0f;   /* 强制清零 ROLL 积分 */
         lqi_ctrl.freeze_integrator[0]  = 1;      /* 永久冻结 ROLL 积分 */
@@ -236,6 +232,12 @@ void Euler_LQI_Cale(float dt)
         lqi_ctrl.integral_error[1]     = 0.0f;   /* 强制清零 Pitch 积分 */
         lqi_ctrl.freeze_integrator[1]  = 1;      /* 永久冻结 Pitch 积分 */
     
+    // if(Vision_Rx_Data.dist_cm<=100&&Guidance_State >= Terminal&&Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+    // { 
+    //     lqi_ctrl.attitude_error_rad[2] = 0;
+    //     lqi_ctrl.body_rate_rad_s[2]    = 0;
+    //     lqi_ctrl.integral_error[2]     = 0;
+    // }
 
     /* ---- 4) LQI 解算力矩 ---- */
     LQI_Update(dt);

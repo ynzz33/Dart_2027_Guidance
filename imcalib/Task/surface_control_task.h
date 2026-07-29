@@ -6,11 +6,6 @@
 #ifndef SURFACE_CONTROL_TSAK_H
 #define SURFACE_CONTROL_TSAK_H
 
-#define  Wing_left_Channel    TIM_CHANNEL_2
-#define  Wing_right_Channel   TIM_CHANNEL_3
-#define  Vertical_fin_Channel TIM_CHANNEL_4
-
-#define  ZERO_POINT 1500
  
 //硬件原因导致左上舵机接在了 TIM3 上，所以单独写函数控制
 #define  Servo_UL_Channel   TIM_CHANNEL_2   /* htim3 CH2 → PB5 - UP_LEFT (硬件原因独占 TIM3) */
@@ -22,12 +17,12 @@
 // #define  Servo_UL_ZERO      1570
 // #define  Servo_UR_ZERO      1460
 // #define  Servo_DR_ZERO      1380
-// #define  Servo_DL_ZERO      1520      
+// #define  Servo_DL_ZERO      1510      
 // #define Shot_Pitch       32 
-// #define Shot_Roll -3  
+// #define Shot_Roll -2  
 // #define USE_BMX055   1
 // #define USE_BMI088   0
-//////////////镖架力是2870
+////////////镖架力是2870
  
 // //镖体2 红色
 // #define  Servo_UL_ZERO      1690
@@ -37,13 +32,14 @@
 // #define Shot_Pitch 16
 // #define Shot_Roll 7.5
 // #define USE_BMX055   1
+
 // #define USE_BMI088   0
 
 //镖体3 蓝色
-// #define  Servo_UL_ZERO      1580
-// #define  Servo_UR_ZERO      1410
-// #define  Servo_DR_ZERO      1600
-// #define  Servo_DL_ZERO      1650    
+// #define  Servo_UL_ZERO      1670
+// #define  Servo_UR_ZERO      1530
+// #define  Servo_DR_ZERO      1640
+// #define  Servo_DL_ZERO      1420    
 // #define Shot_Pitch 31.5                   
 // #define Shot_Roll 0                                                                                                                                
 // #define USE_BMX055   0 
@@ -68,7 +64,8 @@
 // #define Shot_Roll 0 
 // #define USE_BMX055   0  
 // #define USE_BMI088   1 
-////////////////////3030
+// //////////////////2910
+// //////////////////500
 
 // 镖体6 红色
 // #define  Servo_UL_ZERO      1420
