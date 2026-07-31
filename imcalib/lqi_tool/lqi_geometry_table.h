@@ -1,5 +1,5 @@
 /*
- * lqi_geometry_table.h — MATLAB 30-Jul-2026 00:33:50
+ * lqi_geometry_table.h — MATLAB 01-Aug-2026 01:59:08
  * H_tau(V) = (V/V_ref)^2 * lqi_H_tau_Vref
  * N_ry: H_ry*N_ry=0 (4x2) ⚠ 占位符
  */

@@ -220,7 +220,7 @@ void Euler_LQI_Cale(float dt)
     /* ---- 3) Pitch 门控：非 Terminal 段不追 Pitch 角度，但保留角速度阻尼 ---- */
     if (Guidance_State <= Terminal&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
     {
-        lqi_ctrl.attitude_error_rad[2]*=0.1;
+        lqi_ctrl.attitude_error_rad[2]*=0.01;
     }
 
         lqi_ctrl.integral_error[2]     = 0.0f;   /* 强制清零 YAW 积分 */
