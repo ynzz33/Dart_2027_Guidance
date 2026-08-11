@@ -261,6 +261,12 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **根因**：`Guidance_End()` 发送视觉停录命令并切到 `PROCESS_OK` 后，`get_current_State()` 原先下一拍立即执行 `Power_OFF`，绕过了 `Guidance_Process_OK()` 的保存等待，导致视觉端日志和视频文件可能均为 0KB。
 - **修改**：移除 `get_current_State()` 的立即断电路径，保留 `Guidance_Process_OK()` 的延时断电。未编译、未上板验证；待确认视觉端能收到 `(1,5)` 停录反馈并正常生成文件内容。
 
+### 2026-08-07：视频测试工具 video_test.py（PC 端复刻 OpenMV 识别管线）
+
+- **动机**：OpenMV 识别主脚本已迁到 [python_vision_script/Guidance_vision_scrpit.py](python_vision_script/Guidance_vision_scrpit.py)（240×320 转置坐标系 + 新三档参数 + X/Y 偏移），旧 PC 端视频调试脚本（外部 guidance-main 仓库 `video_debug.py`）已不适配——坐标系（320×240→240×320、中心 160/120→120/160）和 FAR/MID 档参数全部过时。
+- **落地**：[python_vision_script/video_test.py](python_vision_script/video_test.py)（由 video_debug.py 拷贝改造：坐标系/偏移/三档参数 1:1 同步主脚本；删掉主脚本没有的 "T" 档位像素检查；HUD 增加 xout/yout 显示飞控实际收到的坐标）+ [convert_mjpeg.py](python_vision_script/convert_mjpeg.py)（.mjpeg→.mp4，自外部仓库拷贝）。配套文档：[视频测试使用方法.md](python_vision_script/视频测试使用方法.md)、[主脚本识别说明.md](python_vision_script/主脚本识别说明.md)。外部原 video_debug.py 未动。
+- **已核验**：`py -m py_compile` 两脚本语法通过；video_test.py 与主脚本三档 12 项参数 + 坐标系/偏移逐项 diff 一致。**未实测**（待现场录制视频）。
+
 ## 当前 TODO
 
 ### 🔬 2026-06-07 审计新发现

@@ -64,6 +64,7 @@ Core/                   ← CubeMX 生成的 HAL 层
 └── Inc/  FreeRTOSConfig.h, main.h, *_hal_conf.h 等
 MDK-ARM/                ← Keil 工程(.uvprojx)、编译产物
 Drivers/ Middlewares/   ← HAL 库、CMSIS、FreeRTOS、DSP 库
+python_vision_script/   ← OpenMV 视觉脚本（不编进 Keil）：识别主脚本 Guidance_vision_scrpit.py + PC 端视频测试 video_test.py（识别管线 1:1 复刻）+ convert_mjpeg.py + 使用/识别两篇 md
 ```
 
 > `.cmsis/` 目录是厂商设备模板库（ARMCMx 各核），**与本项目无关**，忽略。

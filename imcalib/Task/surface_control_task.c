@@ -352,7 +352,7 @@ void get_current_State(void)
     )
     {
         static uint16_t Text_cnt = 0;
-        if((Text_cnt++)%20==0)
+        if((Text_cnt++)%1000==1)
         {
           Buzzer_Remind();
         }
@@ -373,7 +373,7 @@ void get_current_State(void)
         }
     }
     else if (Guidance_State == Start )
-    {
+    { 
         if(IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch+5.0f&&IMU_Data.Euler[NOW][PITCH]>=Shot_Pitch- 5.0f&&
            IMU_Data.Euler[NOW][ROLL]<=Shot_Roll+6.0f&&IMU_Data.Euler[NOW][ROLL]>=Shot_Roll- 6.0f)
         {
@@ -387,8 +387,8 @@ void get_current_State(void)
             Surface.Stable_Euler_Angle[YAW]   = Surface.current_angle_Euler[NOW][YAW];
             Surface.Stable_Euler_Angle[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
             Surface.Guidance_flag[1] = 1;
-        }
-        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.1f&&fabs(IMU_Data.Velocity[Body][NOW][Y])>0.3f)
+        } 
+        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.5f&&fabs(IMU_Data.Velocity[Body][NOW][Y])>0.3f&&fabs(IMU_Data.Velocity[Body][NOW][X])<0.5f)
         {
             Buzzer_Remind();
             Guidance_State = Stable;
@@ -458,12 +458,13 @@ void surface_control_task(void)
         Surface.pid_cale_flag = 1;
         if (lqi_mode == 1)
         {
-            /* LQI 力矩控制 + Pitch 保护零空间分配（3轴力矩→4舵） */
+            /* LQI 力矩控制 + Pitch 保护零空间分配（3轴力矩→4舵）——当前唯一激活链路 */
             Euler_LQI_Cale(delta_time);
         }
         else
         {
-            /* 旧 LQR 一步 6态→4舵（默认路径） */
+            /* [弃用留存] LQR 一步 6态→4舵——LQR 已不再使用（2026-08-11），代码留存仅供对照，
+             * 正常恒走 LQI 分支（lqi_mode=1）。 */
             Euler_LQR_Cale(delta_time);
         }
         for (int i = 0; i < 4; i++)                    /* 安全网:分配已保证在限内,此处仅兜底 FP 误差 */

@@ -24,7 +24,7 @@ from array import array
 # ======================== 常用可调参数区 ============ ============
 # ----- 硬件 & 通信 -----
 UART_BUS = 3                       # UART3 = TX:P4 / RX:P5
-UART_BAUDRATE = 115200             # 与飞控约定的波特率 
+UART_BAUDRATE = 115200             # 与飞控约定的波特率 [
 DEBUG_AUTO_RECORD = True           # True SD 挂载后自动开始录像, 不等 0x03. 比赛改 False.
 ENABLE_LOG_RECORDING = True        # True=记录日志, False=不记录日志
 ENABLE_VIDEO_RECORDING = True     # True=录视频, False=不录视频
@@ -35,10 +35,10 @@ RECORD_EVERY_N_FRAMES = 2          # 每 N 帧录 1 帧
 FRAME_CENTER_X = 120               # 画面宽度的一半
 FRAME_CENTER_Y = 160                # 画面高度的一半
 FRAME_Y_OFFSET = 0+145
-FRAME_X_OFFSET = 0-10
+FRAME_X_OFFSET = 0-5
 # FRAME_X_OFFSET = 0-13
 # ----- 曝光 & 增益 & 白平衡 -----
-LOCKED_EXPOSURE_US = 1600
+LOCKED_EXPOSURE_US = 1300
 LOCKED_GAIN_DB = 10.0
 LOCKED_RGB_GAIN_DB = (64.54, 60.21, 61.30)
 
@@ -52,20 +52,21 @@ DIST_TIERS = [
     {
         "name": "FAR",                          # 档名, 仅用于切档时的串口打印 / HUD 显示
         "pixels_min": 3,                        # 本档对应的 blob 像素数下界 (含); 改它要同步改前一档的 pixels_max
-        "pixels_max": 18,                       # iter4: 25->18 (排十字 px=20+)
-        "threshold": (22, 90, -103, -20, 10, 109),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
+        "pixels_max": 15,                       # iter4: 25->18 (排十字 px=20+)
+        # "threshold": (22, 90, -103, -20, 10, 109),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
+        "threshold": (25, 93, -29, 46, 12, 41),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
                                                 # LAB 阈值 (L_min, L_max, A_min, A_max, B_min, B_max), 传给 find_blobs 粗筛;
                                                 # FAR 把 L_max 放到 100 让洗白中心也能进同 blob, A_max=-27 严格滤草坪/绿广告
-        "min_brightness": 13,                   # manual: 收紧 10% (15->17)
+        "min_brightness": 9,                   # manual: 收紧 10% (15->17)
         "max_brightness": 100,                  # L 均值上限; 100 = 几乎不限上限 (远距不会被压扁)
         "pixels_threshold": 2,                  # find_blobs 最小连通像素数; FAR 远距目标小, 必须设小
-        "roundness_min": 0.34,                  # manual: 收紧 10% (0.40->0.44)
-        "density_min": 0.05,                    # manual: 收紧 (0.05->0.06)
+        "roundness_min": 0.39,                  # manual: 收紧 10% (0.40->0.44)
+        "density_min": 0.03,                    # manual: 收紧 (0.05->0.06)
         "density_max": 0.95,                    # density 上限; >此值排除实心矩形 (路牌/墙壁等)
         "min_center_green": 1,                  # iter3: 2->1 (远距 LED 中心采样常只命中 1 绿)
         "min_center_saturated": 99,             # HALO 模式触发阈值; 99=禁用 HALO (远距 LED 不会饱和)
         "min_ring_green": 0,                    # HALO 模式: 外环最少绿点数; FAR 用不上 HALO 所以 0
-        "max_ring_noise": 5,                    # manual: 2->4 (小 blob 环采样大部分落背景, 放开噪声容忍)
+        "max_ring_noise": 6,                    # manual: 2->4 (小 blob 环采样大部分落背景, 放开噪声容忍)
     },
     # ---- 中档 (1-5m) ----
     # 工作区间, 大部分参数最标准. 调参时先把这一档调通, 再调远近两档.
@@ -73,7 +74,7 @@ DIST_TIERS = [
         "name": "MID",                          # 档名
         "pixels_min": 18,                       # iter4: 5->18 衔接 FAR pixels_max
         "pixels_max": 3000,                     # 像素数上界, 衔接 NEAR 的 pixels_min
-        "threshold": (24, 93, -109, -32, -78, 112),  # user manual baseline (L order corrected)
+        "threshold": (25, 93, -29, 46, 12, 41),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
                                                 # 标准 LAB 阈值; L 下放到 25 兼容稍弱光
         "min_brightness": 32,                   # 标准亮度区间, 与户外环境光配合; tune-auto iter4: 30->40 (iter6 revert 35->40)
         "max_brightness": 100,                  # 比 FAR 严, 过亮的灯反而被判为白灯排除; tune-auto iter2: 80->100
@@ -868,7 +869,7 @@ def draw_locked_target(img, blob):
     r_out = max(r_in + 3, max(blob.w(), blob.h()) // 2 + 2)
     img.draw_circle(blob.cx(), blob.cy(), r_out, color=(0, 255, 255), thickness=2)
     img.draw_circle(blob.cx(), blob.cy(), r_in, color=(255, 0, 0), thickness=2)
-    draw_blob_samples(img, blob)
+    # draw_blob_samples(img, blob)
     draw_pattern_label(img, blob, track_pattern)
     draw_velocity_arrow(img)
 
@@ -892,7 +893,7 @@ def draw_hud(img, has_target, fps, x_out=0, y_out=0):
 def draw_imu_debug(img):
     # 串口调试帧 data[0..11] 的 12 个量, 3 个一组画在 HUD 下方:
     #   ACC 加速度XYZ / GYR 陀螺PRY / CUR 当前欧拉角PRY / TGT 目标欧拉角PRY.
-    groups = (("ACC", 0), ("GYR", 3), ("CUR", 6), ("TGT", 9))
+    groups = (("1", 0), ("2", 3), ("3", 6), ("4", 9))
     for row, (label, base) in enumerate(groups):
         img.draw_string(2, 34 + row * 10,
                         "%s % 8.2f % 8.2f % 8.2f" % (label, data[base], data[base + 1], data[base + 2]),
@@ -1042,7 +1043,13 @@ try:
         x_out, y_out = compute_target_xy(locked_blob)
 
     # ----- 调试可视化 (比赛关掉省 16-19ms/帧, +5~12fps) -----
-    render_debug_overlay(img, has_target, locked_blob, x_out, y_out)
+    # render_debug_overlay(img, has_target, locked_blob, x_out, y_out)
+    # img.draw_cross(FRAME_CENTER_X+FRAME_X_OFFSET, FRAME_CENTER_Y+FRAME_Y_OFFSET, color=(255, 255, 0), size=10, thickness=1)
+    # draw_hud(img, has_target, fps, x_out, y_out)
+    # draw_imu_debug(img)                       # 串口收到的 12 个 IMU/姿态量, 3 个一组
+    # if has_target:
+    #     r_in = max(2, min(locked_blob.w(), locked_blob.h()) // 2)
+    #     img.draw_circle(locked_blob.cx(), locked_blob.cy(), r_in, color=(255, 0, 0), thickness=2)
 
     # ----- 录像 -----
     record_frame_to_sd(img)

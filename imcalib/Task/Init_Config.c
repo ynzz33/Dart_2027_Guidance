@@ -47,11 +47,10 @@ void TotalInitTask(void)
 
 		VisInsEKF_Init();   /* 视觉/IMU 紧耦合速度 EKF 初始化(取代纯积分速度,见 Tool/vision_ins.c) */
 
-		LADRC_Init_All();   /* LADRC 控制器初始化(3 通道，单环二阶) */
+		// LADRC_Init_All();   /* [弃用留存] LADRC 已不再使用(2026-08-11)，激活链路为 LQI；adrc.c 留存仅供对照 */
+		// LQR_Init();         /* [弃用留存] LQR 已不再使用(2026-08-11)；lqr.c 留存仅供对照 */
 
-		LQR_Init();         /* LQR 控制器初始化(清零状态/默认符号)；lqr_mode 默认 0 不参与控制 */
-
-		LQI_Init();         /* LQI 力矩控制器初始化(清零状态/加载标称 K_lqi)；lqi_mode 默认 0 不参与控制 */
+		LQI_Init();         /* LQI 力矩控制器初始化(清零状态/加载标称 K_lqi)；lqi_mode=1 恒激活 */
 
 		Total_Power_Control(Power_ON);
 }

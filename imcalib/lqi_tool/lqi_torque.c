@@ -124,7 +124,7 @@ void  LQI_Update(float dt)
             if (lqi_ctrl.integral_error[i] >  lim) lqi_ctrl.integral_error[i] =  lim;
             if (lqi_ctrl.integral_error[i] < -lim) lqi_ctrl.integral_error[i] = -lim;
         }
-        RAD2DEG(lqi_ctrl.integral_error[2]);
+        /* (2026-08-11 删除了无效语句 RAD2DEG(integral_error[2])：宏调用不赋值、无效果) */
     }
 }
 
@@ -196,17 +196,21 @@ void Euler_LQI_Cale(float dt)
         lqi_ctrl.state_valid = 1;
     }
 
-    /* ---- 1) 姿态误差：测量 − 目标 ---- */
+    /* ---- 1) 姿态误差：测量 − 目标 ----
+     * PITCH 误差恒置 0（方案 A，2026-08-11）：Pitch 依托镖架初始动力、不追踪目标角度，
+     * 仅保留角速度阻尼（见 2)）。这样 pitch 通道只做阻尼、不主动改俯仰姿态，
+     * 把舵面资源让给 yaw/roll。roll 自稳、yaw 视觉制导正常参与。 */
     lqi_ctrl.attitude_error_rad[0] = DEG2RAD(Surface.current_angle_Euler[NOW][ROLL]
-                                           - Surface.target_angle_Euler[NOW][ROLL]); 
-    lqi_ctrl.attitude_error_rad[1] = 0;
+                                           - Surface.target_angle_Euler[NOW][ROLL]);
+    lqi_ctrl.attitude_error_rad[1] = 0.0f;   /* PITCH 不追角度（依托初始动力） */
     lqi_ctrl.attitude_error_rad[2] = DEG2RAD(Surface.current_angle_Euler[NOW][YAW]
                                            - Surface.target_angle_Euler[NOW][YAW]);
 
     /* ---- 2) 机体角速度 (rad/s) ---- */
     lqi_ctrl.body_rate_rad_s[0] = DEG2RAD(Surface.current_gyro_Euler[NOW][ROLL]);
     lqi_ctrl.body_rate_rad_s[1] = DEG2RAD(Surface.current_gyro_Euler[NOW][PITCH]);
-    lqi_ctrl.body_rate_rad_s[2] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW]); 
+    lqi_ctrl.body_rate_rad_s[2] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW]);
+    
     if(IMU_Data.Euler[NOW][PITCH]<=0.0)
     {
         static int16_t cnt;
@@ -217,20 +221,29 @@ void Euler_LQI_Cale(float dt)
             cnt = 1000;
         }      
     }
-    /* ---- 3) Pitch 门控：非 Terminal 段不追 Pitch 角度，但保留角速度阻尼 ---- */
-    if (Guidance_State <= Terminal&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
+    /* ---- 3) 丢目标时削弱 YAW 误差（防丢目标瞬间猛打；原注释误写"Pitch 门控"，修正为真实 YAW 削弱） ---- */
+    if (Guidance_State <= Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
     {
-        lqi_ctrl.attitude_error_rad[2]*=0.01;
+        lqi_ctrl.attitude_error_rad[2] *= 0.1f;
     }
 
-        lqi_ctrl.integral_error[2]     = 0.0f;   /* 强制清零 YAW 积分 */
-        lqi_ctrl.freeze_integrator[2]  = 1;      /* 永久冻结 YAW 积分 */
-        // lqi_ctrl.attitude_error_rad[0] = 0.0f;   /* 不追     ROLL 角度 */
-        lqi_ctrl.integral_error[0]     = 0.0f;   /* 强制清零 ROLL 积分 */
-        lqi_ctrl.freeze_integrator[0]  = 1;      /* 永久冻结 ROLL 积分 */
-
-        lqi_ctrl.integral_error[1]     = 0.0f;   /* 强制清零 Pitch 积分 */
-        lqi_ctrl.freeze_integrator[1]  = 1;      /* 永久冻结 Pitch 积分 */
+    /* ---- 3.5) 积分门控（2026-08-11 重写）：ROLL/PITCH 恒不积分，仅 YAW 在 Terminal 段放行积分。
+     * 原 227-234 每拍"强制清零 + 冻结全部积分"把积分通道整个短路（"误差积不上去"根因）。
+     * 现：roll/pitch 恒清零冻结；yaw 非 Terminal 段清零冻结、Terminal 段放行，由 LQI_Update 内
+     * 的积分分离（阈值 0.5°）与限幅（5°·s）接管。 */
+    lqi_ctrl.integral_error[0]    = 0.0f;
+    lqi_ctrl.freeze_integrator[0] = 1;                 /* ROLL 恒不积分 */
+    lqi_ctrl.integral_error[1]    = 0.0f;
+    lqi_ctrl.freeze_integrator[1] = 1;                 /* PITCH 恒不积分 */
+    if (Guidance_State < Terminal)
+    {
+        lqi_ctrl.integral_error[2]    = 0.0f;
+        lqi_ctrl.freeze_integrator[2] = 1;             /* 未入制导段：YAW 不积分 */
+    }
+    else
+    {
+        lqi_ctrl.freeze_integrator[2] = 0;             /* Terminal 段：YAW 积分放行（消静差） */
+    }
     
     // if(Vision_Rx_Data.dist_cm<=100&&Guidance_State >= Terminal&&Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
     // { 
@@ -322,48 +335,9 @@ void Euler_LQI_Cale(float dt)
     for (uint8_t i = 0; i < LQI_SERVO_COUNT; i++)
         Surface.output_angle_Servo[NOW][i] = lqi_ctrl.servo_cmd_deg[i];
 
-    /* ---- 8) 积分管理：积分分离 + 逐轴抗饱和 ---- */
-    /* 积分分离：大误差 → 冻结积分（P/D 主导）；小误差 → 开启积分（消静差） */
-    for (uint8_t i = 0; i < 3; i++)
-    {
-        if (fabsf(lqi_ctrl.attitude_error_rad[i]) >= LQI_INTEG_THRESHOLD_RAD)
-            lqi_ctrl.freeze_integrator[i] = 1;
-        else
-            lqi_ctrl.freeze_integrator[i] = 0;
-    }
-
-    /*  积分冻结兜底 */
-    if (Guidance_State < Terminal)
-    {
-        lqi_ctrl.freeze_integrator[0] = 1;
-        lqi_ctrl.freeze_integrator[1] = 1;
-        lqi_ctrl.freeze_integrator[2] = 1;
-    }
-    else
-    {
-        lqi_ctrl.freeze_integrator[0] = 0;
-        lqi_ctrl.freeze_integrator[1] = 0;
-        lqi_ctrl.freeze_integrator[2] = 0;
-    }
-
-    // lqi_ctrl.attitude_error_rad[0] = 0.0f;   /* 不追     ROLL 角度 */
-    lqi_ctrl.integral_error[0]     = 0.0f;   /* 强制清零 ROLL 积分 */
-    lqi_ctrl.freeze_integrator[0]  = 1;      /* 永久冻结 ROLL 积分 */
-
-    lqi_ctrl.integral_error[1]     = 0.0f;   /* 强制清零 Pitch 积分 */
-    lqi_ctrl.freeze_integrator[1]  = 1;      /* 永久冻结 Pitch 积分 */
-
-    // /* 逐轴抗饱和：力矩误差大 → 该轴积分冻结（替代全轴一刀切） */
-    // {
-    //     static const float torque_error_thresh_Nm[3] = {0.02f, 0.02f, 0.02f};
-    //     for (uint8_t i = 0; i < 3; i++)
-    //     {
-    //         if (fabsf(lqi_ctrl.torque_error_Nm[i]) > torque_error_thresh_Nm[i])
-    //             lqi_ctrl.freeze_integrator[i] = 1;
-    //     }
-    // }
-
-    /* 全局不可达兜底：分配器完全失败 → 全轴冻结 */
+    /* ---- 8) 积分兜底（2026-08-11 精简）：积分门控已在上面 §3.5 统一设置
+     *    （ROLL/PITCH 恒冻结、YAW 按状态机放行；积分分离/限幅由 LQI_Update 内部处理）。
+     *    这里只保留"分配器全局不可达 → 全轴冻结积分"防 windup 兜底。 */
     if (infeasible)
     {
         lqi_ctrl.freeze_integrator[0] = 1;
