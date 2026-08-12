@@ -52,7 +52,8 @@ float   vision_los_final[2][3],vision_los_current[3];   /* 末制导世界系视
 float   vision_los_rate[3] = {0};                    /* 末制导世界系惯性视线率λ̇(°/s):视觉帧间差分,PN超前用;丢帧保持/丢目标清0 */
 
 
-/* 末端姿态锁定(控制稳定后,近距离锁姿态+pitch偏置打实际目标装甲板) */
+/* [死代码留存,2026-08-11] 末端姿态锁定(锁姿态+pitch偏置打实际目标)——定义从未被任何代码使用,
+ * 原 .h extern 已注释。功能未实现,保留定义仅供日后实现参考。 */
 TerminalLock_t TermLock = {
     .enable        = 1,     /* 默认关,台架验证稳定后再开(Watch置1) */
     .active        = 0,
@@ -263,7 +264,9 @@ void Guidance_Terminal(void)//制导段
     }
     #endif
 
-    /* [历史] 旧 PNG 调用（Mode1 EKF 全量，基于 vins_out.locked）——保留作对照 */
+    /* [历史] 旧 PNG 调用（Mode1 EKF 全量，基于 vins_out.locked）——保留作对照。
+     * 注:pitch_control_limit_deg 为已弃用悬空符号(见 surface_control_task.h 清理注释),
+     * 若日后重新启用此块需恢复该全局定义。当前 #if 0 不参与编译。 */
     #if 0
     if (vins_out.locked)
     {

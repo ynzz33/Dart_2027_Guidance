@@ -201,10 +201,11 @@ void IMU_Attitude_Algorithm(void)
         VisInsEKF_Predict(a_w, dT);
     }
     /* 2) 俯冲入段锚定初速(姿态前向×V_NOM)
-     * 【暂时注释掉:先验证 EKF 速度方向本身是否正确,不被锚定初值干扰】
-     * 【bug 修复】原来传参把 Y/Z 写反了(…fwd_z, …fwd_y),世界系 ENU 下应是
-     *   SetVel(vx=fwd_x, vy=fwd_y, vz=fwd_z) —— 与 A_World/Vel_Dir/γ 同一 ENU 约定。
-     *   回头解开注释时用下面这行(已修正)。 */
+     * 【2026-08-11 更新】已启用,且 EKF 速度方向已验证正确(极性对,仅幅度不准)。
+     *   锚定作用:入段瞬间用"姿态前向×V_NOM"把世界速度初值拉到位,避免从 0 起步的
+     *   EKF 纯积分延迟;方向 = 机体前向(R_matrix_T 第1行),量级 = V_NOM(标称,待台架)。
+     *   【历史 bug 修复】原传参把 Y/Z 写反(…fwd_z, …fwd_y),ENU 下应为
+     *   SetVel(vx=fwd_x, vy=fwd_y, vz=fwd_z) —— 与 A_World/Vel_Dir/γ 同一 ENU 约定(已修正)。 */
    if (Vel_Reanchor_Flag)
    {
        float fwd_x = IMU_Data.R_matrix_T[1][0];

@@ -10,7 +10,9 @@
 
 ## 0. 一句话定义
 
-STM32G431 + BMX055/BMI088(可切换) + FreeRTOS 的 **Dart 飞镖型飞行器飞控**：X 翼 4 舵面，串级 PID（角度环→角速度环）+ 可选 LADRC 单环二阶自抗扰（`ladrc_mode` 切档）自稳 + 末制导，Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度，视觉（OpenMV）经 UART 给视线角+距离+面积。比赛镖（RoboMaster 飞镖）场景。IMU 芯片通过 `common_defs.h` 的 `USE_BMX055`/`USE_BMI088` 宏切换（acc 初始化/读取/敏感度自动适配，gyr 共用）。
+STM32G431 + BMX055/BMI088(可切换) + FreeRTOS 的 **Dart 飞镖型飞行器飞控**：**LQI 力矩控制（`lqi_mode=1` 恒激活）→ 力矩→舵角分配器（torque_allocator）→ X 翼 4 舵面**，Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度，视觉（OpenMV）经 UART 给视线角+距离+面积。比赛镖（RoboMaster 飞镖）场景。IMU 芯片通过 `common_defs.h` 的 `USE_BMX055`/`USE_BMI088` 宏切换（acc 初始化/读取/敏感度自动适配，gyr 共用）。
+
+> **2026-08-11 主链路收敛**：控制 = **LQI 唯一激活**（9 态→3 轴力矩 N·m）+ `lqi_alloc_mode=0` 简单伪逆分配。**LQR（lqr_tool/）、ADRC/LADRC（Tool/adrc.c）、PID 串级（Euler_pid_Cale）、Servo_Mix_* 分配器、pitch_glide 滑翔、末端锁定 TermLock 均已弃用/未实现，代码留存仅供对照**——文档下方这些旧描述均已标注。详见过时项清单。**以代码为准。**
 
 ---
 
@@ -44,15 +46,18 @@ imcalib/                ← 用户应用代码（核心都在这）
 │   ├── Button.c/.h            按键消抖+长短按状态机（TIM15 ISR 驱动）
 │   └── buzzer.c/.h            无源蜂鸣器 PWM 音乐（消息式，播放在 SelfTest 任务）
 ├── Tool/
-│   ├── pid.c/.h               PID（位置/增量）+ 死区软化 + 角度环绕 + 前馈FFC（FFC 当前关）+ 速度方向外环
-│   ├── adrc.c/.h              LADRC 线性自抗扰控制器（单环二阶 LESO+LSEF，文件名不变内部全换）
-│   ├── lqr.c/.h               LQR 姿态控制器（6态→4舵一步解算 u=-K_d·x，含混控；lqr_mode 切档，未编译/待台架）
-│   ├── lqi_torque.c/.h         LQI 力矩控制器（9态→3轴力矩 N·m；lqi_mode 切档，未编译/待台架）★ NEW
-│   ├── torque_allocator.c/.h   Pitch 保护型零空间舵面分配器（力矩→4舵，未编译/待台架）★ NEW
+│   ├── pid.c/.h               PID（位置/增量）+ 死区软化 + 角度环绕 + 前馈FFC——**弃用留存**（Euler_pid_Cale 无调用；mahony_pid 仍被 IMU 用）
+│   ├── adrc.c/.h              LADRC 线性自抗扰（单环二阶 LESO+LSEF）——**弃用留存**
 │   ├── filter.c/.h            标量卡尔曼(激活) + 2D卡尔曼(速度EKF已#if0禁用) + 低通 + CMSIS矩阵宏别名
 │   ├── vision_ins.c/.h        视觉/IMU 紧耦合 6 态 EKF(世界系 p,v)，给不漂的速度+距离估计
 │   ├── ADC_Battery.c/.h       电池电压 ADC（DMA + 标量卡尔曼）
 │   └── Vofa_send.c/.h         Vofa+ 上位机 2/4/8/16/24/32 通道 float 发送
+├── lqr_tool/                  **弃用留存**：LQR 姿态控制器 + MATLAB Coder 生成 K 表（LQR_K_Dart_d*）——不再使用
+├── lqi_tool/                  **当前激活链路**：
+│   ├── lqi_torque.c/.h         LQI 力矩控制器（9态→3轴力矩 N·m；lqi_mode=1 恒激活）★
+│   ├── torque_allocator.c/.h  舵面分配器（Torque_Allocate_Simple 简单 pinv 当前用；Pitch 保护未启用）★
+│   ├── lqi_gain_table.h       K_lqi[3][9]（MATLAB dlqr 导出，与速度无关）
+│   └── lqi_geometry_table.h   H_tau_Vref[3][4] + 零空间 N_ry（舵效矩阵，占位参数待台架）
 └── User/
     ├── common_defs.h          公共宏：dT/M_PI/RAD2DEG/单位换算/传感器量程
     ├── mytype.h               u8/s16/fp32 等类型别名
@@ -103,11 +108,10 @@ BMX055/BMI088(SPI2阻塞读) ─IMU_Data_Read─► IMU_Data.A/G(原始,去饱�
                                          │
    get_current_State()→Guidance_State   │   get_current_Target()→target_angle_Euler[NOW]
                                          ▼
-         Euler_pid_Cale() 或 Euler_LADRC_Cale()(ladrc_mode切档)
-         外环角度→temp[]→内环角速度→ output_gyro_Euler[NOW]
-                                         │  (三轴全放开,pitch/yaw经Roll_Derotate反旋)
+        LQI(9态→3轴力矩, pitch误差=0只留阻尼, yaw带积分) → lqi_ctrl.torque_cmd_Nm[3]
+                                         │  (lqi_mode=1 恒激活; LQR 分支弃用)
                                          ▼
-        Servo_Mix_*(Alloc.Mode 分派) → output_angle_Servo[NOW][0..3] (度,含SIGN,±60)
+        torque_allocator(Torque_Allocate_Simple) → output_angle_Servo[NOW][0..3] (度,±60)
                                          ▼
         Wing_Control_VECTOR_NOZZLE → Wing_UL/UR/DL/DR_Control → Finally_Angle(µs) → __HAL_TIM_SET_COMPARE
 ```
@@ -133,22 +137,25 @@ BMX055/BMI088(SPI2阻塞读) ─IMU_Data_Read─► IMU_Data.A/G(原始,去饱�
 `enum {Self_Text_State=0, Start, Stable, Terminal, End, PROCESS_OK}`
 
 ```
-Self_Text_OK ─► Start ──(A_Normed[Y]≥0.8 或 A[Y]≤−1，连续5)──► Stable(请求视觉内录)
-                                                                  │ Euler[PITCH]≤0，连续5
-                                                                  ▼
-End ◄──(A_Normed[Y]≥0.9 且 A[Y]≥1.5，连续5；冲击检测)── Terminal(视觉制导)
- │ cnt>200
- ▼ Vision 停录 → PROCESS_OK
+Self_Text_OK ─► Start ──(Euler[PITCH]∈Shot_Pitch±5 且 Euler[ROLL]∈Shot_Roll±6，连续50)──► 对准检测(Guidance_flag[1])
+    │                                                                                     │ V_DART_Lqi≥1.5 且 Body[Y]>0.3 且 |Body[X]|<0.5
+    ▼                                                                                     ▼
+Stable(自稳,锁 Stable_Euler_Angle) ──(Euler[PITCH]≤Shot_Pitch−10 且 视觉识别成功,连续5)──► Terminal(视觉制导)
+                                                                                            │ V_DART_Lqi<4 或 A[Y]<−0.8,连续50
+                                                                                            ▼
+                                                                    End(停录,2000拍) ──► PROCESS_OK(延时断电5000拍)
 ```
 - **舵机仅在** `Guidance_State==Terminal || ==Self_Text_State || Stable_Flag==1` **时驱动**，否则回中(0)。
 - `End` 阶段发送视觉停录命令后进入 `PROCESS_OK`；断电必须走 `Guidance_Process_OK()` 的延时路径，不能在状态切换后的下一拍立即 `Power_OFF`，否则视觉端来不及关闭文件，SD 卡上的日志/视频可能保持 0KB。
-- `Stable_Flag` 在 Stable 且 `Euler[PITCH]≤30` 时置 1。
+- `Stable_Flag` 在 `get_current_Target()` 的 Stable 分支置 1（每拍刷新）。
 - `Self_Text_State` 下四舵置 30°（自检摆舵）；`Start` 下置 0。
-- 各阶段目标：Start/Stable → ROLL/YAW 锁 `Stable_Euler_Angle`、PITCH=当前（只阻尼）；Terminal → ROLL 自稳，YAW/PITCH 视觉视线锁存（见 §9）。
+- 各阶段目标：Start/Stable → ROLL/YAW 锁 `Stable_Euler_Angle`、PITCH=当前（只阻尼）；Terminal → ROLL 自稳，YAW/PITCH 视觉视线锁存（见 §9），pitch 目标在 LQI 里误差恒 0（方案A，不主动追）。
 
 ---
 
-## 7. 串级 PID（`pid.c` / `pid_init`）
+## 7. 串级 PID（`pid.c` / `pid_init`，**已弃用留存 2026-08-11**）
+
+> **现状**：`Euler_pid_Cale` 在 `surface_control_task()` **无调用点**（已由 LQI 取代）；`mahony_pid[3]` 仍被 IMU.c 的 Mahony 用（必须保留）。以下为历史结构记录，供对照。下表为 **2026-06-27 快照，⚠️ 以 [pid.c](imcalib/Tool/pid.c) `pid_init` 为准**：
 
 每轴两环：`surface_control_pid[Angle][axis]`（外环角度）→ `surface_control_pid[Gyro][axis]`（内环角速度）。当前激活的是「镖体1」一组（镖体2/3 注释着）。
 
@@ -172,21 +179,13 @@ End ◄──(A_Normed[Y]≥0.9 且 A[Y]≥1.5，连续5；冲击检测)── T
 - `max_err` 字段全为 0 → 该保护从不触发（依赖 `MaxOutput` 限幅）。
 - **速度方向外环** `vel_pursuit_pid[2]`（PITCH/YAW）：速度矢量追踪模式用，MaxOutput=45°，当前 `vel_pursuit_mode=0`（未启用）。
 
-### LADRC 线性自抗扰（`adrc.c/.h`，可选替代 PID）
+### LADRC 线性自抗扰（`adrc.c/.h`，**已弃用留存 2026-08-11**）
 
-`ladrc_mode` 运行时切档（surface_control_task.c，**当前值=0 全 PID**）：
-- **0**=全 PID（安全默认，当前在用）
-- **1**=三轴全 LADRC（`Euler_LADRC_Cale`）
-- **3**=仅 Roll 用 LADRC，Pitch/Yaw 仍 PID
+~~`ladrc_mode` 运行时切档~~——**不再使用**。`Init_Config.c` 的 `LADRC_Init_All()` 已注释；`Euler_LADRC_Cale` 无调用点。代码留存仅供对照。原方案：单环二阶 LADRC = 三阶 LESO + LSEF + 扰动补偿，wc/wo/b0 三旋钮，阻尼用实测陀螺。
 
-单环二阶 LADRC = 三阶 LESO + LSEF + 扰动补偿，整轴 3 个旋钮：wc / wo / b0。Roll 已标定：wc=10.5, wo=52.5, b0=55, deadband=1°, max=±15°。阻尼默认用实测陀螺（`use_gyro_damp`），非 LESO z2。详见 [adrc.c](imcalib/Tool/adrc.c) 头部注释。
+### LQR 状态反馈（`lqr.c/.h`，**已弃用留存 2026-08-11**）
 
-### LQR 状态反馈（`lqr.c/.h`，可选替代 PID + 混控，**未编译/待台架**）
-
-`lqr_mode` 运行时切档（surface_control_task.c，**当前值=1 正调 LQR**，以代码为准；优先级高于 ladrc_mode/vel_pursuit_mode）：
-- **0**=关（走 PID/LADRC，安全默认）
-- **1**=LQR 一步解算：`u=-K_d·x`，6 态 `[roll,pitch,yaw 误差(rad), p,q,r(rad/s)]` → 4 舵偏(rad)。
-- **pitch 仅制导段受控** `lqr_pitch_terminal_only`（lqr.c，默认 1）：非 `Terminal` 段把 pitch 状态分量 `x[1]`(pitch_err)/`x[4]`(q) 清零 → LQR 解出的 4 舵**不含 pitch 通道成分**（Stable 等阶段 pitch 不打舵），roll/yaw 照常自稳；`err_deg[1]` 保留真值供观测。=0 回全程控 pitch 做 A/B。
+**不再使用**。`lqr_mode` 从未定义（仅 .h extern 已注释）；`surface_control_task()` 调用点是 `if (lqi_mode==1) Euler_LQI_Cale else Euler_LQR_Cale`，`lqi_mode` 恒 1 → 恒走 LQI。`LQR_Init()` 已从 Init_Config.c 注释；LQR 代码（含 MATLAB Coder 生成的 `LQR_K_Dart_d` 系列）留存仅供对照。原方案：`u=-K_d·x` 6 态→4 舵一步含混控。
 
 **与 PID/LADRC 的本质区别**：PID/LADRC 是两步（先算三轴力矩 `output_gyro_Euler` → 再过 `Servo_Mix_*` 混控）；LQR 的 `K_d[4][6]` 已把 X 翼混控几何 G 烘焙进模型，**一步替代 PID+混控两步**，`Euler_LQR_Cale` 直接写 `output_angle_Servo[NOW][...]`、绕过 `output_gyro_Euler` 与 `Servo_Mix_*`（调用点已加 `lqr_mode!=1` 跳过混控）。
 
@@ -194,35 +193,35 @@ End ◄──(A_Normed[Y]≥0.9 且 A[Y]≥1.5，连续5；冲击检测)── T
 
 > 未编译：新增 `lqr.c` 需手动加入 Keil/eIDE 工程编译列表（AI 编不了）。
 
-### LQI 力矩控制器 + Pitch 保护型零空间分配（`lqi_torque.c/.h` + `torque_allocator.c/.h`，2026-07-23 新增，**未编译/待台架**）
+### LQI 力矩控制器 + 舵面分配（`lqi_torque.c/.h` + `torque_allocator.c/.h`，**当前唯一激活链路**）
 
-**与 LQR 的本质区别**：LQR 一步输出 4 舵角（K 含混控），LQI 拆成两步——先 LQI 输出 3 轴物理力矩 N·m，再零空间分配器把力矩翻译成 4 舵角。
+**与旧 PID/LQR 的本质区别**：拆成两步——先 LQI 输出 3 轴物理力矩 N·m，再分配器把力矩翻译成 4 舵角（`torque_allocator`）。
 
-`lqi_mode` 运行时切档（surface_control_task.c，**当前值=0 默认关**，优先级高于 `lqr_mode`）：
-- **0**=关（走 LQR，默认安全路径）
-- **1**=LQI 力矩控制 + Pitch 保护零空间分配
+`lqi_mode`（lqi_torque.c 定义）**恒 = 1**：LQI 力矩控制 + 分配（surface_control_task.c 调用点）。`lqi_alloc_mode = 0`（**简单伪逆 pinv(H_tau) 全轴最小舵量**；`1`=零空间 Pitch 保护，未用）。`lqi_mode=0` 的 else 分支 `Euler_LQR_Cale` 为弃用留存。
 
 **状态与输出**：
 - 状态 `xa[9]` = `[e_roll, e_pitch, e_yaw, p, q, r, ∫e_r, ∫e_p, ∫e_y]`（rad, rad/s, rad·s）
+- **pitch 方案A（2026-08-11）**：`e_pitch ≡ 0`（依托初始动力、不追目标角度），只保留 pitch 角速度阻尼 `q`；pitch 原 `q/=cnt` 阻尼削减残留已删（俯冲段裸奔发散根因）
 - LQI 输出 `tau[3]` = `[Mx, My, Mz]`（N·m）
 - K_lqi[3][9] 由 MATLAB dlqr 生成（[matlab_script/](matlab_script/)目录）
 - 舵面顺序全线统一为 `[UL, UR, DR, DL]`，C 端不再换序
 
-**H_tau 力矩矩阵**（3×4，N·m/rad）：从舵面几何（`r_i × n_i`）× 动压 × 面积 × 舵效显式计算，替代旧集总 G 矩阵。当前所有气动参数为占位符（待 SolidWorks/CFD）。
+**积分（2026-08-11 修复，当前仅 YAW 有效）**：
+- 阈值 `LQI_INTEG_THRESHOLD_RAD` = **0.5°**（原 `0.008726646*3` 实际 1.5°，注释写 0.5° → 积分被分离闸门每拍清零、永远积不起来）
+- YAW 积分限幅 `LQI_INTEG_LIMIT_YAW` = **5°·s**（原 2° clamp 死）
+- `Euler_LQI_Cale` §3.5 积分门控：ROLL/PITCH 恒清零冻结；YAW 非 Terminal 段冻结、Terminal 段放行。LQI_Update 内积分分离 + 限幅接管。
 
-**零空间分配算法**（`torque_allocator.c`）：
-1. 先满足 Roll/Yaw 力矩（2×4 子矩阵伪逆 → delta0）
-2. 在 Roll/Yaw 零空间内优化（2×2 解析求解）：
-   - 最小化 Pitch 力矩（权重 λ_pitch=100）
-   - 最小化总舵面动作（权重 λ_servo=1）
-3. 舵面限幅 + 统一缩放 + 回算实际力矩
-4. 饱和/不可达 → 冻结积分
+**H_tau 力矩矩阵**（3×4，N·m/rad）：`H_tau = Vs · H_tau_Vref`。**Vs 固定 = 6（2026-08-11）**——因 EKF 速度不准（方向已验证、幅度不准），固定 Vs 使舵效可预测；⚠ Vs=6 ≠ "速度 6"（真按 V=6 应为 (6/6)²=1），是把 H_tau 整体放大 6 倍 = 等效舵效标定系数，**待台架**。速度平方调度保留 `#if 0`（EKF 速度验证准后启用：先低通再平方）。真实飞行速度 **6~10 m/s**（用户 2026-08-11）。
+
+**分配器 `torque_allocator.c`**：
+- `Torque_Allocate_Simple`（当前）：pinv 整个 3×4 H_tau，三轴力矩全满足、最小舵量
+- `Torque_Allocate_PitchProtected`（`lqi_alloc_mode=1` 未用）：先满足 Roll/Yaw → 零空间压低 Pitch → 限幅
+- 舵面限幅 ±60°、饱和/不可达 → 冻结积分
 
 **关键文件**：
-- MATLAB：[matlab_script/dart_lqi_parameters.m](matlab_script/dart_lqi_parameters.m)（参数配置）、[dart_attitude_lqi_torque_pitch_protected.m](matlab_script/dart_attitude_lqi_torque_pitch_protected.m)（主脚本）、[dart_lqi_export_c.m](matlab_script/dart_lqi_export_c.m)（C 导出）
-- C：[lqi_torque.c](imcalib/lqi_tool/lqi_torque.c)/[.h](imcalib/lqi_tool/lqi_torque.h)（控制器）、[torque_allocator.c](imcalib/lqi_tool/torque_allocator.c)/[.h](imcalib/lqi_tool/torque_allocator.h)（分配器）
-- 表：[lqi_gain_table.h](imcalib/lqi_tool/lqi_gain_table.h)（K_lqi 表）、[lqi_geometry_table.h](imcalib/lqi_tool/lqi_geometry_table.h)（H_tau 表 + 零空间）
-- 计划：[PLAN_LQI_TORQUE_PITCH_PROTECTED.md](PLAN_LQI_TORQUE_PITCH_PROTECTED.md)
+- MATLAB：[matlab_script/dart_lqi_parameters.m](matlab_script/dart_lqi_parameters.m)、[dart_attitude_lqi_torque_pitch_protected.m](matlab_script/dart_attitude_lqi_torque_pitch_protected.m)、[dart_lqi_export_c.m](matlab_script/dart_lqi_export_c.m)
+- C：[lqi_torque.c](imcalib/lqi_tool/lqi_torque.c)/[.h](imcalib/lqi_tool/lqi_torque.h)、[torque_allocator.c](imcalib/lqi_tool/torque_allocator.c)/[.h](imcalib/lqi_tool/torque_allocator.h)
+- 表：[lqi_gain_table.h](imcalib/lqi_tool/lqi_gain_table.h)（K_lqi）、[lqi_geometry_table.h](imcalib/lqi_tool/lqi_geometry_table.h)（H_tau + 零空间）
 
 **⚠ 占位符清单（需 SolidWorks/CFD/台架数据后重新生成所有表）**：
 - 交叉惯量 Ixy/Ixz/Iyz（当前 = 0）
@@ -230,34 +229,27 @@ End ◄──(A_Normed[Y]≥0.9 且 A[Y]≥1.5，连续5；冲击检测)── T
 - 舵面面积 S_i（当前 0.005 m²）
 - 舵效系数 C_Fδ（当前 5.0，占位 ≈ CLα）
 - 气动阻尼/恢复系数（当前全 0，未启用）
+- **Vs=6 实际舵效**（待台架确认放大倍数）
 
-> 未编译：新增 4 个 .c 文件需手动加入 Keil/eIDE 工程编译列表（AI 编不了）。
+> 编译：eIDE 工程（`.eide/eide.yml` srcDirs 含 `imcalib/lqi_tool`）**已含 LQI 文件**；MDK-ARM/*.uvprojx 是旧版**不含** lqi/adrc/lqr——**别用 MDK 编译**。
 
 ---
 
-## 8. 混控 / 控制分配（`surface_control_task.c`，**当前重点**）
+## 8. 混控 / 舵面分配（**当前 = LQI → torque_allocator，旧 Servo_Mix_* 体系已不存在**）
 
-X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[−1,−1,−1,−1]`**（四片同号，SIGN 翻转后等效）、roll `[+1,−1,−1,+1]`、yaw `[−1,+1,−1,+1]`。物理装配符号 `SIGN=[UL−1, UR+1, DR+1, DL−1]`（左右舵镜像安装；台架单轴阶跃标定，某片整体反了翻它的号；SIGN 每片三轴共享，轴间配对结构由逻辑阵的列决定、不靠 SIGN）。Alloc.B pitch 行同为 `[−1,−1,−1,−1]`。
+> **2026-08-11 关键修正**：文档此前描述的 `Alloc.Mode` 三档分配器（`Servo_Mix_AxisLimit/MinEnergy`）、`Roll_Derotate_PitchYaw`、`Alloc` 全局——**在代码中只有 .h 声明、无任何 .c 定义/调用**（已全部注释清理）。当前分配 = `Euler_LQI_Cale` 内 `torque_allocator.c` 的 `Torque_Allocate_Simple`（`lqi_alloc_mode=0`），LQR 分支已弃用。
 
-**X 翼解算几何（pitch 为何四片同号）**：4 片成 X(45°，从尾看 UL135°/UR45°/DR315°/DL225°)，每片偏转产生切向力，对力矩贡献 **pitch∝cosθ=[UL−,UR+,DR+,DL−]、yaw∝sinθ=[+,+,−,−]、roll=常数**（三模态两两正交，第 4 模态 `[+,−,+,−]` 隔片交替=零空间纯阻力）。故 pitch 列四片同号，配 SIGN 后 pitch 指令落到舵令 `u=[−,+,+,−]`=真俯仰、与 roll/yaw 解耦。*(2026-06-08 校正：原 pitch 列 `[+1,+1,−1,−1]` 经 SIGN 落零空间、只减速不俯仰。)*
+**X 翼几何背景（供分配器 H_tau 理解）**：4 片成 X(45°，从尾看 UL135°/UR45°/DR315°/DL225°)，每片偏转产生切向力，对力矩贡献 **pitch∝cosθ=[UL−,UR+,DR+,DL−]、yaw∝sinθ=[+,+,−,−]、roll=常数**（三模态两两正交）。物理装配符号 `SIGN=[UL−1, UR+1, DR+1, DL−1]`（左右舵镜像安装，台架标定）。此几何已烘焙进 MATLAB 生成的 `H_tau_Vref` 表，不再由 C 端逻辑阵显式表达。
 
-**`Alloc.Mode` 运行时分配器**（调试器/初值切换；**默认现为 2**；Mode0 调用点已注释，实际只有 1/2 可选）：
+**分配链路**：LQI 输出三轴力矩 `tau[3]` → `Torque_Allocate_Simple`（pinv(H_tau)×tau → 4 舵 rad → 转度 ±60 限幅）→ `Surface.output_angle_Servo[NOW][UL/UR/DR/DL]` → `Wing_Control_VECTOR_NOZZLE` 写 PWM。`lqi_alloc_mode=1` 的零空间 Pitch 保护分配器已实现但**未启用**。
 
-| Mode | 函数 | 说明 |
-|---|---|---|
-| 0 | `Servo_Mix_PitchPriority` | pitch 优先启发式饱和缩横侧。k 公式已修正 + 加 `k≤1`。**调用点已注释、当前不可达**，仅留函数作历史对照。 |
-| 1 | `Servo_Mix_AxisLimit` | 各轴前置限幅(P30/R15/Y30)→**逐级(字典序)优先级缩放**（`Alloc.Prio` 默认 **{ROLL,YAW,PITCH}**，调试器在线改）→×SIGN→兜底限幅60。高优先轴不被低优先轴污染。 |
-| **2（默认）** | `Servo_Mix_MinEnergy` | 真·带约束最小能量：CMSIS 伪逆 `u0=Bᵀ(BBᵀ)⁻¹v` → 零空间投影进限幅盒 → 不可达按 pitch>yaw>roll 二分缩。奇异退回 Mode1。舵效阵 `Alloc.B` 默认理想阵、可台架辨识替换。 |
+**Vofa 观测（`lqi_ctrl` 结构体）**：`attitude_error_rad[0..2]`、`torque_achieved_Nm[0..2]`、`servo_cmd_deg[0..3]`、`torque_angle/rate/integral_Nm`、`servo_sat_mask`、`allocator_infeasible`、`pitch_moment_Nm`。
 
-- **Roll_Derotate_PitchYaw**：把世界系 pitch/yaw 力矩按当前 roll 反旋到机体系（`Δ=current_roll−Stable_roll`）。**仅 `Guidance_State==Terminal` 时调用**（Stable 段直通不反旋）；调用点 `p_body/y_body=0` 清零行已注释 → pitch/yaw 三轴放开。
-- Vofa 观测量（均 `Alloc` 结构体字段）：`Alloc.lat_scale`(最低优先轴保留比 k)、`Alloc.u0/u_out`、`Alloc.alpha/v_scale/p_scale`、`Alloc.infeasible/singular_flag`。
-
-### ⭐ 当前"实际在飞什么"（极重要，2026-06-27 快照）
-三轴全部放开（调用点清零行已注释），全接 PID 内环输出，按 `Alloc.Mode` 分派；Stable 与 Terminal 都打舵（且需 `imu_is_static==0`）。
-- **控制器**：`ladrc_mode=0`→PID 串级（默认在用）；`=3`→roll 用 LADRC、pitch/yaw 仍 PID；`=1`→三轴全 LADRC。`vel_pursuit_mode=0`（速度矢量追踪未启用）。**外环→内环直通**（无欧拉运动学变换，见 §7）。
-- **分配**：`Alloc.Mode=2`（最小能量，默认）。`Roll_Derotate_PitchYaw` 仅 Terminal 段反旋 pitch/yaw、roll 直通。
-- **末制导**：① 视线锁存（方向A）+ 航位推算；② 视觉目标平滑的 **LPF/距离增益已删除**（2026-06-27 清理，`target`=锁存视线终点，见 §9）；③ pitch 用**主动滑翔→扎** `pitch_glide_mode=1`（远滑翔增程、近扎下，见 §9），pitch 外环仅 Terminal+识别成功才控；④ PN 超前补偿 `#if 0`（关闭）；丢目标就地保持。
-- 配合 2026-06-08 pitch 解算几何对齐，pitch 才真正产生俯仰力矩。
+### ⭐ 当前"实际在飞什么"（2026-08-11 快照，以代码为准）
+Stable/Terminal 段且 `imu_is_static==0` → **LQI 力矩控制**（`lqi_mode=1`）→ `Torque_Allocate_Simple` 分配 → 4 舵。
+- **控制器**：LQI 9 态（pitch 误差恒 0、仅阻尼；yaw 制导段带积分；roll 自稳）。LQR/ADRC/PID 串级均弃用。
+- **分配**：`lqi_alloc_mode=0`（简单 pinv），H_tau 用固定 `Vs=6` 缩放（待台架标舵效）。
+- **末制导**：① 视线锁存（方向A）+ 航位推算（`vision_los_final`，无 LPF/距离增益/pitch_glide——均已删/弃用）；② PN 超前 `#if 0`（关闭）；③ 丢目标就地保持。
 
 ---
 
@@ -270,14 +262,14 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[−1,−1,−1,−
 | huart3 | USART3 | 视觉 OpenMV | DMA 空闲事件，6 字节帧 |
 
 - 视觉帧（均 6 字节）：`0x5A..0xA5`=识别成功（x,y 像素），`0x5B..0xA6`=距离+面积（dist_cm,area 均 uint16 大端，2026-06-12 新增，独立于识别包），`0x7A..0xA7`=丢目标，`0x9A..0xA9`=录制状态。`0x5B` 包只更新 `Vision_Rx_Data.dist_cm/area`、不置 recognize/New_Data；OpenMV `send_distance(dist_cm=DIST_K/sqrt(px), area)` 配套。
-- **像素→度转换在 `Vision_Receive` 内做**：`Euler[YAW]=y/160*72`、`Euler[PITCH]=x/120*54`（x→PITCH、y→YAW）。✅ **已确认**：视觉发的是**像素**、接收时即转成度，轴映射正确，下游 `Guidance_Terminal` 锁存按度用、量纲一致（无需再 ×FOV）。
+- **像素→度转换在 `Vision_Receive` 内做**：`Euler[PITCH]=y/160*36`、`Euler[YAW]=x/120*27`（**y→PITCH、x→YAW**，2026-08-11 按代码修正——旧文档写反为 x→PITCH、y→YAW）。✅ **以代码为准**：视觉 OpenMV 发的是像素（x=水平偏移、y=垂直偏移），接收时即转成度，下游 `Guidance_Terminal` 锁存按度用、量纲一致（无需再 ×FOV）。EKF 视觉量测同轴约定（`az=x_px`、`el=y_px`）。
 - `Vision_New_Data_flag`：ISR(~20Hz)产生、`Guidance_Terminal`(1kHz)消费后清 0（生产者-消费者）。
 - **视线锁存（方向A）+ 航位推算（2026-06-15+；LPF/距离增益 2026-06-27 已删除）**：新帧到达瞬间把世界系视线锁存到 `vision_los_final=vision_euler+current`（终点，帧间不变、航位推算）。**原一阶低通平滑 + 距离增益缩放 k 已整段删除**（`lpf_*`/`yaw_gain`/`pitch_gain`/`k_*` 死变量全清），现 `target` 直接 = `vision_los_final[NOW]`（无额外平滑）。读侧用临界区快照 `v`；丢目标(FAILURE)终点+目标对齐当前(就地保持)。*(`Target_Slew`/`Vision_Angle_Normalize`/`*_Gain_ByDist` 均已 `#if 0` 封存。)*
 - **PN 视线率超前补偿（2026-06-14，当前 `Guidance_Terminal` 内 `#if 0` 关闭）**：锁存的世界系视线终点帧间差分得惯性视线率 λ̇（`vision_los_rate[]`，纯视觉、不依赖会漂的 IMU 积分速度）。**拆分接口** `PNG_Apply_Lead_Yaw/Pitch`（[PNG_Task.c](imcalib/Task/PNG_Task.c)）支持分轴门控（俯冲未到位只喂 yaw）；`PNG_Mode=1` 改用 **vision_ins EKF 世界系 p/v 叉乘直接算 LOS 率** ω_yaw/ω_pitch（替代纯帧差分），`PNG_Mode=0` 仍走 `vision_los_rate`。`LOS_RATE_LIMIT_DPS`=40、`PNG_LEAD_LIMIT_DEG`=8 限幅。**当前关闭，先用纯 PID 跟踪验证基础性能，标定好 `K_Dyn` 后再打开。**
-- **末制导 pitch 能量管理（2026-06-12 `Pitch_Dive_Floor` → 2026-06-27 主动滑翔→扎，当前用后者）**：现行 `pitch_glide_mode=1`——按**世界系看灯视线俯角 φ**(`vision_los_final[NOW][PITCH]`) 在两段插值：远端（φ≥`GLIDE_LOS_HI_DEG`=−12°）`blend=0` → pitch 目标住 `THETA_GLIDE_DEG`(+2°)**压平增程**；近端（φ≤`GLIDE_LOS_LO_DEG`=−25°）`blend=1` → 平滑过渡到追视觉 pitch 目标**扎下**（衔接 `PITCH_INCIDENT_DEG≈−27°`）。`pitch_glide_blend/target` Vofa 可观测。切 `pitch_glide_mode=0` 退回旧 `pitch_control_limit_deg` 门限逻辑。*(旧 `Pitch_Dive_Floor`/接近度 s/弹道角 γ 调度的代码仍在，但现行 pitch 目标由 glide→dive 主导。)*
+- **末制导 pitch（2026-08-11 收敛为 LQI 方案A，glide/门限均弃用）**：~~pitch 主动滑翔→扎 `pitch_glide_mode`~~ **代码中无此实现**（`pitch_glide_mode/target/blend` 为悬空 extern，已注释；`GLIDE_*`/`THETA_GLIDE_*` 宏未使用）。现行：LQI 里 **pitch 误差恒 0、只保留角速度阻尼**（依托初始动力、不追目标角度），pitch 增程靠镖架初始动力 + 气动滑翔自然实现，不做主动俯仰姿态调度。~~`Pitch_Dive_Floor`/`pitch_control_limit_deg` 门限~~ 同样弃用（`#if 0` 封存，符号已注释）。
 - **视线角半径归一化（2026-06-15+，⚠️ 2026-06-27 已 `#if 0` 封存、调用已删）**：`Vision_Angle_Normalize(angle, radius)` 把视线角按 blob 半径归一化到 `REF_RADIUS`(15px)，消除远近 blob 大小差异。当前主路径不再调用。
 - **距离增益调度（2026-06-15+，⚠️ 2026-06-27 已 `#if 0` 封存）**：`Yaw_Gain_ByDist(dist_cm)` / `Pitch_Gain_ByDist(dist_cm)` 纯距离线性插值增益（YAW 远大近小、PITCH 反向）。随 LPF 删除一并停用、不再被调用。
-- **（历史/底层，已被 glide→dive 取代为主路径，⚠️ 2026-06-27 已 `#if 0` 封存）末制导俯仰能量管理 `Pitch_Dive_Floor`（2026-06-12）**：随接近度放开的最陡俯冲限幅 `θ_floor=max(L_sched(s), γ−AOA_MARGIN)`。接近度 s 远段用 `dist_cm`、近段用 `area`，缺则按弹道角 γ。现行 pitch 目标由 `pitch_glide_mode=1` 主导；物理意图一致（远保射程、近放开到入射角、终端迎角→0 正向撞击）。
+- **（历史/底层，已弃用，⚠️ 2026-06-27 `#if 0` 封存）末制导俯仰能量管理 `Pitch_Dive_Floor`（2026-06-12）**：随接近度放开的最陡俯冲限幅 `θ_floor=max(L_sched(s), γ−AOA_MARGIN)`。已被 2026-08-11 的 LQI 方案A（pitch 误差恒 0、不主动调度俯仰）取代。物理意图参考：远保射程、近放开到入射角、终端迎角→0 正向撞击。
 - **速度预测（2026-06-15+ 改用 EKF）**：旧 `Kalman_Vel_Calc`（filter.c 二阶卡尔曼）已 `#if 0` 停用。改用 `vision_ins.c` 6 态 EKF：IMU 加速度 1kHz 预测 + 视觉笛卡尔位置 ~30Hz 更新 + 静止零速更新。EKF 输出 `vins_out.v_world` 回写 `IMU_Data.Velocity[World]`，供机体速度映射/弹道角 γ/Vofa。俯冲入段(`Stable→Terminal`)用「姿态前向×`V_NOM_MS`」`VisInsEKF_SetVel` 锚定初速 → `gamma_pitch_fwd_deg`=姿态前向估计（不漂，取代会漂的速度版 `gamma_pitch_deg`）。ZUPT 在发射前自动归零速度+对准零偏。
 - **速度/γ 单位量纲修复（2026-06-13）**：`A_World` 去重力原写 `a_raw − gravity·R_col3`，`a_raw` 单位是 **g**(静止≈1)、`gravity=GRAVITY_MS2` 是 **m/s²**，量纲不一致(静止误出 ≈−8.8)使 `A_World`/速度/`gamma_pitch_deg` 全错——即"实测 γ 不准"的根因(2026-06-07 审计已记此项、当时 PNG 未接主环遂留待)。改为 `gravity·(a_raw − R_col3)`(先把 `a_raw`×g 转 m/s² 再扣重力)，静止线加速度=0、量纲与 `V_NOM_MS` 一致；`a_raw_x/y/z` 本身不动→不影响 Mahony 的 g 单位归一化/门控。残余漂移源(次要、待台架核验)：加速度零偏 `A_Offset` 未回扣、发射后纯陀螺 coast 姿态漂。
 - **PNG 比例导引**：`PNG_Guidance` 在 `TotalControl` 里被注释，**未接主环**；`Velocity[Body]` 现已随速度预测算出（但 PNG 仍未接）。
@@ -291,18 +283,19 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[−1,−1,−1,−
 | `IMU_Data` | IMU.c | 全部 IMU 状态（A/G/Q/Euler/A_World/零偏/calib_done/A_Offset/Vel_Dir） |
 | `Surface` | surface_control_task.c | 控制状态总仓（current/target/output Euler、output_angle_Servo、Finally_Angle、Stable_Euler_Angle、Guidance_cnt） |
 | `Guidance_State` | surface_control_task.c | 制导状态机当前态 |
-| `ladrc_mode` | surface_control_task.c | LADRC 切档（0=全PID/1=三轴LADRC/3=仅Roll LADRC） |
-| `lqr_mode` / `lqr_pitch_terminal_only` / `lqr_ctrl` / `dart_lqr_K[4][6]` | surface_control_task.c / lqr.c | LQR 切档（0=关/1=一步6态→4舵含混控，绕过 Servo_Mix_*；**当前=1**）/ pitch 仅 Terminal 段受控开关(默认1) / 状态+舵偏观测仓 / K 矩阵(MATLAB 粘贴区)。未编译/待台架 |
-| `ladrc_ctrl[3]` | adrc.c | LADRC 控制器实例（wc/wo/b0/z1/z2/z3/u 等） |
-| `Alloc`（结构体 `Alloc_t`） | surface_control_task.c | 控制分配状态（整合原 `Alloc_Mode/Prio/B`、`alloc_*`、`servo_lat_scale`）：`.Mode` 档位 / `.Prio[3]` 优先级(默认{ROLL,YAW,PITCH}) / `.B[3][4]` 舵效阵 / `.u0/.u_out/.alpha/.u0_span/.v_scale/.p_scale/.lat_scale/.infeasible/.singular_flag` Vofa 观测 |
+| `lqi_mode`（**恒=1 激活**）/ `lqi_alloc_mode`（**0 简单pinv**）/ `lqi_ctrl` | lqi_torque.c | LQI 力矩控制档位 / 分配器档位 / 控制器观测仓（attitude_error_rad、torque_*_Nm、servo_cmd_deg、sat/infeasible 等） |
+| `V_DART_Lqi` / `lqi_ctrl.cached_V` | lqi_torque.c | EKF 速度缓存（50Hz，H_tau 用；当前 Vs 固定，未参与） |
+| ~~`ladrc_mode` / `ladrc_ctrl[3]`~~ | ~~surface_control_task.c / adrc.c~~ | **已弃用**（2026-08-11）：LADRC 切档无定义、无调用；`ladrc_ctrl` 留存供对照 |
+| ~~`lqr_mode` / `lqr_ctrl` / `dart_lqr_K`~~ | ~~surface_control_task.c / lqr.c~~ | **已弃用**（2026-08-11）：`lqr_mode` 从未定义、extern 已注释；LQR 代码留存 |
+| ~~`Alloc`（`Alloc_t`）~~ | ~~surface_control_task.c~~ | **已弃用**：悬空声明已注释，无定义无使用（分配器 = torque_allocator） |
 | `Vision_Rx_Data` | CallBack_Task.c | 视觉接收（ISR 写、控制读，含 New_Data_flag/dist_cm/area/radius/Euler_norm） |
 | `vision_los_final[2][3]` / `vision_los_rate[3]` | surface_control_task.c | 末制导世界系视线终点（视觉新帧锁存，`target` 直接取用、无额外平滑）/ 惯性视线率 λ̇（终点帧间差分，PN 用，当前 `#if 0`） |
 | `vins_out` | vision_ins.c | EKF 输出（p_world/v_world/range_m/vc/locked） |
 | `gamma_pitch_fwd_deg` / `gamma_pitch_deg` | IMU.c | 弹道角γ姿态前向估计°(不漂，常用) / 速度积分版°(已停用，保留) |
 | `Vel_Reanchor_Flag` / `imu_is_static` | IMU.c | 俯冲入段锚定请求位 / ZUPT 静止标志 |
-| ~~`pitch_dive_floor` / `closeness_s`~~ | surface_control_task.c | 旧 `Pitch_Dive_Floor` 的 Vofa 观测，2026-06-27 随函数 `#if 0` 封存（定义已注释） |
-| `pitch_glide_mode` / `pitch_glide_target` / `pitch_glide_blend` | surface_control_task.c | 末制导 pitch 主动滑翔→扎（默认1）/ 当前 pitch 目标° / 滑翔→扎过渡系数 0..1 |
-| ~~`yaw_distance_gain` / `pitch_distance_gain`~~ | surface_control_task.c | 旧距离增益 Vofa 观测，2026-06-27 随 `*_Gain_ByDist` `#if 0` 封存（定义已注释） |
+| ~~`pitch_dive_floor` / `closeness_s`~~ | surface_control_task.c | 旧 `Pitch_Dive_Floor` 的 Vofa 观测，已 `#if 0` 封存（定义已注释） |
+| ~~`pitch_glide_mode` / `pitch_glide_target` / `pitch_glide_blend`~~ | surface_control_task.c | **已弃用**（2026-08-11）：悬空 extern 已注释，无实现（pitch 走 LQI 方案A） |
+| ~~`yaw_distance_gain` / `pitch_distance_gain`~~ | surface_control_task.c | 旧距离增益 Vofa 观测，已 `#if 0` 封存（定义已注释） |
 | `surface_control_pid[2][3]` / `mahony_pid[3]` / `vel_pursuit_pid[2]` | pid.c | PID 实例（含速度方向外环） |
 | `temp[3]` | pid.c | 外环→内环中转（Vofa 观测） |
 | `DART_TYPE` | surface_control_task.c | `VECTOR_NOZZLE`(X翼,激活) / `FIXED_WING`(飞翼,#if0 不编译) |
@@ -312,14 +305,14 @@ X 翼逻辑符号阵（enum 列序 UL,UR,DR,DL）：**pitch `[−1,−1,−1,−
 ## 11. 已知问题 / 陷阱（答题时警惕；详见 PROGRESS「当前 TODO」）
 
 - **IMU/Control 同 Idle 优先级无同步** → 控制可能用上一拍姿态。
-- **GYR_KF_R=1000（有意）**：用户实测 R=30 欠滤波（滤不动），关键是 Q:R 比例；与早期文档"30"不同，以代码为准。
-- **外环→内环直通、无坐标系变换**：欧拉运动学变换 T(φ,θ) 已撤回（06-23 三维转二维），陀螺轴序非标准 ZYX、未推导。大滚转时 pitch/yaw 可能耦合；小角度够用。变换框架注释留在 [pid.c](imcalib/Tool/pid.c) `Euler_pid_Cale`，待轴序标定再启用。
-- **roll 内环陀螺反馈 ÷2**：`Euler_pid_Cale` 内环 roll 喂 `current_gyro_Euler[NOW][ROLL]/2.0f`（经验值，留痕待解释）。
-- **D 项用误差微分（非测量微分）**：pid.c 测量微分行被注释、用误差微分 `d*(e_now-e_last)/dt`。当前 I/D≈0（纯 P 调参），且视觉目标非阶跃，微分冲击影响小。
-- **视觉目标 LPF/距离增益已删除（2026-06-27 清理）**：原 `lpf_*`/`yaw_gain`/`pitch_gain`/`k_*` 中间量全清，`target` 直接=`vision_los_final`；`Target_Slew`/`Vision_Angle_Normalize`/`*_Gain_ByDist`/`Pitch_Dive_Floor` 一并 `#if 0` 封存（见 §9）。
-- **angle_wrap 未启用**：ROLL/YAW 外环 `angle_wrap=0`，函数保留但未开。跨 ±180° 边界时可能出现假误差。
-- 失效/未启用：MAG、PNG 主环(`#if 0`，拆分接口已就绪)、FFC、3D IMU 卡尔曼(`#if 0`)、旧速度卡尔曼 `Kalman_Vel_Calc`(`#if 0`，已被 vision_ins EKF 取代)、PN 超前补偿(`#if 0`)、速度矢量追踪(`vel_pursuit_mode=0`)、LADRC(`ladrc_mode=0`)、LQR(`lqr_mode=0`，且 lqr.c 未加入工程编译)、欧拉运动学变换(注释)。
-- 死代码/卫生：`FIXED_WING` 整段 `#if 0`；`PWM_Init` 启了若干未配置/无 GPIO 通道（实际用的 4 路正常）；`Button.c` `Press_Long_Cnt!=0`（数组地址恒真，实际不触发越界）；`filter.c` 注释 GBK 乱码；末制导 `Target_Slew`/`Vision_Angle_Normalize`/`Yaw|Pitch_Gain_ByDist`/`Pitch_Dive_Floor` 已 `#if 0` 封存（增益调度块，2026-06-27）；`Servo_Mix_PitchPriority`(Mode0) 调用点已注释、不可达。
+- **GYR_KF_R / ACC_KF_R = 10（IMU.h，以代码为准）**：旧文档记 1000 已过时。R=10 为当前调参值，Q:R 比例决定滤波；调参以代码为准。
+- **视觉轴映射**：**x→YAW、y→PITCH**（`Euler[0]=pitch=y/160*36`、`Euler[1]=yaw=x/120*27`）——2026-08-11 按代码修正，旧文档写反。
+- **EKF 速度幅度不准（方向已验证）**：H_tau 动压调度因此固定 `Vs=6`（舵效系数，待台架）；真实速度 6~10 m/s。
+- **LQI 积分仅 YAW 有效**：阈值 0.5°、限幅 5°·s（2026-08-11 修正，原 1.5°/2° 导致积分积不起来）。
+- **angle_wrap 未启用**：LQI 里 yaw 误差恒环绕（`Angle_Wrap_180`）；roll 按 `lqi_ctrl.roll_wrap`（默认 0）。
+- **Pitch 方案A**：LQI 里 pitch 误差恒 0、只留角速度阻尼——依托初始动力，不追目标角度。
+- 失效/未启用（2026-08-11 现状）：MAG、PNG 主环(`#if 0`)、PN 超前补偿(`#if 0`)、LQR(弃用)、LADRC/ADRC(弃用)、PID 串级 `Euler_pid_Cale`(无调用)、Servo_Mix_* 分配器(无定义)、`vel_pursuit_mode`(悬空已注释)、欧拉运动学变换(注释)。
+- 死代码/卫生：`FIXED_WING` 整段 `#if 0`；`PWM_Init` 启了若干未配置/无 GPIO 通道（实际用的 4 路正常）；`Button.c` `Press_Long_Cnt!=0`（数组地址恒真，实际不触发越界）；`filter.c` 注释 GBK 乱码；`TermLock`（末端锁定）有定义未使用（死代码）；悬空声明已从 .h 注释清理。
 
 ## 12. 2026-06-07 本次审计已修复
 

@@ -79,7 +79,7 @@
 - **核心代码**：`imcalib/Task/`（IMU.c 姿态、surface_control_task.c 制导+混控、CallBack_Task.c 视觉/中断、PNG_Task.c 比例导引）、`imcalib/Tool/`（pid.c、adrc.c、vision_ins.c EKF、filter.c）。
 - **构建/验证**：Keil MDK（`MDK-ARM/*.uvprojx`），**AI 环境编不了**→改完标"未编译"；台架靠 **Vofa+** 遥测 + 调试器 Watch。
 - **坐标系**（极易混）：机体系右手 ENU（X=右/Y=前/Z=上）；陀螺轴序非标准 ZYX（`gx=pitch/gy=roll/gz=yaw`）。改姿态/力矩前看 CODE_OVERVIEW §5。
-- **当前主线状态**（快照，以代码为准）：三轴**直通**串级 PID（`ladrc_mode=0`、欧拉运动学变换已撤回作 TODO）；调参哲学＝**内环>外环纯 P**；分配 `Alloc_Mode=2`（最小能量）；末制导 pitch＝**主动滑翔→扎** `pitch_glide_mode=1`；PNG/PN 超前、速度矢量追踪、LADRC、LPF 平滑均**就绪但未启用**（`#if 0` / mode=0 / 注释）。
+- **当前主线状态**（快照 2026-08-11，以代码为准）：**LQI 力矩控制唯一激活**（`lqi_mode=1`，9态→3轴力矩）+ `Torque_Allocate_Simple` 简单 pinv 分配；pitch 方案A（误差恒 0、只留角速度阻尼）；yaw 制导段带积分；H_tau 固定 `Vs=6`（舵效系数待台架）；真实速度 6~10 m/s。**LQR/ADRC/LADRC/PID 串级/Servo_Mix_*/pitch_glide/TermLock 均已弃用或未实现，代码留存**；PNG/PN 超前 `#if 0`。**eIDE 编译；MDK 工程旧版不可用。**
 - **作者 AI memory（Claude）**：用户画像、Vofa 打包先查、速度 EKF、LADRC——与本文 §1/§4/§6 同源，更新一处时留意另一处。
 
 ---

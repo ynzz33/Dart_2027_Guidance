@@ -4,15 +4,15 @@
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
 > 🌐 跨 AI 工作规则/约束见 [AGENTS.md](AGENTS.md)（任何 AI 接手前先读：沟通方式、改动哲学、文档/验证纪律、红线）。
-> 最后更新：2026-06-27（分配器散落全局整合为 `Alloc` 结构体；清理末制导 LPF/距离增益死代码 + `#if 0` 封存增益调度函数；三维→二维直通 + 调参哲学转向「内环>外环纯P串级」+ 末制导主动滑翔→扎 + PNG 拆分接口；新建跨 AI [AGENTS.md](AGENTS.md)；修复已删 plan 文件链接。前次：2026-06-23 全量审计 v2）
+> 最后更新：2026-08-11（**主链路收敛为 LQI**：LQI 力矩控制恒激活 + `Torque_Allocate_Simple` 简单 pinv 分配；pitch 方案A「误差恒 0 只留阻尼」；yaw 积分修复（阈值 0.5°/限幅 5°）；Vs=6 固定（舵效系数待台架）；LQR/ADRC/LADRC/PID 串级/Servo_Mix_*/pitch_glide/TermLock 全部弃用或未实现、代码留存；悬空声明从 .h 清理；CODE_OVERVIEW/PROGRESS 全文同步）。前次：2026-06-27 全量复审）
 >
-> ⚠️ **本项目处于高频调参期**（几乎每个 commit 都在改 PID 增益/分配档/门控）。本文档**只记结构、方案与"为什么"，不追具体数值**——所有增益/阈值/默认档**以代码为准**（pid.c `pid_init`、surface_control_task.c/.h 顶部全局与宏）。文中出现的数值均为"某时刻快照"，可能已变。
+> ⚠️ **本项目处于高频调参期**（几乎每个 commit 都在改增益/档位/门控）。本文档**只记结构、方案与"为什么"，不追具体数值**——所有增益/阈值/默认档**以代码为准**（lqi_torque.h 宏、lqi_gain_table.h K、pid.c `pid_init` 等）。文中数值均为"某时刻快照"，可能已变。**2026-08-11 起：文档中带"弃用/留存"标记的旧算法（PID 串级/LQR/LADRC/Servo_Mix/pitch_glide）均不在代码中激活，仅历史对照。**
 
 ## 项目简介
 
-STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（4 舵机，TIM3 CH2 + TIM4 CH2–CH4），串级 PID 自稳（角度环 → 角速度环）+ 可选 LADRC 单环二阶自抗扰（`ladrc_mode` 切档），Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度。磁力计不启用（场景磁干扰大），PNG 比例导引拆分接口已就绪但主环仍 `#if 0`。
+STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（4 舵机，TIM3 CH2 + TIM4 CH2–CH4），**LQI 力矩控制（lqi_tool/）+ 舵面分配（torque_allocator）**，Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度。磁力计不启用（场景磁干扰大），PNG 比例导引拆分接口已就绪但主环仍 `#if 0`。
 
-> **当前实际在飞的链路（2026-06-27 快照，以代码为准）**：三轴**直通**串级 PID（`ladrc_mode=0`、`vel_pursuit_mode=0`，06-22 试的欧拉运动学耦合变换已于 06-23「三维转二维」撤回，作 TODO 留注释）→ 控制分配 `Alloc_Mode=2`（最小能量）→ X 翼 4 舵。调参哲学已转向「**内环>外环、I/D≈0 的纯 P 串级**」（Gyro 0.8~1.1 > Angle 0.25~0.45）。末制导 pitch 用**主动滑翔→扎**（`pitch_glide_mode=1`）。
+> **当前实际在飞的链路（2026-08-11 快照，以代码为准）**：Stable/Terminal 段 → **LQI**（`lqi_mode=1` 恒激活，9 态→3 轴力矩；pitch 误差恒 0 只留阻尼；yaw 制导段带积分；roll 自稳）→ **`Torque_Allocate_Simple`**（`lqi_alloc_mode=0` 简单 pinv，H_tau 用固定 Vs=6 缩放）→ X 翼 4 舵。真实飞行速度 6~10 m/s。LQR/ADRC/LADRC/PID 串级/Servo_Mix_*/pitch_glide/TermLock 均已弃用或未实现、代码留存。
 
 ---
 
@@ -269,6 +269,17 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 
 ## 当前 TODO
 
+### 🎯 2026-08-11 主链路（LQI）— 当前唯一优先级
+- **台架标定 `Vs=6` 实际舵效**：H_tau 放大 6 倍到底等于多少倍真实舵效，直接决定 LQI"推不推得动"。方法：固定一组误差，Vofa 看 `lqi_ctrl.torque_cmd_Nm` 与 `servo_cmd_deg`，反推实际力矩→舵角。
+- **验证 yaw 积分真正收敛**：拉 `lqi_ctrl.integral_error[2]`（应随误差积累、丢目标清零、不 windup）与 `torque_integral_Nm[2]`。阈值 0.5°/限幅 5° 是否合适，台架按需调。
+- **验证 pitch 方案A**：pitch 不追角度只阻尼后，飞行是否稳定（无发散、无低频摇摆）；确认删 `q/=cnt` 后 pitch 阻尼手感。
+- **LQI 分配器输出不超限**：Vofa 拉 `servo_cmd_deg[0..3]` 全程 ≤±60°，长跑无 NaN。
+- **EKF 速度幅度校准**（方向已验证）：台架测真实 V（6~10 m/s 区间），对准后启用 `#if 0` 的速度平方调度（先低通 ~0.4s 再平方）。
+- **LQI 建模完善**（占位参数待 SolidWorks/CFD）：交叉惯量 Ixy/Ixz/Iyz、舵面位置 r_i、面积 S_i、舵效 C_Fδ、气动阻尼/恢复系数——全表重生成。
+- **回归**：丢目标(FAILURE) 就地保持、状态机各跳变计数正常、End/PROCESS_OK 延时断电路径。
+
+> ⚠️ 下方历史 TODO 大部分针对**已弃用算法**（PID 串级/LADRC/LQR/Servo_Mix_*/pitch_glide），仅作存档参考，**不再验证**。LQI 激活链路的验证以上面为主。
+
 ### 🔬 2026-06-07 审计新发现
 - **分配器切档验证**：默认已切 Mode1，确认 Stable 下 roll 自稳线性、`servo_lat_scale` 未饱和≡1；Mode0 修公式后作对照，未饱和时应与 Mode1 一致。
 - **任务优先级/同步**：`IMU_Task` 与 `Total_Control_Task` 同为 `osPriorityIdle`、各自 1kHz、无同步 → 控制可能用上一拍姿态。建议把 IMU 优先级抬高于控制、或合并、或用信号量/任务通知同步。
@@ -366,6 +377,16 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
   - 气动阻尼/恢复系数（全 0，未启用）
 - **未编译**(Keil/MDK)，4 个新 .c 需手动加入 Keil 工程编译列表。待台架。
 - **未编译**(Keil/MDK)。**待台架**：验证积分分离清零行为、ki 0.1 保守起步上台架后按需调大、Vofa 拉 `lqr_ctrl.integral.err`(积分贡献度) + `pid_i_for_lqr[axis].iout` + `lqr_ctrl.err_deg`(原始误差) + `lqr_ctrl.x[0..2]`(增强后 rad)。
+
+### 2026-08-11：主链路收敛为 LQI + pitch 方案A + yaw 积分修复（未编译/待台架）
+
+- **决策（用户定）**：LQI 为**唯一激活控制链路**；LQR（lqr_tool/）、ADRC/LADRC（Tool/adrc.c）、PID 串级（Euler_pid_Cale）、Servo_Mix_* 分配器、pitch_glide 滑翔、末端锁定 TermLock **全部弃用或未实现，代码留存仅供对照**。eIDE 编译（`.eide/eide.yml` srcDirs 含 lqi_tool）；**MDK-ARM/*.uvprojx 是旧版不含 lqi/adrc/lqr，别用它编译**。
+- **pitch 方案A（依托初始动力）**：`Euler_LQI_Cale` 里 `attitude_error_rad[1]=0`（不追目标角度），保留全量 pitch 角速度阻尼。**删除调试残留 `q /= cnt`**（原 PITCH≤0 时把 pitch 阻尼逐拍除到 1/1000 → 俯冲段裸奔发散根因）。
+- **yaw 积分修复（"积不上去"根因）**：① `LQI_INTEG_THRESHOLD_RAD` 实际 1.5°（`0.008726646*3`，注释写 0.5°）→ 视觉误差常超 1.5° 每拍被分离闸门清零；② `LQI_INTEG_LIMIT_YAW` 实际 2°（注释写 10°）clamp 死；③ `Euler_LQI_Cale` 每拍强制清零+冻结全部积分短路了 LQI_Update 的积分逻辑。已修：阈值回 **0.5°**、YAW 限幅 **5°·s**、ROLL/PITCH 恒不积分、YAW 仅 Terminal 段放行、删死逻辑、注释对齐。
+- **Vs=6 固定（H_tau 舵效系数）**：EKF 速度方向已验证正确、仅幅度不准 → 暂不喂 H_tau 动压调度，固定 Vs=6 使舵效可预测。⚠ Vs=6 ≠ "速度 6"（真按 V=6 应为 (6/6)²=1），是把 H_tau 放大 6 倍，**待台架确认实际舵效**。真实速度 6~10 m/s。速度平方调度 `#if 0` 保留（EKF 验证后先低通再平方启用）。
+- **清理悬空声明**：`Alloc`、`TermLock`、`pitch_glide_mode/target/blend`、`vel_pursuit_mode`、`LOOKING_DATA`、`Servo_Mix_AxisLimit/MinEnergy`、`Roll_Derotate_PitchYaw`、`Velocity_Pursuit_Cale` 均为 .h 声明无 .c 定义/使用 → 已注释。`eide.yml` 删除不存在的 `Tool/lqr.c/.h` 引用。
+- **文档全量同步**：CODE_OVERVIEW 激活链路、§7/§8/§9/§10/§11、视觉轴映射（**x→YAW、y→PITCH**，旧文档写反）、数据流水线、目录结构均已更新为 LQI 现状。
+- **未编译**(eIDE/Keil)。**待台架**：① Vs=6 实际舵效/放大倍数；② yaw 积分收敛与限幅；③ pitch 方案A（不追角度只阻尼）飞行表现；④ LQI 分配器输出不超限。
 
 ### 2026-07-14：BMI088 加速度计支持（BMX055 可切换）
 

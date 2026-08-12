@@ -44,7 +44,7 @@
  *  积分超过此值 → clamp，防止目标丢失/舵效过低时积分发散
  *  Pitch 上限极小（不追踪角度，仅阻尼），Roll/Yaw 使用有限上限
  *============================================================================*/
-#define LQI_INTEG_LIMIT_ROLL   0.0   /* 0：Pitch 不做积分追踪 */
+#define LQI_INTEG_LIMIT_ROLL   0.0f           /* 0：ROLL 不做积分追踪 */
 #define LQI_INTEG_LIMIT_PITCH  0.0f           /* 0：Pitch 不做积分追踪 */
 #define LQI_INTEG_LIMIT_YAW    0.0872664626f  /* 5°·s（原 0.01745*2=2° 太紧 clamp 死积分；放宽到 5°） */
 

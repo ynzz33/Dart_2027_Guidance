@@ -324,38 +324,37 @@ typedef struct {
     float   locked_yaw;      /* (内部)锁定时冻结的yaw目标°(触发瞬间current捕捉) */
 }TerminalLock_t;
 
-extern float Stable_Euler_Angle[3];
-extern float pitch_control_limit_deg;   /* 放开 pitch 控制的俯冲角阈值°(<此值才主动制导 pitch);PNG_Apply_Lead 引用 */
 extern Surface_t Surface;
 extern Self_Text_t Self_Text;
 extern uint8_t Guidance_State;
 extern uint8_t Wing_Servo_Control_Flag;
-extern Alloc_t Alloc;   /* 控制分配状态(整合原 Alloc_Mode/Prio/B、alloc_*、servo_lat_scale 散落全局) */
-extern TerminalLock_t TermLock;  /* 末端姿态锁定(稳定后近距离锁姿态+pitch偏置打实际目标) */
-extern float vision_los_final[2][3];   /* Vofa:末制导锁存的世界系视线终点(目标斜坡逼近它),帧间不变、仅新帧阶跃更新 */
-extern float vision_los_rate[3];    /* Vofa:世界系惯性视线率λ̇(°/s,PN用),视觉帧间差分、丢帧保持/丢目标清0 */
-// extern float pitch_dive_floor;      /* ★封存:随俯冲下限函数停用(见 .c #if 0 块) */
-extern uint8_t pitch_glide_mode;                       /* 0=旧门限逻辑 1=主动滑翔→扎 */
-extern float   pitch_glide_target, pitch_glide_blend;  /* Vofa/Watch:滑翔段当前pitch目标° / 滑翔→扎过渡系数0..1 */
-// extern float closeness_s;           /* ★封存:随增益调度/俯冲下限函数停用(见 .c #if 0 块) */
-// extern float yaw_distance_gain;     /* ★封存 */
-// extern float pitch_distance_gain;   /* ★封存 */
-extern float LOOKING_DATA[10];
-extern int16_t target_Cnt ,cnt ;
-
+extern float vision_los_final[2][3];   /* Vofa:末制导锁存的世界系视线终点(帧间不变、仅新帧阶跃更新) */
+extern float vision_los_rate[3];    /* Vofa:世界系惯性视线率λ̇(°/s,PN用),视觉帧间差分 */
+extern int16_t target_Cnt, cnt;
 extern uint16_t current_tick;
-void surface_control_task(void);
-extern uint8_t vel_pursuit_mode;   /* 0=原Euler_pid 1=速度矢量追踪三级串级（未启用） */
-/* [弃用留存] LQR 已不再使用（2026-08-11），代码留存仅供对照；激活链路恒为 LQI（lqi_mode=1）。 */
-// extern uint8_t lqr_mode;           /* 弃用：0=关 1=LQR一步6态→4舵(含混控)；见 lqr.c。已从 surface_control_task.c 移除引用 */
 extern uint8_t lqi_mode;           /* 1=LQI力矩分配(3轴力矩→4舵)——当前唯一激活链路；见 lqi_torque.c。恒=1 */
-extern uint8_t lqi_alloc_mode;     /* 0=简单pinv(H_tau)全轴最小舵量(等价旧G矩阵) 1=零空间Pitch保护(先满足Roll+Yaw再压低Pitch)；见 torque_allocator.c */
-void Velocity_Pursuit_Cale(float delta_time);
-void Roll_Derotate_PitchYaw(float Pw, float Yw, float *Pb, float *Yb);
-void Servo_Mix_AxisLimit(float p, float r, float y);
-void Servo_Mix_MinEnergy(float p, float r, float y);
+extern uint8_t lqi_alloc_mode;     /* 0=简单pinv(H_tau)全轴最小舵量 1=零空间Pitch保护；见 torque_allocator.c */
+
+void surface_control_task(void);
 void Wing_Control(void);
 void Wing_Control_VECTOR_NOZZLE(void);
+
+/* ===== 悬空声明清理(2026-08-11)：以下原 extern/函数声明在代码中无定义、无引用，注释留档 =====
+ * 实际使用全局见 Surface_t 成员（如自稳基准角 = Surface.Stable_Euler_Angle，非全局 Stable_Euler_Angle[3]）。
+ * [已弃用/悬空]
+ *   extern float Stable_Euler_Angle[3];        // 无全局定义，实际用 Surface.Stable_Euler_Angle
+ *   extern float pitch_control_limit_deg;      // 无定义；仅 PNG_Task.c 注释 & .c #if 0 内引用
+ *   extern Alloc_t Alloc;                      // 无定义无使用（分配器已整合进 torque_allocator）
+ *   extern TerminalLock_t TermLock;            // 有定义(表面_control_task.c)但从未被使用(死代码)
+ *   extern float LOOKING_DATA[10];             // 无定义无使用
+ *   extern uint8_t vel_pursuit_mode;           // 无定义无使用（速度矢量追踪未实现）
+ *   extern uint8_t pitch_glide_mode;           // 无定义无使用（末制导主动滑翔未实现）
+ *   extern float pitch_glide_target, pitch_glide_blend;  // 同上
+ *   void Velocity_Pursuit_Cale(float);         // 无定义无调用
+ *   void Roll_Derotate_PitchYaw(float,float,float*,float*); // 无定义无调用
+ *   void Servo_Mix_AxisLimit(float,float,float);            // 无定义无调用
+ *   void Servo_Mix_MinEnergy(float,float,float);            // 无定义无调用
+ */
 
 
 #endif //SURFACE_CONTROL_TSAK_H

@@ -210,19 +210,11 @@ void Euler_LQI_Cale(float dt)
     lqi_ctrl.body_rate_rad_s[0] = DEG2RAD(Surface.current_gyro_Euler[NOW][ROLL]);
     lqi_ctrl.body_rate_rad_s[1] = DEG2RAD(Surface.current_gyro_Euler[NOW][PITCH]);
     lqi_ctrl.body_rate_rad_s[2] = DEG2RAD(Surface.current_gyro_Euler[NOW][YAW]);
-    
-    if(IMU_Data.Euler[NOW][PITCH]<=0.0)
-    {
-        static int16_t cnt;
-        cnt++;
-        lqi_ctrl.body_rate_rad_s[1] /= cnt;    
-        if(cnt>=1000)
-        {
-            cnt = 1000;
-        }      
-    }
+    /* ⚠ 2026-08-11 删除调试残留：原 PITCH≤0 时 `q /= cnt` 把 pitch 角速度阻尼逐拍除到 1/1000，
+     * 俯冲段 pitch 等于无阻尼裸奔（发散根因）。现 pitch 阻尼全量保留（方案 A 的"保留阻尼"部分）。 */
+
     /* ---- 3) 丢目标时削弱 YAW 误差（防丢目标瞬间猛打；原注释误写"Pitch 门控"，修正为真实 YAW 削弱） ---- */
-    if (Guidance_State <= Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
+    if (Guidance_State < Terminal && Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_FAILURE)
     {
         lqi_ctrl.attitude_error_rad[2] *= 0.1f;
     }
@@ -282,10 +274,26 @@ void Euler_LQI_Cale(float dt)
     //     lqi_ctrl.torque_cmd_Nm[1] = My;
     // }
 
-    /* ---- 5) 计算 H_tau(V_DART_Lqi) = (V_DART_Lqi/V_ref)² * H_tau_Vref ---- */
-    float V_DART_Lqi  = lqi_ctrl.cached_V;
-    // float Vs = (V_DART_Lqi / LQI_V_REF) * (V_DART_Lqi / LQI_V_REF);   /* (V_DART_Lqi/V_ref)² */
-    float Vs = 6;
+    /* ---- 5) 计算 H_tau = Vs * H_tau_Vref（动压缩放；H_tau 是 力矩→舵角 换算矩阵） ----
+     * 理想：Vs = (V_DART_Lqi / V_ref)² —— 气动力矩 ∝ 动压 q = ½ρV²。
+     * 现状(2026-08-11)：EKF 速度不准（视觉 dist_cm 由 blob 像素反算、极粗 → V 抖），
+     *  直接喂 V² 会让 H_tau/舵角抖；故固定 Vs=6 换取稳定（当前调试基线）。
+     * ⚠ 注意：Vs=6 ≠ "速度 6"。真按 V=V_NOM=6 的动压缩放应为 (6/6)² = 1，
+     *  此处 =6 是把 H_tau 整体放大 6 倍（≈等效舵效/动压的台架标定系数），
+     *  若 V 真≈6，则舵角会被 pinv(H_tau) 缩小 6 倍——台架务必验证舵效量级。
+     * 根治方向(见 PROGRESS TODO)：① EKF 速度先低通(~0.4s)再平方；
+     *  ② 改"初速 V_NOM + 气动阻力衰减"弹道模型 V(t)；③ 台架标真实 V 衰减曲线。 */
+    float Vs;
+#if 0  /* 实时动压平方调度（EKF 速度验证准后改 1 启用） */
+    {
+        float v_cur = lqi_ctrl.cached_V;
+        if (v_cur < LQI_V_MIN) v_cur = LQI_V_MIN;
+        if (v_cur > LQI_V_MAX) v_cur = LQI_V_MAX;
+        Vs = (v_cur / LQI_V_REF) * (v_cur / LQI_V_REF);
+    }
+#else  /* 固定动压（当前调试基线：H_tau 放大 6 倍，V 不再参与） */
+    Vs = 6.0f;
+#endif
     float H_tau[3][4];
     for (uint8_t row = 0; row < 3; row++)
         for (uint8_t col = 0; col < 4; col++)
