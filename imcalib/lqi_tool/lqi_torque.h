@@ -137,6 +137,4 @@ void LQI_Update(float dt);
  */
 void Euler_LQI_Cale(float dt);
 
-extern LQI_Control_t lqi_ctrl;
-
 #endif /* __LQI_TORQUE_H */

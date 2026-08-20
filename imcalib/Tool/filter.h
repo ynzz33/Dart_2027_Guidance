@@ -67,13 +67,12 @@ typedef struct
 	float out;
 } one_kalman_filter_init_t;
 
-extern one_kalman_filter_init_t ADC_Battery_Kalman_Filter,IMU_Kalman_Filter[2][3],PNG_gyro_Kalman_Filter[2],PNG_angle_Kalman_Filter[2],ACC_WORLD_Kalman_Filter[3];
+extern one_kalman_filter_init_t ADC_Battery_Kalman_Filter,IMU_Kalman_Filter[2][3],ACC_WORLD_Kalman_Filter[3];
 extern kalman_filter3_t IMU_Kalman_Filter_3;
 extern kalman_filter3_init_t IMU_Kalman_Filter_3_Init;
 void   kalman_filter_init(kalman_filter_t *F, kalman_filter_init_t *I);
 float *kalman_filter_calc(kalman_filter_t *F, float signal1, float signal2);
 float  KalmanFilter(one_kalman_filter_init_t * data,float ResrcData,float ProcessNoise_Q,float MeasureNoise_R);
-float Low_Pass_Filter(float now_data,float last_data,float k);
 void kalman_filter3_init(kalman_filter3_t *F, kalman_filter3_init_t *I);
 void Kalman_Vel_Init(void);
 void Kalman_Vel_Calc(float acc_x, float acc_y,float acc_z);

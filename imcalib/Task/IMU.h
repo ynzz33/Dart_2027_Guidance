@@ -140,8 +140,6 @@ void ALL_CS_Free(void);
 void BMI088_Init_Acc(void);
 void BMI088_Read_Acc(void);
 #endif
-extern uint32_t IMU_Cnt,control_cnt;
-extern float acc_trust_obs;   /* Vofa 可观测:Mahony 加速度校正权重(1=全信任 / 0=纯陀螺coast) */
 extern float gamma_pitch_deg;     /* 弹道角(速度积分版)°。速度链路 #if 0 后不再更新,消费端改用 gamma_pitch_fwd_deg */
 extern float gamma_pitch_fwd_deg; /* 弹道角γ姿态前向估计°(不漂):取代会漂的速度版,末制导俯冲限幅/Vofa 用 */
 extern uint8_t Vel_Reanchor_Flag; /* 俯冲入段置1,IMU 下一拍用姿态前向×V_NOM 锚定世界速度后清0 */

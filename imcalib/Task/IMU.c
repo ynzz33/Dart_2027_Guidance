@@ -15,9 +15,7 @@
 #include "surface_control_task.h"
 #include "CallBack_Task.h"
 #include "vision_ins.h"
-u8 Current_Sensor,Current_Use_Flag,receiveflag = 0;
 IMU_DATA_t IMU_Data = {0};
-uint32_t IMU_Cnt = 0,control_cnt = 0;
 float   gamma_pitch_deg = 0.0f;   /* 弹道角(速度方向俯仰角,速度积分版)°。注:速度链路已 #if 0 停用→此变量不再更新,消费端改用下面 gamma_pitch_fwd_deg;保留定义便于日后接观测器复活 */
 float   gamma_pitch_fwd_deg = 0.0f; /* 弹道角γ的姿态前向估计°(机体纵轴前向仰角,不漂):取代会漂的速度版,供末制导俯冲限幅/Vofa 用 */
 uint8_t Vel_Reanchor_Flag = 0;    /* 俯冲入段置1:本拍 IMU 用"姿态前向×V_NOM"锚定世界速度后清0(见下) */
@@ -103,7 +101,7 @@ void IMU_Attitude_Algorithm(void)
     /* === 加速度可信度门控(核心修复) ===
      * acc_norm 以 g 为单位、静止≈1.0。偏离 1g 越多→越可能掺入线加速度(发射推力/气动减速/冲击),
      * 此时加速度方向不是重力,用它做 Mahony 校正会把姿态拉飞且回不来 → 按偏离程度线性降权。*/
-    float acc_dev = fabsf(fabs(acc_norm) - 1.0f);
+    float acc_dev = fabsf(acc_norm - 1.0f);   /* acc_norm=sqrtf 恒≥0,无需内层 fabs(double 软浮点) */
     float acc_trust;
     if      (acc_dev <= ACC_TRUST_FULL_DEV) acc_trust = 1.0f;
     else if (acc_dev >= ACC_TRUST_ZERO_DEV) acc_trust = 0.0f;
@@ -230,9 +228,20 @@ void IMU_Attitude_Algorithm(void)
     /* 4) 物理静止 → 零速更新(脱离 Guidance_State,见上 ZUPT 修复) */
     if (imu_is_static) VisInsEKF_UpdateZeroVel();
     /* 5) EKF 世界速度回写,供下面机体速度映射 + PNG V_c + Vofa */
-    IMU_Data.Velocity[World][NOW][X] = vins_out.v_world[X];
-    IMU_Data.Velocity[World][NOW][Y] = vins_out.v_world[Y];
-    IMU_Data.Velocity[World][NOW][Z] = vins_out.v_world[Z];
+    /* NaN/Inf 兜底(2026-08-12):EKF 异常出 NaN/Inf 时全轴置 0——否则会穿透 fabs() 判断
+     * (NaN 比较恒 false)使状态机卡死 Start,NaN 一路传播到控制/舵面。仅异常时改变行为。 */
+    {
+        float vw[3] = { vins_out.v_world[X], vins_out.v_world[Y], vins_out.v_world[Z] };
+        for (uint8_t k = 0; k < 3; k++)
+            if (!(vw[k] * 0.0f == 0.0f))   /* IEEE754:仅有限数 ×0 == 0 */
+            {
+                vw[X] = vw[Y] = vw[Z] = 0.0f;
+                break;
+            }
+        IMU_Data.Velocity[World][NOW][X] = vw[X];
+        IMU_Data.Velocity[World][NOW][Y] = vw[Y];
+        IMU_Data.Velocity[World][NOW][Z] = vw[Z];
+    }
     /*机体速度*/
     IMU_Data.Velocity[Body][NOW][X] = IMU_Data.R_matrix_T[0][0] * IMU_Data.Velocity[World][NOW][X] +
                                       IMU_Data.R_matrix_T[0][1] * IMU_Data.Velocity[World][NOW][Y] +
@@ -490,7 +499,6 @@ void BMX055_Read(uint8_t Sensor,uint8_t Reg_Addr)
                         IMU_Data.G_Rad[NOW][i] = DEG2RAD(IMU_Data.G[NOW][i]);
                         IMU_Data.G[LAST][i] = IMU_Data.G[NOW][i];
                     }
-                    receiveflag++;
                 }break;
                 case MAG:
                 {

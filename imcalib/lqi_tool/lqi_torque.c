@@ -4,7 +4,8 @@
  * @details 控制律: tau_cmd = -K_lqi * xa
  *
  *          ★ K_lqi 与速度无关（B_tau = I⁻¹ 不含气动），存单矩阵。
- *          ★ H_tau(V_DART_Lqi) = (V_DART_Lqi/V_ref)² * H_tau_Vref，每拍解析计算。
+ *          ★ H_tau = Vs * H_tau_Vref；Vs 固定 = 6.0f（2026-08-11：EKF 速度幅度不准，
+ *            暂不喂动压调度，Vs 作舵效标定系数，待台架；动态 Vs 方案见 Euler_LQI_Cale #if 0）。
  *          ★ 力矩→舵面由 torque_allocator 独立完成。
  *
  *          [扩展] 启用气动阻尼(DART_LQI_ENABLE_AERO_A=true)后：
@@ -236,43 +237,9 @@ void Euler_LQI_Cale(float dt)
     {
         lqi_ctrl.freeze_integrator[2] = 0;             /* Terminal 段：YAW 积分放行（消静差） */
     }
-    
-    // if(Vision_Rx_Data.dist_cm<=100&&Guidance_State >= Terminal&&Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS)
-    // { 
-    //     lqi_ctrl.attitude_error_rad[2] = 0;
-    //     lqi_ctrl.body_rate_rad_s[2]    = 0;
-    //     lqi_ctrl.integral_error[2]     = 0;
-    // }
 
     /* ---- 4) LQI 解算力矩 ---- */
     LQI_Update(dt);
-
-    // /* ---- 4a) Yaw 优先级门控 + 固定阻尼限幅 ----
-    //  *  保证 pitch 阻尼力矩不超限、不跟 yaw 抢舵面。
-    //  *  yaw 误差 > YAW_DEADZONE_DEG 时压缩 pitch 阻尼；
-    //  *  yaw 在死区内时恢复固定阻尼。
-    //  */
-    // {
-    //     float yaw_err_deg = RAD2DEG(fabsf(lqi_ctrl.attitude_error_rad[2]));
-    //     float My = lqi_ctrl.torque_cmd_Nm[1];
-
-    //     /* yaw 死区阈值：yaw 误差超过此值 → pitch 阻尼压缩让路 */
-    //     static const float YAW_DEADZONE_DEG = 2.0f;     /* ★ 可调 */
-    //     /* 固定阻尼上限：pitch 力矩不超过此值，确保不干扰 yaw 机动 */
-    //     static const float PITCH_DAMP_MAX_NM = 0.02f;  /* ★ 可调，小值起步 */
-
-    //     if (My >  PITCH_DAMP_MAX_NM) My =  PITCH_DAMP_MAX_NM;
-    //     if (My < -PITCH_DAMP_MAX_NM) My = -PITCH_DAMP_MAX_NM;
-
-    //     /* Yaw 门控：yaw 还没到死区 → pitch 阻尼再压缩 */
-    //     if (yaw_err_deg > YAW_DEADZONE_DEG)
-    //     {
-    //         My *= 0.1f;  /* 只留 10%，几乎全让给 yaw */
-    //     }
-    //     /* else: yaw 在死区内 → My 保持 clamp 后的固定阻尼值 */
-
-    //     lqi_ctrl.torque_cmd_Nm[1] = My;
-    // }
 
     /* ---- 5) 计算 H_tau = Vs * H_tau_Vref（动压缩放；H_tau 是 力矩→舵角 换算矩阵） ----
      * 理想：Vs = (V_DART_Lqi / V_ref)² —— 气动力矩 ∝ 动压 q = ½ρV²。

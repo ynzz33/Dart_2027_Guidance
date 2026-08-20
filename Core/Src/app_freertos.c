@@ -108,8 +108,11 @@ void MX_FREERTOS_Init(void) {
   osThreadDef(SelfTest_Task, SelfTestTask, osPriorityIdle, 0, 512);
   SelfTest_TaskHandle = osThreadCreate(osThread(SelfTest_Task), NULL);
 
-  /* definition and creation of IMU_Task */
-  osThreadDef(IMU_Task, IMUTask, osPriorityIdle, 0, 512);
+  /* definition and creation of IMU_Task
+   * 2026-08-12:优先级 Idle→Low(高于 Total_Control_Task)。原同为 Idle、无同步,控制环
+   * "可能用上一拍姿态"(启动时顺序随机)。现 IMU 每 tick 先跑→控制后用新姿态,0 滞后确定性化。
+   * ⚠ 时序变更,需台架回归确认无新增抖动。 */
+  osThreadDef(IMU_Task, IMUTask, osPriorityLow, 0, 512);
   IMU_TaskHandle = osThreadCreate(osThread(IMU_Task), NULL);
 
   /* definition and creation of Total_Control_Task */

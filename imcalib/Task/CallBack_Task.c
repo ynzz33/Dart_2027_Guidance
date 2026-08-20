@@ -19,7 +19,13 @@
 #include "adrc.h"
 #include "../lqr_tool/lqr.h"
 #include "PNG_Task.h"
-uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Vision_Tx_Buf[3] = {0x5A,0,0xA5},Vision_TxDebug_Buf[50],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5],flag = 0;
+uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Vision_Tx_Buf[3] = {0x5A,0,0xA5},Vision_TxDebug_Buf[50],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5];
+
+/* 像素→视线角(度)换算(2026-08-12 宏化,运算次序与值不变):
+ * OpenMV 240×320 坐标系,中心(120,160);y(垂直偏移)→PITCH、x(水平偏移)→YAW。
+ * 换算在接收时完成,下游按"度"使用。 */
+#define VISION_Y_PIX2DEG(v) ((v)/160.0f*36.0f)
+#define VISION_X_PIX2DEG(v) ((v)/120.0f*27.0f)
 Dart_Trigger_Data_t Dart_Trigger_Data = {.Frame_Head = 0xAA,.Frame_Tail = 0x00};
 Vision_Rx_Buf_t Vision_Rx_Data ;
 static uint8_t bit_reverse(uint8_t byte) {
@@ -153,8 +159,8 @@ void Vision_Receive(uint8_t* Buf)
         Vision_Rx_Data.y[NOW] = (int16_t)(Buf[3]<<8|Buf[4]);
         // Vision_Rx_Data.Euler[NOW][0] = Vision_Rx_Data.y[NOW]/16.00f*72.0f;
         // Vision_Rx_Data.Euler[NOW][1] = Vision_Rx_Data.x[NOW]/12.00f*54.0f;
-        Vision_Rx_Data.Euler[NOW][0] = Vision_Rx_Data.y[NOW]/160.0f*36.0f;
-        Vision_Rx_Data.Euler[NOW][1] = Vision_Rx_Data.x[NOW]/120.0f*27.0f;
+        Vision_Rx_Data.Euler[NOW][0] = VISION_Y_PIX2DEG(Vision_Rx_Data.y[NOW]);
+        Vision_Rx_Data.Euler[NOW][1] = VISION_X_PIX2DEG(Vision_Rx_Data.x[NOW]);
         Vision_Rx_Data.Vision_recognize_flag = RECOGNIZE_SUCCESS;
         Vision_Rx_Data.Vision_Recog_Cnt++;          /* 识别成功帧计数(纯统计) */
         Vision_Rx_Data.Vision_New_Data_flag = 1;    /* 视觉新有效数据到达 → 控制端 Guidance_Terminal 据此锁存世界系视线,消费后清0 */
@@ -458,4 +464,3 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
      /* USER CODE BEGIN Callback 1 */
      /* USER CODE END Callback 1 */
  }
-#include "CallBack_Task.h"

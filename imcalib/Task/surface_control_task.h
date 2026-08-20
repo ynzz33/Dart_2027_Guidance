@@ -112,9 +112,10 @@
 #endif
 
 
-/* X 翼物理装配方向系数:实际舵令 = SIGN ⊙ (逻辑阵·指令)。[UL,UR,DR,DL]=[−,+,+,−],
- * 左侧两片(UL,DL)取 −1 因左右舵机镜像安装;台架单轴阶跃标定,某片整体反了翻它的号。
- * SIGN 每片三轴共享、只修整片装反;轴间配对结构由逻辑阵的列决定(见 surface_control_task.c C 阵/Alloc.B)。*/
+/* X 翼物理装配方向系数:[UL,UR,DR,DL]=[−,+,+,−],左侧两片(UL,DL)取 −1 因左右舵机镜像安装。
+ * ⚠ 2026-08-12 警示:激活链路(LQI)已不用本组 SIGN——符号已烘焙进 lqi_geometry_table.h 的
+ * H_tau_Vref 表(output_angle_Servo = servo_cmd_deg 直通)。仅旧 Servo_Mix_* 对照代码在用。
+ * 千万别据此注释给 LQI 链路补乘 SIGN(会整体反转舵效);台架要翻某片,改 H_tau_Vref 对应列。*/
 #define  SIGN_UL  (-1.0f)
 #define  SIGN_UR  (+1.0f)
 #define  SIGN_DR  (+1.0f)
@@ -276,14 +277,10 @@ typedef struct
     float target_angle_Euler [3][3];  /* 目标欧拉角 °(状态机/视觉锁存写入) */
     float current_gyro_Euler [3][3];  /* 当前角速度 °/s(串级内环反馈,yaw 已取负) */
     float output_gyro_Euler  [3][3];  /* 串级 PID 内环输出 = 送混控的三轴力矩需求 */
-    float output_Body_Euler  [3][3];  
     float Finally_Angle      [3][4];  /* 最终写定时器的 PWM 比较值 µs(各舵 ZERO + 角度映射) */
     float Stable_Euler_Angle[3];      /* 自稳基准角:自检后锁存,作 Start/Stable/Terminal 的 roll/yaw(及保持时 pitch)目标 */
     int16_t Guidance_cnt[6];          /* 制导状态机各跳变的去抖计数 */
     uint16_t  Guidance_flag[6];          /* 制导状态机各跳变的去抖计数 */
-    uint8_t pid_cale_flag;            /* 本拍是否跑了 PID(Vofa 观测) */
-    uint8_t Text_Flag;                /* 自检标志(预留) */
-    int16_t POWER_OFF_CNT;             /* 末制导低速超时计数 */
 }Surface_t;
 
 /* 上电自检流程(视觉 + 镖头触发板)状态 */
@@ -313,17 +310,6 @@ typedef struct {
     uint8_t singular_flag; /* Vofa:求逆奇异退回 */
 }Alloc_t;
 
-/* 末端姿态锁定:控制稳定后,近距离一次性冻结姿态+pitch偏置打实际目标装甲板。
- * 原理:飞镖已指向引导灯;在~1.5-3m区间冻结当前pitch/yaw/roll作目标+pitch抬高偏置,
- * 飞镖不再跟灯、固定指向实际目标(灯上方)飞完最后一段。Watch在线切enable/调bias。*/
-typedef struct {
-    uint8_t enable;          /* 0=关(默认) 1=末端锁定,距离<TERMINAL_LOCK_DIST_CM→触发一次冻结,Watch在线切A/B */
-    uint8_t active;          /* Vofa:锁定已触发(1=锁定中,目标冻结不再跟视觉) */
-    float   pitch_bias_deg;  /* 末端锁定pitch偏置°(+:抬高瞄准点补偿灯-靶偏移),Watch在线调,待台架标定 */
-    float   locked_pitch;    /* (内部)锁定时冻结的pitch目标°(触发瞬间current+bias捕捉) */
-    float   locked_yaw;      /* (内部)锁定时冻结的yaw目标°(触发瞬间current捕捉) */
-}TerminalLock_t;
-
 extern Surface_t Surface;
 extern Self_Text_t Self_Text;
 extern uint8_t Guidance_State;
@@ -332,29 +318,12 @@ extern float vision_los_final[2][3];   /* Vofa:末制导锁存的世界系视线
 extern float vision_los_rate[3];    /* Vofa:世界系惯性视线率λ̇(°/s,PN用),视觉帧间差分 */
 extern int16_t target_Cnt, cnt;
 extern uint16_t current_tick;
-extern uint8_t lqi_mode;           /* 1=LQI力矩分配(3轴力矩→4舵)——当前唯一激活链路；见 lqi_torque.c。恒=1 */
 extern uint8_t lqi_alloc_mode;     /* 0=简单pinv(H_tau)全轴最小舵量 1=零空间Pitch保护；见 torque_allocator.c */
 
 void surface_control_task(void);
 void Wing_Control(void);
 void Wing_Control_VECTOR_NOZZLE(void);
 
-/* ===== 悬空声明清理(2026-08-11)：以下原 extern/函数声明在代码中无定义、无引用，注释留档 =====
- * 实际使用全局见 Surface_t 成员（如自稳基准角 = Surface.Stable_Euler_Angle，非全局 Stable_Euler_Angle[3]）。
- * [已弃用/悬空]
- *   extern float Stable_Euler_Angle[3];        // 无全局定义，实际用 Surface.Stable_Euler_Angle
- *   extern float pitch_control_limit_deg;      // 无定义；仅 PNG_Task.c 注释 & .c #if 0 内引用
- *   extern Alloc_t Alloc;                      // 无定义无使用（分配器已整合进 torque_allocator）
- *   extern TerminalLock_t TermLock;            // 有定义(表面_control_task.c)但从未被使用(死代码)
- *   extern float LOOKING_DATA[10];             // 无定义无使用
- *   extern uint8_t vel_pursuit_mode;           // 无定义无使用（速度矢量追踪未实现）
- *   extern uint8_t pitch_glide_mode;           // 无定义无使用（末制导主动滑翔未实现）
- *   extern float pitch_glide_target, pitch_glide_blend;  // 同上
- *   void Velocity_Pursuit_Cale(float);         // 无定义无调用
- *   void Roll_Derotate_PitchYaw(float,float,float*,float*); // 无定义无调用
- *   void Servo_Mix_AxisLimit(float,float,float);            // 无定义无调用
- *   void Servo_Mix_MinEnergy(float,float,float);            // 无定义无调用
- */
 
 
 #endif //SURFACE_CONTROL_TSAK_H

@@ -26,7 +26,9 @@
 #include "torque_allocator.h"
 #include "../User/common_defs.h"   /* RAD2DEG */
 #include <math.h>                  /* fabsf */
-#include <string.h>                /* memset */
+
+/* NaN/Inf 检测：IEEE754 下 NaN/Inf × 0 = NaN，仅有限数 × 0 == 0（与 lqi_torque.h 的 LQI_IS_FINITE 同法） */
+static int torque_finite(float x) { return (x * 0.0f == 0.0f); }
 
 /*============================================================================
  *  内部辅助：2×2 矩阵求逆（Cramer 法则）
@@ -113,6 +115,15 @@ void Torque_Allocate_PitchProtected(
     float delta[4];
     *sat_mask = 0;
     *infeasible = 0;
+
+    /* 输入 NaN/Inf 兜底：力矩指令非有限 → 不可达、舵面回中（防 NaN 穿透 pinv 求逆） */
+    for (uint8_t i = 0; i < 3; i++)
+        if (!torque_finite(torque_cmd_Nm[i]))
+        {
+            *infeasible = 1;
+            for (uint8_t j = 0; j < 4; j++) delta[j] = 0.0f;
+            goto clamp_and_exit;
+        }
 
     /* ---- Step 1: 提取 Roll/Yaw 子矩阵和指令 ---- */
     /* H_ry: H_tau 的第 0(roll) 行和第 2(yaw) 行 */
@@ -278,6 +289,15 @@ void Torque_Allocate_Simple(
     *sat_mask = 0;
     *infeasible = 0;
 
+    /* 输入 NaN/Inf 兜底：力矩指令非有限 → 不可达、舵面回中（防 NaN 穿透 pinv 求逆） */
+    for (uint8_t i = 0; i < 3; i++)
+        if (!torque_finite(torque_cmd_Nm[i]))
+        {
+            *infeasible = 1;
+            for (uint8_t j = 0; j < 4; j++) delta[j] = 0.0f;
+            goto clamp_and_exit_simple;
+        }
+
     /* ---- 1) S = H_tau × H_tau' (3×3 对称) ---- */
     float S[9];  /* row-major: S[row*3+col] */
     for (uint8_t r = 0; r < 3; r++)
@@ -306,15 +326,6 @@ void Torque_Allocate_Simple(
 
     {
         float inv_det = 1.0f / det;
-
-        /* inv(S) 上三角（对称矩阵的逆也对称） */
-        float iS00 =  (S[4] * S[8] - S[5] * S[7]) * inv_det;
-        float iS01 = -(S[1] * S[8] - S[2] * S[7]) * inv_det;  /* = -(S[3]*S[8]-S[5]*S[6])? 不对... */
-
-        /* 辅助余子式 */
-        float iS01_ = (S[5] * S[6] - S[3] * S[8]) * inv_det;  /* = invS[0][1] */
-        float iS02_ = (S[3] * S[7] - S[4] * S[6]) * inv_det;
-        float iS12_ = (S[6] * S[1] - S[0] * S[7]) * inv_det;  /* wait, let me be more careful */
 
         /* 3×3 伴随矩阵 / det，逐元素 */
         /* invS[r][c] = C[c][r] / det where C[c][r] = (-1)^(c+r) * minor(S, c, r) */

@@ -102,7 +102,7 @@ typedef struct
 	uint8_t  Vision_New_Data_flag;   /* 视觉新有效数据到达置1; Guidance_Terminal 消费后清0,据此判新帧 → 锁存世界系视线目标 */
 } Vision_Rx_Buf_t;
 
-extern uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5],flag;
+extern uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5];
 extern float ADC_Voltage_Real;
 extern Dart_Trigger_Data_t Dart_Trigger_Data;
 extern Vision_Rx_Buf_t Vision_Rx_Data;

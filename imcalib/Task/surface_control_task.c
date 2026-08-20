@@ -48,19 +48,8 @@ uint8_t Wing_Servo_Control_Flag = 1,Stable_Flag = 0;//舵机控制标志位
 int16_t target_Cnt = 0,cnt = 0;
 uint16_t current_tick;
 
-float   vision_los_final[2][3],vision_los_current[3];   /* 末制导世界系视线终点:视觉新帧锁存,target 每 tick 斜坡逼近(方案3) */
+float   vision_los_final[2][3];   /* 末制导世界系视线终点:视觉新帧锁存,每 tick 直接赋值 target(无斜率限制) */
 float   vision_los_rate[3] = {0};                    /* 末制导世界系惯性视线率λ̇(°/s):视觉帧间差分,PN超前用;丢帧保持/丢目标清0 */
-
-
-/* [死代码留存,2026-08-11] 末端姿态锁定(锁姿态+pitch偏置打实际目标)——定义从未被任何代码使用,
- * 原 .h extern 已注释。功能未实现,保留定义仅供日后实现参考。 */
-TerminalLock_t TermLock = {
-    .enable        = 1,     /* 默认关,台架验证稳定后再开(Watch置1) */
-    .active        = 0,
-    .pitch_bias_deg = 5.0f, /* pitch抬高偏置°(+:灯在靶下方,抬高瞄准点),待台架标定 */
-    .locked_pitch  = 0.0f,
-    .locked_yaw    = 0.0f,
-};
 
 /* 全局变量定义 global variable(s) END */
 /*---------------------------------------------------------------------------*/
@@ -195,16 +184,15 @@ void Guidance_Stable(void)//自稳
 void Guidance_Terminal(void)//制导段
 {
     /* PN 视线率状态(函数级静态,帧间保持):上帧世界系视线终点 / 自上帧起累计的控制拍数 / 首帧标志 */
-    static uint16_t vis_dt_cnt    = 0;
+    static uint32_t vis_dt_cnt   = 0;   /* uint32: 防 65.5s(uint16) 回绕致帧间视线率爆大(2026-08-12) */
     static uint8_t  los_rate_init = 0;
     vis_dt_cnt++;
         // Surface.current_angle_Euler[NOW][ROLL]+((Surface.Stable_Euler_Angle[ROLL]-Surface.current_angle_Euler[NOW][ROLL])/2.0f);
 
-    vision_los_current[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-    vision_los_current[YAW]   = Surface.current_angle_Euler[NOW][YAW];
     /* 视线目标锁存(方向A):视觉~20Hz、控制1kHz。只在"视觉新数据到达"(Vision_New_Data_flag==1)那一刻,用当时
-     * 姿态把视线锁存到世界系 los=v+current,写入斜坡终点 vision_los_final(不再直接阶跃写 target);帧间(flag==0)
-     * 终点保持不变 → 终点−current 仍随机体转动实时变化(航位推算)。新数据处理结束后置回0,等下一帧再置1。*/
+     * 姿态把视线锁存到世界系终点 vision_los_final;帧间(flag==0)终点保持不变,函数末尾每 tick 直接
+     * target=vision_los_final(无斜率限制,2026-08-12 注释修正——原"斜坡逼近(方案3)"已删)。
+     * 终点−current 仍随机体转动实时变化(航位推算)。新数据处理结束后置回0,等下一帧再置1。*/
     if (Vision_Rx_Data.Vision_New_Data_flag == 1)
     {
         taskENTER_CRITICAL();
@@ -235,15 +223,13 @@ void Guidance_Terminal(void)//制导段
         Vision_Rx_Data.Vision_New_Data_flag = 0;   /* 新数据处理完毕,置回0 */
 
     }
-    if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE) 
+    if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_FAILURE)
     {
         vision_los_final[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         vision_los_final[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
-        vision_los_current[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
-        vision_los_current[YAW]   = Surface.current_angle_Euler[NOW][YAW];
         Surface.target_angle_Euler[NOW][PITCH] = Surface.current_angle_Euler[NOW][PITCH];
         Surface.target_angle_Euler[NOW][YAW]   = Surface.current_angle_Euler[NOW][YAW];
-        vision_los_rate[PITCH] = 0.0f;   
+        vision_los_rate[PITCH] = 0.0f;
         vision_los_rate[YAW]   = 0.0f;
         los_rate_init = 0;
     }
@@ -391,7 +377,7 @@ void get_current_State(void)
             Surface.Stable_Euler_Angle[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
             Surface.Guidance_flag[1] = 1;
         } 
-        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.5f&&fabs(IMU_Data.Velocity[Body][NOW][Y])>0.3f&&fabs(IMU_Data.Velocity[Body][NOW][X])<0.5f)
+        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.5f&&fabsf(IMU_Data.Velocity[Body][NOW][Y])>0.3f&&fabsf(IMU_Data.Velocity[Body][NOW][X])<0.5f)
         {
             Buzzer_Remind();
             Guidance_State = Stable;
@@ -453,12 +439,10 @@ void surface_control_task(void)
     /*状态机，拿目标值*/
     get_current_State();
     get_current_Target();
-    /*pid/adrc，算输出值*/
-    Surface.pid_cale_flag = 0;
+    /*LQI/分配，算输出值*/
     // if (((Surface.Guidance_flag[2] == 1&&Guidance_State == Stable)||Guidance_State==Terminal)&&imu_is_static==0)
     if ((Guidance_State == Stable||Guidance_State==Terminal)&&imu_is_static==0)
     {
-        Surface.pid_cale_flag = 1;
         if (lqi_mode == 1)
         {
             /* LQI 力矩控制 + Pitch 保护零空间分配（3轴力矩→4舵）——当前唯一激活链路 */
@@ -479,9 +463,21 @@ void surface_control_task(void)
     }
     Wing_Control();
     Data_Updata();
-    if (Self_Text.Self_Text_Process == Self_Text_Dart_Trigeer&&Self_Text.Dart_Trigger_Self_Text_flag == Self_Text_Failure && Self_Text.Vision_Self_Text_flag == Self_Text_Success)
+    /* 触发板自检失败但视觉自检成功：原 osDelay(300) 会冻结 1kHz 控制环 300ms(舵面停摆、状态机停转)，
+     * 改为非阻塞一次性 300 拍计数，保持"等待 300ms"语义但不冻结控制环(2026-08-12)。
+     * 若这段等待有特殊用途(如等触发板重报)请说明后再定。 */
     {
-        osDelay( 300 );
+        static uint16_t trigger_fail_wait_cnt = 0;
+        if (Self_Text.Self_Text_Process == Self_Text_Dart_Trigeer
+         && Self_Text.Dart_Trigger_Self_Text_flag == Self_Text_Failure
+         && Self_Text.Vision_Self_Text_flag == Self_Text_Success)
+        {
+            if (trigger_fail_wait_cnt < 300) trigger_fail_wait_cnt++;
+        }
+        else
+        {
+            trigger_fail_wait_cnt = 0;
+        }
     }
   /* USER CODE END surface_control_task */
 }

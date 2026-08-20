@@ -48,7 +48,7 @@ imcalib/                ← 用户应用代码（核心都在这）
 ├── Tool/
 │   ├── pid.c/.h               PID（位置/增量）+ 死区软化 + 角度环绕 + 前馈FFC——**弃用留存**（Euler_pid_Cale 无调用；mahony_pid 仍被 IMU 用）
 │   ├── adrc.c/.h              LADRC 线性自抗扰（单环二阶 LESO+LSEF）——**弃用留存**
-│   ├── filter.c/.h            标量卡尔曼(激活) + 2D卡尔曼(速度EKF已#if0禁用) + 低通 + CMSIS矩阵宏别名
+│   ├── filter.c/.h            标量卡尔曼(激活) + 2D卡尔曼(速度EKF已#if0禁用) + CMSIS矩阵宏别名
 │   ├── vision_ins.c/.h        视觉/IMU 紧耦合 6 态 EKF(世界系 p,v)，给不漂的速度+距离估计
 │   ├── ADC_Battery.c/.h       电池电压 ADC（DMA + 标量卡尔曼）
 │   └── Vofa_send.c/.h         Vofa+ 上位机 2/4/8/16/24/32 通道 float 发送
@@ -82,10 +82,10 @@ python_vision_script/   ← OpenMV 视觉脚本（不编进 Keil）：识别主�
 |---|---|---|---|---|
 | Init_Task | **Normal**（最高） | 512 | 一次性 | 跑 `TotalInitTask()` 后 `osThreadTerminate` 自删 |
 | SelfTest_Task | Idle | 512 | 100ms | 自检 `Self_Text_Task()`（仅 Self_Text_State）+ `Buzzer_play_task()` |
-| IMU_Task | Idle | 512 | 1ms (`vTaskDelayUntil`) | 先 `IMU_Calibrate()`（2s 静态零偏）一次，再循环 `IMU_Task()`=读+解算 |
+| IMU_Task | **Low**（2026-08-12 抬） | 512 | 1ms (`vTaskDelayUntil`) | 先 `IMU_Calibrate()`（2s 静态零偏）一次，再循环 `IMU_Task()`=读+解算 |
 | Total_Control_Task | Idle | 512 | 1ms (`vTaskDelayUntil`) | `TotalControl()`=Vofa+`surface_control_task()`+视觉遥测+ADC |
 
-> ⚠️ **IMU 与 Control 同为 osPriorityIdle、同优先级、各自 1kHz、无同步**：执行先后不确定，控制环可能用**上一拍**姿态（≤1ms 滞后）。初始化顺序靠 Init_Task(Normal) 先跑完再让 Idle 任务跑（正确）。改进项见 PROGRESS TODO。
+> ⚠️ **2026-08-12 已修复（时序变更，待台架回归）**：原 IMU 与 Control 同为 osPriorityIdle、无同步、控制环可能用**上一拍**姿态（启动顺序随机 0/1 拍滞后）。现 IMU_Task 优先级抬到 **osPriorityLow**（高于 Control/Idle），每 tick IMU 先跑、Control 后用最新姿态，0 滞后确定性化。初始化顺序仍靠 Init_Task(Normal) 先跑完。
 
 ### 初始化序列 `TotalInitTask()`（`Init_Config.c`）
 `ALL_CS_Free` → 启 TIM6/7 中断 → `PWM_Init()`(启 TIM2/3/4 PWM) → `pid_init()` → `Q[NOW][0]=1` → 三路 UART 空闲DMA接收(huart1半双工/huart2调试/huart3视觉，关半传输中断) → `ADC_Init()` → `IMU_Init()`(BMX055或BMI088,按 `USE_BMI088` 宏切换) → `PNG_Init()` → `Kalman_Vel_Init()` → 上电 → 目标欧拉角初值 30/30/30（随即被状态机覆盖）。
@@ -304,7 +304,8 @@ Stable/Terminal 段且 `imu_is_static==0` → **LQI 力矩控制**（`lqi_mode=1
 
 ## 11. 已知问题 / 陷阱（答题时警惕；详见 PROGRESS「当前 TODO」）
 
-- **IMU/Control 同 Idle 优先级无同步** → 控制可能用上一拍姿态。
+- ~~**IMU/Control 同 Idle 优先级无同步**~~ → **2026-08-12 已修复**（IMU 抬到 osPriorityLow，见 §3 注），待台架回归。
+- **NaN/Inf 防线（2026-08-12 加固，正常路径行为不变）**：① EKF 速度回写（IMU.c）非有限→全轴置 0；② 分配器入口（torque_allocator.c）力矩非有限→不可达+回中；③ `abs_limit`（pid.c）非有限→归 0（防 NaN 穿透到定时器）；④ `vis_dt_cnt` 改 uint32 防 65.5s 回绕。分配器 `Torque_Allocate_Simple` 死计算 `iS*` 已删（A1）。
 - **GYR_KF_R / ACC_KF_R = 10（IMU.h，以代码为准）**：旧文档记 1000 已过时。R=10 为当前调参值，Q:R 比例决定滤波；调参以代码为准。
 - **视觉轴映射**：**x→YAW、y→PITCH**（`Euler[0]=pitch=y/160*36`、`Euler[1]=yaw=x/120*27`）——2026-08-11 按代码修正，旧文档写反。
 - **EKF 速度幅度不准（方向已验证）**：H_tau 动压调度因此固定 `Vs=6`（舵效系数，待台架）；真实速度 6~10 m/s。
@@ -312,7 +313,7 @@ Stable/Terminal 段且 `imu_is_static==0` → **LQI 力矩控制**（`lqi_mode=1
 - **angle_wrap 未启用**：LQI 里 yaw 误差恒环绕（`Angle_Wrap_180`）；roll 按 `lqi_ctrl.roll_wrap`（默认 0）。
 - **Pitch 方案A**：LQI 里 pitch 误差恒 0、只留角速度阻尼——依托初始动力，不追目标角度。
 - 失效/未启用（2026-08-11 现状）：MAG、PNG 主环(`#if 0`)、PN 超前补偿(`#if 0`)、LQR(弃用)、LADRC/ADRC(弃用)、PID 串级 `Euler_pid_Cale`(无调用)、Servo_Mix_* 分配器(无定义)、`vel_pursuit_mode`(悬空已注释)、欧拉运动学变换(注释)。
-- 死代码/卫生：`FIXED_WING` 整段 `#if 0`；`PWM_Init` 启了若干未配置/无 GPIO 通道（实际用的 4 路正常）；`Button.c` `Press_Long_Cnt!=0`（数组地址恒真，实际不触发越界）；`filter.c` 注释 GBK 乱码；`TermLock`（末端锁定）有定义未使用（死代码）；悬空声明已从 .h 注释清理。
+- 死代码/卫生：`FIXED_WING` 整段 `#if 0`；`PWM_Init` 启了若干未配置/无 GPIO 通道（实际用的 4 路正常）；`Button.c` `Press_Long_Cnt!=0`（数组地址恒真，实际不触发越界）；`filter.c` 注释 GBK 乱码；~~`TermLock`（末端锁定）死代码~~ **已删除（2026-08-12）**；悬空声明已从 .h 注释清理。
 
 ## 12. 2026-06-07 本次审计已修复
 

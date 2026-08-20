@@ -24,6 +24,13 @@ float ABS(float num)
 
 void abs_limit(float *a, float ABS_MAX)
 {
+    /* NaN/Inf 拦截(2026-08-12):比较对 NaN 全 false,NaN 会原样穿透一路到 __HAL_TIM_SET_COMPARE。
+     * 非有限输入 → 归 0(仅异常时改变行为,正常路径不变)。 */
+    if (!(*a * 0.0f == 0.0f))
+    {
+        *a = 0.0f;
+        return;
+    }
     if(*a > ABS_MAX)
         *a = ABS_MAX;
     if(*a < -ABS_MAX)

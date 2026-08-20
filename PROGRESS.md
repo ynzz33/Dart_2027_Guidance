@@ -4,7 +4,7 @@
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
 > 🌐 跨 AI 工作规则/约束见 [AGENTS.md](AGENTS.md)（任何 AI 接手前先读：沟通方式、改动哲学、文档/验证纪律、红线）。
-> 最后更新：2026-08-11（**主链路收敛为 LQI**：LQI 力矩控制恒激活 + `Torque_Allocate_Simple` 简单 pinv 分配；pitch 方案A「误差恒 0 只留阻尼」；yaw 积分修复（阈值 0.5°/限幅 5°）；Vs=6 固定（舵效系数待台架）；LQR/ADRC/LADRC/PID 串级/Servo_Mix_*/pitch_glide/TermLock 全部弃用或未实现、代码留存；悬空声明从 .h 清理；CODE_OVERVIEW/PROGRESS 全文同步）。前次：2026-06-27 全量复审）
+> 最后更新：2026-08-12（**纯代码优化**：LQI 激活链路加固+清理——NaN/Inf 防线、删死代码/悬空声明/死计算、IMU 任务优先级抬到 Low 消除随机 1 拍滞后（时序变更待台架回归）、像素→度宏化；A13 作废：`target_Cnt` 由 Button.c 写入非死代码；全部未编译）。前次：2026-08-11 主链路收敛为 LQI）
 >
 > ⚠️ **本项目处于高频调参期**（几乎每个 commit 都在改增益/档位/门控）。本文档**只记结构、方案与"为什么"，不追具体数值**——所有增益/阈值/默认档**以代码为准**（lqi_torque.h 宏、lqi_gain_table.h K、pid.c `pid_init` 等）。文中数值均为"某时刻快照"，可能已变。**2026-08-11 起：文档中带"弃用/留存"标记的旧算法（PID 串级/LQR/LADRC/Servo_Mix/pitch_glide）均不在代码中激活，仅历史对照。**
 
@@ -282,7 +282,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 
 ### 🔬 2026-06-07 审计新发现
 - **分配器切档验证**：默认已切 Mode1，确认 Stable 下 roll 自稳线性、`servo_lat_scale` 未饱和≡1；Mode0 修公式后作对照，未饱和时应与 Mode1 一致。
-- **任务优先级/同步**：`IMU_Task` 与 `Total_Control_Task` 同为 `osPriorityIdle`、各自 1kHz、无同步 → 控制可能用上一拍姿态。建议把 IMU 优先级抬高于控制、或合并、或用信号量/任务通知同步。
+- ✅ **已解决（2026-08-12）**：任务优先级/同步——IMU_Task 抬到 `osPriorityLow`（高于 Control），每 tick IMU 先跑、控制后用新姿态；**待台架回归确认无新抖动**。
 - ✅ **已解决**：TIM4 预分频改 **169**（与 TIM3 一致，时基统一，原 167 的 1.19% 差已消，用户改）；删除无用的 **`Servo_PWM_Limit`**（量纲统一为角度后失效，输出由上游 `abs_limit(±60)` 约束）；**视觉单位/轴映射经确认正确**（视觉发像素、`Vision_Receive` 接收时转度 `/160*72`、`/120*54`，下游按度用）。
 - 🗑️ **已决定不再跟踪（2026-06-08）**：① **加速度标定**——用户确认现状正常，删除待办（仅经 A_World→速度→PNG、未接主环，不影响自稳）；② **IMU SPI 阻塞读超时**——不作处理；③ **FFC 前馈**——见下「🔜 下一步」决策。
 
@@ -387,6 +387,20 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **清理悬空声明**：`Alloc`、`TermLock`、`pitch_glide_mode/target/blend`、`vel_pursuit_mode`、`LOOKING_DATA`、`Servo_Mix_AxisLimit/MinEnergy`、`Roll_Derotate_PitchYaw`、`Velocity_Pursuit_Cale` 均为 .h 声明无 .c 定义/使用 → 已注释。`eide.yml` 删除不存在的 `Tool/lqr.c/.h` 引用。
 - **文档全量同步**：CODE_OVERVIEW 激活链路、§7/§8/§9/§10/§11、视觉轴映射（**x→YAW、y→PITCH**，旧文档写反）、数据流水线、目录结构均已更新为 LQI 现状。
 - **未编译**(eIDE/Keil)。**待台架**：① Vs=6 实际舵效/放大倍数；② yaw 积分收敛与限幅；③ pitch 方案A（不追角度只阻尼）飞行表现；④ LQI 分配器输出不超限。
+
+### 2026-08-12：LQI 激活链路纯代码优化（加固+清理，未编译/待 eIDE 编译）
+
+- **动机（用户定）**：纯代码层面优化（①防炸机边界加固 ②代码干净 ③1kHz 环效率/时序），**不动控制效果**（增益/控制律不碰，用户单独查控制）。无实测现象。
+- **加固（正常路径行为不变）**：
+  - EKF 速度回写 NaN/Inf 兜底（IMU.c）：非有限→全轴置 0（防 NaN 穿透 fabs 判断卡死 Start）
+  - 分配器入口 NaN 兜底（torque_allocator.c 两函数）：力矩非有限→infeasible+回中
+  - `abs_limit` NaN 拦截（pid.c）：非有限→归 0（防 NaN 穿透到 `__HAL_TIM_SET_COMPARE`）
+  - `vis_dt_cnt` uint16→uint32（防 65.5s 回绕致帧间视线率爆大）
+  - `osDelay(300)` 阻塞 1kHz 控制环 → 非阻塞一次性 300 拍计数
+- **清理（编译期验证，行为零变化）**：删 torque_allocator 死计算 `iS*`、`vision_los_current`、`pid_cale_flag`+死结构成员（output_Body_Euler/Text_Flag/POWER_OFF_CNT）、IMU.c 死全局（Current_Sensor/Use_Flag/receiveflag/IMU_Cnt/control_cnt）、悬空 extern（acc_trust_obs/Vofa_8/重复 lqi_ctrl、lqi_mode 去一）、CallBack_Task `flag`+尾部重复 include、filter.c 死变量/`Low_Pass_Filter`/PNG 卡尔曼、`TermLock`+`TerminalLock_t`（死代码）、eide.yml Tool/lqr 悬空引用；注释修正 5 处（lqi_torque 头注释/SIGN 警示/vision_ins Q·R/斜坡过时注释/像素→度宏化 `VISION_X/Y_PIX2DEG`）。
+- **A13 作废**：`cnt<target_Cnt` 块非死代码——`target_Cnt` 由 Button.c:66 短按第 1 下 `+=100` 写入，是"按键后向 OpenMV 突发重发 Record_Start"机制，保留不动。
+- **时序**：IMU_Task 优先级 `osPriorityIdle`→`osPriorityLow`（app_freertos.c）——每 tick IMU 先跑、控制后用新姿态，消除随机 1 拍滞后。**时序变更，待台架回归确认无新抖动。**
+- **未编译**：全部改动需 eIDE 编译确认（纯删改+防护，链接风险低）；台架 Vofa 对比改前/改后曲线应一致。
 
 ### 2026-07-14：BMI088 加速度计支持（BMX055 可切换）
 

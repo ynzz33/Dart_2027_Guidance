@@ -9,10 +9,7 @@ mat I_mat;
 float I_data_4[4] = { 1, 0,
 					0, 1};
 mat I_mat_4;
-float matrix_value1;
-float matrix_value2;
-float matrix_value3;
-one_kalman_filter_init_t ADC_Battery_Kalman_Filter,IMU_Kalman_Filter[2][3],PNG_gyro_Kalman_Filter[2],PNG_angle_Kalman_Filter[2],ACC_WORLD_Kalman_Filter[3];
+one_kalman_filter_init_t ADC_Battery_Kalman_Filter,IMU_Kalman_Filter[2][3],ACC_WORLD_Kalman_Filter[3];
 
 #if 1/*��ʼ��*/
 kalman_filter_t V_KF_x,V_KF_y,V_KF_z;
@@ -231,9 +228,6 @@ float *kalman_filter_calc(kalman_filter_t *F, float signal1, float signal2)
   mat_sub(&I_mat_4, &F->P, &TEMP);//
   mat_mult(&TEMP, &F->Pminus, &F->P);
 
-  matrix_value1 = F->xhat.pData[0];
-  matrix_value2 = F->xhat.pData[1];
-
   F->filtered_value[0] = F->xhat.pData[0];
   F->filtered_value[1] = F->xhat.pData[1];
   return F->filtered_value;
@@ -264,11 +258,6 @@ float KalmanFilter(one_kalman_filter_init_t * data,const float ResrcData,float P
    data->p_last = p_now;
    data->x_last = x_now;
    return x_now;
-}
-float Low_Pass_Filter(float now_data,float last_data,float k)
-{
-    now_data=k*now_data+(1-k)*last_data;
-    return now_data;
 }
 #if 0 /*�Լ��ٶȵ�һ����ά�������˲�*/
 kalman_filter3_t IMU_Kalman_Filter_3;
@@ -401,10 +390,6 @@ float *kalman_filter3_imu_calc(kalman_filter3_t *F, float acc_x, float acc_y, fl
   mat_mult(&F->K, &F->H, &F->P);//            p(k|k) = (I-kg(k)*H)*P(k|k-1)
   mat_sub(&I_mat, &F->P, &TEMP);//
   mat_mult(&TEMP, &F->Pminus, &F->P);
-
-  matrix_value1 = F->xhat.pData[0];
-  matrix_value2 = F->xhat.pData[1];
-  matrix_value3 = F->xhat.pData[2];
 
   F->filtered_value[0] = F->xhat.pData[0];
   F->filtered_value[1] = F->xhat.pData[1];
