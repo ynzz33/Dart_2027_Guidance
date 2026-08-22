@@ -55,7 +55,13 @@
 #define GYR_SIGN_Z  (-1.0f)   /* 绕机体Z(上): + 应 = 左偏(右手);上报 yaw 右+ = −此值 */
 
 /* 俯冲入段锚定世界速度用的标称滑翔速度(m/s),待台架实测。
- * 只决定弹道角 γ 的演化速率(γ̇≈−g·cosγ/V),不决定初始 γ(初始 γ 只由姿态前向方向定),故粗略即可。*/
+ * 只决定弹道角 γ 的演化速率(γ̇≈−g·cosγ/V),不决定初始 γ(初始 γ 只由姿态前向方向定),故粗略即可。
+ * 【离线标定方法】发射路径上设两条已知间距标记,用高速手机录像或两道光电门记录通过时间差,
+ *   速度=间距/时间差,连续测5~10次。V_NOM_MS=中位数, sigma_v0=标准差。
+ *   然后 ESKF_P0_VEL_VAR = sigma_v0²(见 vision_bearing_eskf.h)。
+ * 【当前状态】无实测数据,V_NOM_MS=6.0 为名义先验。
+ *   禁止将 eskf_out.range_m、eskf_out.vc、速度模长用于动压调度、闭合速度、碰撞时间或 PNG 决策。
+ *   当前固定 Vs=6 的 H_tau 调度逻辑保持不变。*/
 #define V_NOM_MS    6.0f
 /* VEL_MAX_MS 见 common_defs.h */
 
@@ -117,8 +123,6 @@ typedef struct
     float A_theory[2][3];   /* 理论重力方向(R_matrix_T 第3列 tx/ty/tz),Mahony 校正基准 */
     float A_World[2][3];    /* 世界系线加速度(已扣重力);→ 速度积分/PNG(当前未接主环) */
     float Velocity[2][2][3];/* 速度 [World/Body][NOW/LAST][X/Y/Z];当前未启用(速度卡尔曼注释掉) */
-    float Vel_Dir[3];       /* 速度方向角(世界系)索引[PITCH,ROLL(未用),YAW] (°);EKF 输出后解算,供速度外环 PID。
-                             * 注:必须 [3] 不能 [2]——枚举 YAW=2,Vel_Dir[YAW] 即下标2;原 [2] 会越界踩到下面 temp[0][0]。*/
     float temp[2][3];       /* 暂存(3维加速度卡尔曼用,当前 #if0 禁用) */
     float G_Offset[3];      /* 陀螺零偏(上电2s静态标定均值),IMU_Data_Read 中扣除 */
     float A_Offset[3];      /* 加速度零偏(标定均值,Z 已扣 1g);当前未回扣主环 */
@@ -146,4 +150,5 @@ extern uint8_t Vel_Reanchor_Flag; /* 俯冲入段置1,IMU 下一拍用姿态前�
 extern uint8_t imu_is_static;     /* Vofa 可观测:1=发射前判定静止、正在 ZUPT 归零速度+对准零偏,0=运动 */
 extern uint8_t Yaw_Zero_Req;      /* 置1请求 IMU 下一拍以当前绝对航向为新原点(yaw 归零),IMU 捕获后清0 */
 extern float   Yaw_Zero_Offset;   /* 绝对航向归零偏移°,可 Vofa 观测/调试器查看 */
+extern uint8_t eskf_mode;         /* 0=旧6态KF(vision_ins), 1=新6态bearing-only非线性EKF;调试器Watch切换 */
 #endif //IMU_H

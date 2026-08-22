@@ -96,6 +96,8 @@ virtualFolder:
         - path: imcalib/Tool/Vofa_send.h
         - path: imcalib/Tool/vision_ins.c
         - path: imcalib/Tool/vision_ins.h
+        - path: imcalib/Tool/vision_bearing_eskf.c
+        - path: imcalib/Tool/vision_bearing_eskf.h
         - path: imcalib/Tool/adrc.c
         - path: imcalib/Tool/adrc.h
         - path: imcalib/Tool/lqr.c

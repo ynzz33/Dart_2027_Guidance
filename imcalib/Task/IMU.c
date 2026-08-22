@@ -15,7 +15,9 @@
 #include "surface_control_task.h"
 #include "CallBack_Task.h"
 #include "vision_ins.h"
+#include "vision_bearing_eskf.h"
 IMU_DATA_t IMU_Data = {0};
+uint8_t eskf_mode = 0;  /* 0=旧6态KF(vision_ins), 1=新6态bearing-only非线性EKF */
 float   gamma_pitch_deg = 0.0f;   /* 弹道角(速度方向俯仰角,速度积分版)°。注:速度链路已 #if 0 停用→此变量不再更新,消费端改用下面 gamma_pitch_fwd_deg;保留定义便于日后接观测器复活 */
 float   gamma_pitch_fwd_deg = 0.0f; /* 弹道角γ的姿态前向估计°(机体纵轴前向仰角,不漂):取代会漂的速度版,供末制导俯冲限幅/Vofa 用 */
 uint8_t Vel_Reanchor_Flag = 0;    /* 俯冲入段置1:本拍 IMU 用"姿态前向×V_NOM"锚定世界速度后清0(见下) */
@@ -82,9 +84,12 @@ void IMU_Attitude_Algorithm(void)
     tx = IMU_Data.R_matrix_T[0][2] ;
     ty = IMU_Data.R_matrix_T[1][2] ;
     tz = IMU_Data.R_matrix_T[2][2] ;
-    /*实际加速度归一化*/
+    /*实际加速度归一化(去偏后再归一化喂 Mahony:不去偏→横向零偏被当倾角→R_matrix_T 偏)*/
     float mahony_temp[3] = {0};
-    float acc_norm = sqrtf(a_raw_x*a_raw_x+a_raw_y*a_raw_y+a_raw_z*a_raw_z);
+    float mah_a_x = a_raw_x - IMU_Data.A_Offset[X];
+    float mah_a_y = a_raw_y - IMU_Data.A_Offset[Y];
+    float mah_a_z = a_raw_z - IMU_Data.A_Offset[Z];
+    float acc_norm = sqrtf(mah_a_x*mah_a_x + mah_a_y*mah_a_y + mah_a_z*mah_a_z);
     if (acc_norm<0.001f)
     {
         ax_normed = 0;
@@ -94,9 +99,9 @@ void IMU_Attitude_Algorithm(void)
     else
     {
         /* 归一化：保留符号！fabs会丢失方向信息，导致Mahony补偿错误 */
-        ax_normed = a_raw_x / acc_norm;
-        ay_normed = a_raw_y / acc_norm;
-        az_normed = a_raw_z / acc_norm;
+        ax_normed = mah_a_x / acc_norm;
+        ay_normed = mah_a_y / acc_norm;
+        az_normed = mah_a_z / acc_norm;
     }
     /* === 加速度可信度门控(核心修复) ===
      * acc_norm 以 g 为单位、静止≈1.0。偏离 1g 越多→越可能掺入线加速度(发射推力/气动减速/冲击),
@@ -163,19 +168,17 @@ void IMU_Attitude_Algorithm(void)
     float azc = a_raw_z - IMU_Data.A_Offset[Z];
     float acc_dev_zupt = fabsf(sqrtf(axc*axc + ayc*ayc + azc*azc) - 1.0f);
     static uint16_t zupt_cnt = 0;
-    // uint8_t pre_launch = (Guidance_State == Self_Text_State || Guidance_State == Start);
-    if (acc_dev_zupt < ZUPT_ACC_DEV_G && g_norm_dps < ZUPT_GYR_DPS)  /* 用去零偏模长,见上 */
+    /* === ZUPT 状态机门控:只在发射前(Self_Text/Start)允许零速更新 ===
+     * 进入 Stable 后停 ZUPT——飞行段即使恰好 |a|≈1g 且角速度小,也不做 v=0 更新。
+     * 装弹期间仍是 Start,短时运动会让 zupt_cnt 自行归零;装好重新静置后又能继续归零。*/
+    uint8_t pre_launch = (Guidance_State == Self_Text_State || Guidance_State == Start);
+    if (pre_launch && acc_dev_zupt < ZUPT_ACC_DEV_G && g_norm_dps < ZUPT_GYR_DPS)
     {
         if (zupt_cnt < ZUPT_HOLD_CNT) zupt_cnt++;
     }
     else zupt_cnt = 0;
     imu_is_static = (zupt_cnt >= ZUPT_HOLD_CNT) ? 1 : 0;
-    if (imu_is_static)   /* 静止确认:在线 refine 机体系零偏(运动/发射后不更新=冻结) */
-    {
-        IMU_Data.A_Offset[X] += ACC_BIAS_LPF_K * ((a_raw_x - IMU_Data.R_matrix_T[0][2]) - IMU_Data.A_Offset[X]);
-        IMU_Data.A_Offset[Y] += ACC_BIAS_LPF_K * ((a_raw_y - IMU_Data.R_matrix_T[1][2]) - IMU_Data.A_Offset[Y]);
-        IMU_Data.A_Offset[Z] += ACC_BIAS_LPF_K * ((a_raw_z - IMU_Data.R_matrix_T[2][2]) - IMU_Data.A_Offset[Z]);
-    }
+    /* 零偏在 IMU_Calibrate 完成后立即冻结,不再被在线修改。*/
     /* 去重力得机体系真实线加速度,单位 m/s²。先扣机体系零偏 A_Offset、再扣重力投影。a_raw 单位 g(静止|a|≈1),
      * 速度积分(v+=dT·a)与锚定 V_NOM_MS 按 m/s,故 ×gravity(=GRAVITY_MS2)把 (a_raw−bias) 换成 m/s²、再扣
      * 机体系重力投影 gravity·R_col3(R_matrix_T 第3列)。合并即 gravity·((a_raw−bias) − R_col3):静止且零偏
@@ -197,6 +200,8 @@ void IMU_Attitude_Algorithm(void)
         /* 1) 预测:本拍世界加速度推进一步(1kHz) */
         float a_w[3] = { IMU_Data.A_World[NOW][X], IMU_Data.A_World[NOW][Y], IMU_Data.A_World[NOW][Z] };
         VisInsEKF_Predict(a_w, dT);
+        /* ESKF 并行预测(姿态从 IMU_Data.R_matrix_T 读取,不自己积分四元数) */
+        BearingESKF_Predict(a_w, dT);
     }
     /* 2) 俯冲入段锚定初速(姿态前向×V_NOM)
      * 【2026-08-11 更新】已启用,且 EKF 速度方向已验证正确(极性对,仅幅度不准)。
@@ -210,30 +215,49 @@ void IMU_Attitude_Algorithm(void)
        float fwd_y = IMU_Data.R_matrix_T[1][1];
        float fwd_z = IMU_Data.R_matrix_T[1][2];
        VisInsEKF_SetVel(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
+       BearingESKF_SetVel(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
        Vel_Reanchor_Flag = 0;
    }
     /* 3) 视觉新帧(识别成功且有距离包)→ 笛卡尔位置量测更新。用 Vision_Recog_Cnt 跳变判新帧,
-     *    不抢 TotalControlTask 的 Vision_New_Data_flag;本任务读 Vision_Rx_Data(ISR 写,字段小). */
+     *    不抢 TotalControlTask 的 Vision_New_Data_flag。
+     *    先复制完整局部快照,防止 UART 中断在读多字段期间撕裂帧。*/
     {
+        Vision_Rx_Buf_t vision;
+        taskENTER_CRITICAL();
+        vision = Vision_Rx_Data;
+        taskEXIT_CRITICAL();
+
         static uint32_t vins_last_recog = 0;
-        uint32_t rc = Vision_Rx_Data.Vision_Recog_Cnt;
+        uint32_t rc = vision.Vision_Recog_Cnt;
         if (rc != vins_last_recog)
         {
-            if (Vision_Rx_Data.Vision_recognize_flag == RECOGNIZE_SUCCESS && Vision_Rx_Data.dist_cm > 0)
-                VisInsEKF_UpdateVision((float)Vision_Rx_Data.x[NOW], (float)Vision_Rx_Data.y[NOW],
-                                       (float)Vision_Rx_Data.dist_cm, IMU_Data.R_matrix_T);
+            if (vision.Vision_recognize_flag == RECOGNIZE_SUCCESS && vision.dist_cm > 0)
+                VisInsEKF_UpdateVision((float)vision.x[NOW], (float)vision.y[NOW],
+                                       (float)vision.dist_cm, IMU_Data.R_matrix_T);
+            /* ESKF bearing 更新(只要有识别成功帧,不要求距离) */
+            if (vision.Vision_recognize_flag == RECOGNIZE_SUCCESS)
+            {
+                float az_rad = DEG2RAD(vision.Euler[NOW][1]);   /* [1]=x像素→方位角 */
+                float el_rad = DEG2RAD(vision.Euler[NOW][0]);   /* [0]=y像素→俯仰角 */
+                /* 首帧:用视觉角度+先验距离构造初始位置 */
+                if (!BearingESKF_PosInited()) { BearingESKF_InitPos(az_rad, el_rad, ESKF_RANGE_PRIOR); }
+                BearingESKF_UpdateBearing(az_rad, el_rad);
+            }
             vins_last_recog = rc;
         }
     }
     /* 4) 物理静止 → 零速更新(脱离 Guidance_State,见上 ZUPT 修复) */
-    if (imu_is_static) VisInsEKF_UpdateZeroVel();
-    /* 5) EKF 世界速度回写,供下面机体速度映射 + PNG V_c + Vofa */
-    /* NaN/Inf 兜底(2026-08-12):EKF 异常出 NaN/Inf 时全轴置 0——否则会穿透 fabs() 判断
-     * (NaN 比较恒 false)使状态机卡死 Start,NaN 一路传播到控制/舵面。仅异常时改变行为。 */
+    if (imu_is_static) { VisInsEKF_UpdateZeroVel(); BearingESKF_UpdateZeroVel(); }
+    /* 5) 世界速度回写(按 eskf_mode 选源) + NaN/Inf 兜底 */
     {
-        float vw[3] = { vins_out.v_world[X], vins_out.v_world[Y], vins_out.v_world[Z] };
+        float vw[3];
+        if (eskf_mode == 1) {
+            vw[X] = eskf_out.v_world[X]; vw[Y] = eskf_out.v_world[Y]; vw[Z] = eskf_out.v_world[Z];
+        } else {
+            vw[X] = vins_out.v_world[X]; vw[Y] = vins_out.v_world[Y]; vw[Z] = vins_out.v_world[Z];
+        }
         for (uint8_t k = 0; k < 3; k++)
-            if (!(vw[k] * 0.0f == 0.0f))   /* IEEE754:仅有限数 ×0 == 0 */
+            if (!(vw[k] * 0.0f == 0.0f))
             {
                 vw[X] = vw[Y] = vw[Z] = 0.0f;
                 break;
@@ -252,14 +276,6 @@ void IMU_Attitude_Algorithm(void)
     IMU_Data.Velocity[Body][NOW][Z] = IMU_Data.R_matrix_T[2][0] * IMU_Data.Velocity[World][NOW][X] +
                                       IMU_Data.R_matrix_T[2][1] * IMU_Data.Velocity[World][NOW][Y] +
                                       IMU_Data.R_matrix_T[2][2] * IMU_Data.Velocity[World][NOW][Z];
-    /* 6) 速度方向角(世界系):供速度外环 PID 使用 */
-    {
-        float vx = vins_out.v_world[X], vy = vins_out.v_world[Y], vz = vins_out.v_world[Z];
-        float v_horiz = sqrtf(vx*vx + vy*vy);
-        IMU_Data.Vel_Dir[PITCH] = RAD2DEG(atan2f(vz, v_horiz));   /* 仰角 */
-        IMU_Data.Vel_Dir[YAW]   = RAD2DEG(atan2f(vx, vy));        /* 方位角 */
-    }
-
 #endif
     /* === 弹道角 γ:姿态前向估计(新变量 gamma_pitch_fwd_deg,不动旧速度版 gamma_pitch_deg) ===
      * 无动力俯冲弹速度矢量≈机体纵轴前向;纯积分世界速度无外部观测、飞行段(ZUPT 停)线性漂不可用,故弃用速度版。
@@ -705,19 +721,28 @@ void IMU_Calibrate(void)
         osDelay(1);
     }
 
-    /* 零偏 = 均值 − R_col3(姿态已收敛,此即真重力方向)
-     * 与去重力公式 a_no_grav = gravity*((a_raw−A_Offset)−R_col3) 完全自洽:
-     * 静止时 a_raw=A_Offset+R_col3 → a_no_grav=0 → A_World=0 → 速度不漂。*/
+    /* 零偏计算:用发射架已知姿态构造理论重力向量(机体系),不依赖 Mahony 收敛质量。
+     * Shot_Pitch/Roll 是发射架真实机械角(°),见 surface_control_task.h。
+     * yaw 绕重力轴旋转不影响重力在机体系投影,故不需要 yaw。
+     * 机体系 ENU:X=右,Y=前,Z=上;静止加速度计读 +1g 朝上。
+     * g_ref_body = R_body_to_world^T * [0,0,1] = 世界重力(上)在机体系的投影。*/
     float amean[3];
     for (int i = 0; i < 3; i++)
     {
         IMU_Data.G_Offset[i] = gsum[i] / (float)SAMPLE_MS;
         amean[i] = asum[i] / (float)SAMPLE_MS;
     }
-    /* R_col3 = R_matrix_T 第3列(姿态已收敛,取最新值) */
-    IMU_Data.A_Offset[X] = amean[X] - IMU_Data.R_matrix_T[0][2];
-    IMU_Data.A_Offset[Y] = amean[Y] - IMU_Data.R_matrix_T[1][2];
-    IMU_Data.A_Offset[Z] = amean[Z] - IMU_Data.R_matrix_T[2][2];
+    {
+        float pitch_rad = DEG2RAD(Shot_Pitch);
+        float roll_rad  = DEG2RAD(Shot_Roll);
+        float g_ref[3];
+        g_ref[X] = -sinf(roll_rad);
+        g_ref[Y] =  cosf(roll_rad) * sinf(pitch_rad);
+        g_ref[Z] =  cosf(roll_rad) * cosf(pitch_rad);
+        IMU_Data.A_Offset[X] = amean[X] - g_ref[X];
+        IMU_Data.A_Offset[Y] = amean[Y] - g_ref[Y];
+        IMU_Data.A_Offset[Z] = amean[Z] - g_ref[Z];
+    }
 
     IMU_Data.calib_done = 1;
 }

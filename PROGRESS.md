@@ -4,7 +4,7 @@
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
 > 🌐 跨 AI 工作规则/约束见 [AGENTS.md](AGENTS.md)（任何 AI 接手前先读：沟通方式、改动哲学、文档/验证纪律、红线）。
-> 最后更新：2026-08-12（**纯代码优化**：LQI 激活链路加固+清理——NaN/Inf 防线、删死代码/悬空声明/死计算、IMU 任务优先级抬到 Low 消除随机 1 拍滞后（时序变更待台架回归）、像素→度宏化；A13 作废：`target_Cnt` 由 Button.c 写入非死代码；全部未编译）。前次：2026-08-11 主链路收敛为 LQI）
+> 最后更新：2026-08-21（**速度估计可靠性修复**：视觉快照一致性+速度限幅移至输出+ZUPT奇异保护+初速度先验语义+离线标定注释+文档修正12/15态→6态；未编译/待台架）。前次：2026-08-20 加速度零偏重做+6态bearing-only ESKF）
 >
 > ⚠️ **本项目处于高频调参期**（几乎每个 commit 都在改增益/档位/门控）。本文档**只记结构、方案与"为什么"，不追具体数值**——所有增益/阈值/默认档**以代码为准**（lqi_torque.h 宏、lqi_gain_table.h K、pid.c `pid_init` 等）。文中数值均为"某时刻快照"，可能已变。**2026-08-11 起：文档中带"弃用/留存"标记的旧算法（PID 串级/LQR/LADRC/Servo_Mix/pitch_glide）均不在代码中激活，仅历史对照。**
 
@@ -401,6 +401,42 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **A13 作废**：`cnt<target_Cnt` 块非死代码——`target_Cnt` 由 Button.c:66 短按第 1 下 `+=100` 写入，是"按键后向 OpenMV 突发重发 Record_Start"机制，保留不动。
 - **时序**：IMU_Task 优先级 `osPriorityIdle`→`osPriorityLow`（app_freertos.c）——每 tick IMU 先跑、控制后用新姿态，消除随机 1 拍滞后。**时序变更，待台架回归确认无新抖动。**
 - **未编译**：全部改动需 eIDE 编译确认（纯删改+防护，链接风险低）；台架 Vofa 对比改前/改后曲线应一致。
+
+### 2026-08-20：加速度零偏重做——发射架姿态标定 + Mahony 去偏输入 + ZUPT 门控（未编译/待台架）
+
+- **根因**：旧零偏公式 `A_Offset = mean(a) − R_col3` 中 `R_col3` 由含零偏的 Mahony 输出决定——横向零偏先被 Mahony 解释为倾角、再被此公式抵消，结果仅在当前摆放姿态下自洽，不是真正的物理零偏。
+- **新方案**：用发射架已知姿态 `Shot_Pitch/Roll`（surface_control_task.h）直接构造理论重力 `g_ref_body`，`A_Offset = mean(a) − g_ref_body`。零偏物理定义正确，不依赖 Mahony 收敛质量。
+- **Mahony 输入改为去偏值**：`a_corr = a − A_Offset` 归一化后喂 Mahony 误差叉乘。避免横向零偏在 Mahony 中被当倾角。
+- **ZUPT 门控收紧**：只在 `Guidance_State == Self_Text_State || Start` 时允许零速更新（飞行段即使 |a|≈1g 也不误归零）。零偏标定后立即冻结，不再在线 refine。
+- **A_World 数据流不变**：已有 `gravity·((a_raw−A_Offset)−R_col3)` 公式与新零偏自洽。
+- **IMU.h**：删除旧宏 `ACC_BIAS_USE_SHOT_ATTITUDE`（不再需要 A/B 切换）。
+- **IMU.c**：`IMU_Calibrate` 直接用理论重力公式；Mahony 归一化始终用去偏值；ZUPT 加 `pre_launch` 门控；删除在线 refine 代码。
+- **未编译**（eIDE）。**待台架验证**：① 发射架静置上电：~3s 后 `A_Offset` 固定，`A_World` 无持续单轴偏置，ZUPT 后速度≈0；② 冷启动重复性：新偏置和初始 pitch/roll 应稳定；③ 发射后：偏置不再变化，ZUPT 不误清飞行速度。
+
+### 2026-08-20：6态 bearing-only 非线性EKF（vision_bearing_eskf.c/.h，未编译/待台架）
+
+- **动机**：现有 vision_ins.c 6态KF需要距离量测(dist_cm)才能工作；没有距离时速度/位置沿LOS方向不可观。新EKF仅用方位/俯仰角(bearing)做量测，不需要距离，可与旧KF并行运行、运行时切换。
+- **方案**：6态 bearing-only 非线性EKF——名义位置p(3)+速度v(3)。姿态借用Mahony(R_matrix_T)，不自己估计姿态误差。IMU预测1kHz(世界系加速度)，视觉方位/俯仰量测更新~30Hz。Joseph形式协方差更新+新息卡方门控。
+- **量测模型**：`Vision_Rx_Data.Euler[NOW][PITCH/YAW]` → 弧度 → 机体系视线方向 atan2 得 az/el。u_b=R×(-nom_p)，H=∂z/∂u_b×(-R)。
+- **限制**：无距离量测→沿LOS方向位置/速度不可观；`range_m`和`V_c`仅供参考，禁止用于控制调度(H_tau/距离增益等)。
+- **开关**：`eskf_mode`(IMU.c,调试器Watch切换)=0→旧KF输出,=1→新EKF输出。两滤波器始终并行运行、同步predict/update/ZUPT。
+- **新增文件**：`imcalib/Tool/vision_bearing_eskf.c/.h`。
+- **修改文件**：IMU.c(predict/update/ZUPT/SetVel并行调用+速度回写按eskf_mode选源)、IMU.h(eskf_mode extern)、Init_Config.c(BearingESKF_Init)。
+- **未编译**（eIDE）。**待台架验证**：① eskf_mode=1静置：EKF速度≈0；② 手动使目标向右/上：az/el新息正负一致；③ 连续运行无NaN/Inf/协方差负对角；④ eskf_mode=0/1切换速度回写无跳变；⑤ 实飞前确认EKF未写入控制链路或状态机条件。
+
+### 2026-08-21：速度估计可靠性修复（vision_bearing_eskf.c + IMU.c，未编译/待台架）
+
+- **Phase 1 雅可比验证**：统一测试文件与主代码符号约定（真梯度+(-R)），PC 端 Python 有限差分 14/14 PASS（天顶/天底奇异跳过）。
+- **Phase 2 视觉快照**：IMU.c 视觉 EKF 更新段加 `taskENTER_CRITICAL` 局部快照 `Vision_Rx_Buf_t vision`，防止 UART 中断撕裂多字段读取。
+- **Phase 3 速度限幅**：移除 predict 和 ZUPT 内部的 `abs_limit(&nom_v,VEL_MAX_MS)`，仅在 publish() 输出时限幅 `eskf_out.v_world`；内部 nom_v 保持滤波器数学连续性。publish 加 NaN/Inf 兜底（非有限→输出 0）。
+- **Phase 4 ZUPT 奇异保护**：S 含 NaN/Inf 或 det≈0 时跳过本次 ZUPT（不再直接写 nom_v=0 + P_vv=固定小值）。ZUPT 后强制 P 对称 `P=0.5*(P+Pᵀ)`。
+- **Phase 5 初速度先验语义**：`ESKF_P0_VEL` 重命名为 `ESKF_P0_VEL_VAR`（方差，非标准差），注释明确"待离线测速确定"。确认 R_matrix_T 第1行用于机体前向(ENU fwd_x/fwd_y/fwd_z)，无 Y/Z 交换。
+- **Phase 6 离线标定**：IMU.h V_NOM_MS 注释补充标定方法（两条标记+高速录像→中位数/标准差→ESKF_P0_VEL_VAR=sigma²）。
+- **Phase 7 零偏检查**：确认 A_Offset 仅上电标定一次、Mahony 和 A_World 用同一去偏值、飞行段不重估。无代码修改。
+- **Phase 8 复位检查**：当前单次发射模型，BearingESKF_Reset() 未被调用（仅 Init），注释说明若改重复发射需同步复位哪些状态。
+- **Phase 9 文档同步**：CODE_OVERVIEW 修正"12态/15态"→"6态 bearing-only"；PROGRESS 修正 2026-08-20 条目+新增本条。
+- **修改文件**：vision_bearing_eskf.c（速度限幅/ZUPT保护/publish兜底）、vision_bearing_eskf.h（P0_VEL重命名）、IMU.c（视觉快照）、IMU.h（V_NOM_MS标定注释）、test_bearing_jacobian.c（符号统一）、test_jacobian.py（新增PC测试）、CODE_OVERVIEW.md、PROGRESS.md。
+- **未编译**（eIDE）。**待台架**：① ZUPT 后速度≈0；② eskf_mode=0/1 切换无跳变；③ 长跑无 NaN/Inf；④ 离线标定 V_NOM_MS。
 
 ### 2026-07-14：BMI088 加速度计支持（BMX055 可切换）
 

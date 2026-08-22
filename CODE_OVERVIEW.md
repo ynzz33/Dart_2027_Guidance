@@ -50,6 +50,7 @@ imcalib/                ← 用户应用代码（核心都在这）
 │   ├── adrc.c/.h              LADRC 线性自抗扰（单环二阶 LESO+LSEF）——**弃用留存**
 │   ├── filter.c/.h            标量卡尔曼(激活) + 2D卡尔曼(速度EKF已#if0禁用) + CMSIS矩阵宏别名
 │   ├── vision_ins.c/.h        视觉/IMU 紧耦合 6 态 EKF(世界系 p,v)，给不漂的速度+距离估计
+│   ├── vision_bearing_eskf.c/.h  6态 bearing-only 非线性EKF(位置+速度，姿态借用Mahony，不用距离)，与 vision_ins 并行，eskf_mode 切换
 │   ├── ADC_Battery.c/.h       电池电压 ADC（DMA + 标量卡尔曼）
 │   └── Vofa_send.c/.h         Vofa+ 上位机 2/4/8/16/24/32 通道 float 发送
 ├── lqr_tool/                  **弃用留存**：LQR 姿态控制器 + MATLAB Coder 生成 K 表（LQR_K_Dart_d*）——不再使用
@@ -97,9 +98,10 @@ python_vision_script/   ← OpenMV 视觉脚本（不编进 Keil）：识别主�
 ```
 BMX055/BMI088(SPI2阻塞读) ─IMU_Data_Read─► IMU_Data.A/G(原始,去饱和/NaN,标量Kalman,减陀螺零偏)
                                          │
+                    a_corr = a − A_Offset │(Mahony 用去偏值)
                     IMU_Attitude_Algorithm│(Mahony PI 融合 → 四元数积分 → 欧拉角)
                                          │
-                    ZUPT(发射前零速+零偏在线refine) + A_World(去重力,世界系加速度)
+                    ZUPT(仅 Self_Text/Start,发射前零速) + A_World(gravity·(a_corr−R_col3))
                                          │
                     VisInsEKF_Predict(1kHz) + UpdateVision(~30Hz) + UpdateZeroVel(静止)
                                          ▼
@@ -291,6 +293,8 @@ Stable/Terminal 段且 `imu_is_static==0` → **LQI 力矩控制**（`lqi_mode=1
 | `Vision_Rx_Data` | CallBack_Task.c | 视觉接收（ISR 写、控制读，含 New_Data_flag/dist_cm/area/radius/Euler_norm） |
 | `vision_los_final[2][3]` / `vision_los_rate[3]` | surface_control_task.c | 末制导世界系视线终点（视觉新帧锁存，`target` 直接取用、无额外平滑）/ 惯性视线率 λ̇（终点帧间差分，PN 用，当前 `#if 0`） |
 | `vins_out` | vision_ins.c | EKF 输出（p_world/v_world/range_m/vc/locked） |
+| `eskf_out` | vision_bearing_eskf.c | ESKF 输出（同构 VinsOut_t，eskf_mode=1 时替代 vins_out） |
+| `eskf_mode` | IMU.c | 速度估计切换：0=旧6态KF(vision_ins), 1=新6态bearing-only非线性EKF(不用距离) |
 | `gamma_pitch_fwd_deg` / `gamma_pitch_deg` | IMU.c | 弹道角γ姿态前向估计°(不漂，常用) / 速度积分版°(已停用，保留) |
 | `Vel_Reanchor_Flag` / `imu_is_static` | IMU.c | 俯冲入段锚定请求位 / ZUPT 静止标志 |
 | ~~`pitch_dive_floor` / `closeness_s`~~ | surface_control_task.c | 旧 `Pitch_Dive_Floor` 的 Vofa 观测，已 `#if 0` 封存（定义已注释） |
@@ -312,6 +316,7 @@ Stable/Terminal 段且 `imu_is_static==0` → **LQI 力矩控制**（`lqi_mode=1
 - **LQI 积分仅 YAW 有效**：阈值 0.5°、限幅 5°·s（2026-08-11 修正，原 1.5°/2° 导致积分积不起来）。
 - **angle_wrap 未启用**：LQI 里 yaw 误差恒环绕（`Angle_Wrap_180`）；roll 按 `lqi_ctrl.roll_wrap`（默认 0）。
 - **Pitch 方案A**：LQI 里 pitch 误差恒 0、只留角速度阻尼——依托初始动力，不追目标角度。
+- **加速度零偏新公式（2026-08-20）**：`A_Offset = mean(a) − g_ref_body`（发射架已知姿态 `Shot_Pitch/Roll` 构造理论重力），取代旧 `mean(a) − R_col3`（依赖含零偏的 Mahony 输出）。Mahony 始终用去偏加速度 `a_corr` 做归一化、ZUPT 仅在 `Self_Text||Start` 时允许、零偏标定后立即冻结不在线 refine。待台架验证。
 - 失效/未启用（2026-08-11 现状）：MAG、PNG 主环(`#if 0`)、PN 超前补偿(`#if 0`)、LQR(弃用)、LADRC/ADRC(弃用)、PID 串级 `Euler_pid_Cale`(无调用)、Servo_Mix_* 分配器(无定义)、`vel_pursuit_mode`(悬空已注释)、欧拉运动学变换(注释)。
 - 死代码/卫生：`FIXED_WING` 整段 `#if 0`；`PWM_Init` 启了若干未配置/无 GPIO 通道（实际用的 4 路正常）；`Button.c` `Press_Long_Cnt!=0`（数组地址恒真，实际不触发越界）；`filter.c` 注释 GBK 乱码；~~`TermLock`（末端锁定）死代码~~ **已删除（2026-08-12）**；悬空声明已从 .h 注释清理。
 
