@@ -15,9 +15,9 @@
 #include "surface_control_task.h"
 #include "CallBack_Task.h"
 #include "vision_ins.h"
-#include "vision_bearing_eskf.h"
+#include "vision_ekf.h"
 IMU_DATA_t IMU_Data = {0};
-uint8_t eskf_mode = 0;  /* 0=旧6态KF(vision_ins), 1=新6态bearing-only非线性EKF */
+uint8_t ekf_mode = 0;  /* 0=旧6态KF(vision_ins), 1=新6态bearing-only非线性EKF */
 float   gamma_pitch_deg = 0.0f;   /* 弹道角(速度方向俯仰角,速度积分版)°。注:速度链路已 #if 0 停用→此变量不再更新,消费端改用下面 gamma_pitch_fwd_deg;保留定义便于日后接观测器复活 */
 float   gamma_pitch_fwd_deg = 0.0f; /* 弹道角γ的姿态前向估计°(机体纵轴前向仰角,不漂):取代会漂的速度版,供末制导俯冲限幅/Vofa 用 */
 uint8_t Vel_Reanchor_Flag = 0;    /* 俯冲入段置1:本拍 IMU 用"姿态前向×V_NOM"锚定世界速度后清0(见下) */
@@ -200,8 +200,8 @@ void IMU_Attitude_Algorithm(void)
         /* 1) 预测:本拍世界加速度推进一步(1kHz) */
         float a_w[3] = { IMU_Data.A_World[NOW][X], IMU_Data.A_World[NOW][Y], IMU_Data.A_World[NOW][Z] };
         VisInsEKF_Predict(a_w, dT);
-        /* ESKF 并行预测(姿态从 IMU_Data.R_matrix_T 读取,不自己积分四元数) */
-        BearingESKF_Predict(a_w, dT);
+        /* EKF 并行预测(姿态从 IMU_Data.R_matrix_T 读取,不自己积分四元数) */
+        EKF_Predict(a_w, dT);
     }
     /* 2) 俯冲入段锚定初速(姿态前向×V_NOM)
      * 【2026-08-11 更新】已启用,且 EKF 速度方向已验证正确(极性对,仅幅度不准)。
@@ -215,7 +215,7 @@ void IMU_Attitude_Algorithm(void)
        float fwd_y = IMU_Data.R_matrix_T[1][1];
        float fwd_z = IMU_Data.R_matrix_T[1][2];
        VisInsEKF_SetVel(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
-       BearingESKF_SetVel(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
+       EKF_SetVel(V_NOM_MS * fwd_x, V_NOM_MS * fwd_y, V_NOM_MS * fwd_z);
        Vel_Reanchor_Flag = 0;
    }
     /* 3) 视觉新帧(识别成功且有距离包)→ 笛卡尔位置量测更新。用 Vision_Recog_Cnt 跳变判新帧,
@@ -234,25 +234,25 @@ void IMU_Attitude_Algorithm(void)
             if (vision.Vision_recognize_flag == RECOGNIZE_SUCCESS && vision.dist_cm > 0)
                 VisInsEKF_UpdateVision((float)vision.x[NOW], (float)vision.y[NOW],
                                        (float)vision.dist_cm, IMU_Data.R_matrix_T);
-            /* ESKF bearing 更新(只要有识别成功帧,不要求距离) */
+            /* EKF bearing 更新(只要有识别成功帧,不要求距离) */
             if (vision.Vision_recognize_flag == RECOGNIZE_SUCCESS)
             {
                 float az_rad = DEG2RAD(vision.Euler[NOW][1]);   /* [1]=x像素→方位角 */
                 float el_rad = DEG2RAD(vision.Euler[NOW][0]);   /* [0]=y像素→俯仰角 */
                 /* 首帧:用视觉角度+先验距离构造初始位置 */
-                if (!BearingESKF_PosInited()) { BearingESKF_InitPos(az_rad, el_rad, ESKF_RANGE_PRIOR); }
-                BearingESKF_UpdateBearing(az_rad, el_rad);
+                if (!EKF_PosInited()) { EKF_InitPos(az_rad, el_rad, EKF_RANGE_PRIOR); }
+                EKF_UpdateBearing(az_rad, el_rad);
             }
             vins_last_recog = rc;
         }
     }
     /* 4) 物理静止 → 零速更新(脱离 Guidance_State,见上 ZUPT 修复) */
-    if (imu_is_static) { VisInsEKF_UpdateZeroVel(); BearingESKF_UpdateZeroVel(); }
-    /* 5) 世界速度回写(按 eskf_mode 选源) + NaN/Inf 兜底 */
+    if (imu_is_static) { VisInsEKF_UpdateZeroVel(); EKF_UpdateZeroVel(); }
+    /* 5) 世界速度回写(按 ekf_mode 选源) + NaN/Inf 兜底 */
     {
         float vw[3];
-        if (eskf_mode == 1) {
-            vw[X] = eskf_out.v_world[X]; vw[Y] = eskf_out.v_world[Y]; vw[Z] = eskf_out.v_world[Z];
+        if (ekf_mode == 1) {
+            vw[X] = ekf_out.v_world[X]; vw[Y] = ekf_out.v_world[Y]; vw[Z] = ekf_out.v_world[Z];
         } else {
             vw[X] = vins_out.v_world[X]; vw[Y] = vins_out.v_world[Y]; vw[Z] = vins_out.v_world[Z];
         }

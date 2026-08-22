@@ -204,11 +204,11 @@ innovation = wrap(z - h(x))
 - 初始距离可设为宽协方差的名义值，但它不是被视觉直接测到；
 - 沿 LOS 的位置和速度长期不可观，直线向靶飞行时尤其差；
 - 禁止输出 `range_m`、`V_c` 供控制使用，除非未来重新加入并标定可靠距离；
-- ESKF 输出初期只用于角度一致性、横向误差趋势和调试，不接 LQI、状态机阈值或 H_tau 调度。
+- EKF 输出初期只用于角度一致性、横向误差趋势和调试，不接 LQI、状态机阈值或 H_tau 调度。
 
 ### 4.4 实施顺序
 
-1. 新建独立 `vision_bearing_eskf.c/.h`，不覆盖 `vision_ins.c`。
+1. 新建独立 `vision_ekf.c/.h`，不覆盖 `vision_ins.c`。
 2. 使用结构体聚合名义状态、协方差、创新、门控标志和模式，不新增一堆 Vofa 全局。
 3. 实现纯 IMU 预测、协方差传播、四元数归一化和数值有限性保护。
 4. 实现二维 bearing 更新、角度环绕、Joseph 协方差更新和新息卡方门控。
@@ -229,7 +229,7 @@ innovation = wrap(z - h(x))
 2. 手动使目标向右/向上：预测视线和量测角的正负一致；反了先查相机/机体外参，不改控制 SIGN。
 3. 仅旋转飞镖：姿态变化应被视觉角残差纠正，四元数保持归一化，协方差对称且有限。
 4. 连续运行：不得出现 NaN/Inf、协方差负对角、角度跨 ±180 度跳变。
-5. 实飞前：确认该并行 ESKF 没有写入 `IMU_Data.Velocity`、`Surface.target_angle_Euler`、LQI 输入或状态机条件。
+5. 实飞前：确认该并行 EKF 没有写入 `IMU_Data.Velocity`、`Surface.target_angle_Euler`、LQI 输入或状态机条件。
 
 ---
 
@@ -244,7 +244,7 @@ innovation = wrap(z - h(x))
 
 第二阶段预期新增：
 
-- `imcalib/Tool/vision_bearing_eskf.c/.h`。
+- `imcalib/Tool/vision_ekf.c/.h`。
 - 构建配置中的新源文件入口。
 - 对应的 `CODE_OVERVIEW.md`、`PROGRESS.md` 记录。
 

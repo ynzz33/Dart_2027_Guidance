@@ -58,9 +58,9 @@
  * 只决定弹道角 γ 的演化速率(γ̇≈−g·cosγ/V),不决定初始 γ(初始 γ 只由姿态前向方向定),故粗略即可。
  * 【离线标定方法】发射路径上设两条已知间距标记,用高速手机录像或两道光电门记录通过时间差,
  *   速度=间距/时间差,连续测5~10次。V_NOM_MS=中位数, sigma_v0=标准差。
- *   然后 ESKF_P0_VEL_VAR = sigma_v0²(见 vision_bearing_eskf.h)。
+ *   然后 EKF_P0_VEL_VAR = sigma_v0²(见 vision_ekf.h)。
  * 【当前状态】无实测数据,V_NOM_MS=6.0 为名义先验。
- *   禁止将 eskf_out.range_m、eskf_out.vc、速度模长用于动压调度、闭合速度、碰撞时间或 PNG 决策。
+ *   禁止将 ekf_out.range_m、ekf_out.vc、速度模长用于动压调度、闭合速度、碰撞时间或 PNG 决策。
  *   当前固定 Vs=6 的 H_tau 调度逻辑保持不变。*/
 #define V_NOM_MS    6.0f
 /* VEL_MAX_MS 见 common_defs.h */
@@ -150,5 +150,5 @@ extern uint8_t Vel_Reanchor_Flag; /* 俯冲入段置1,IMU 下一拍用姿态前�
 extern uint8_t imu_is_static;     /* Vofa 可观测:1=发射前判定静止、正在 ZUPT 归零速度+对准零偏,0=运动 */
 extern uint8_t Yaw_Zero_Req;      /* 置1请求 IMU 下一拍以当前绝对航向为新原点(yaw 归零),IMU 捕获后清0 */
 extern float   Yaw_Zero_Offset;   /* 绝对航向归零偏移°,可 Vofa 观测/调试器查看 */
-extern uint8_t eskf_mode;         /* 0=旧6态KF(vision_ins), 1=新6态bearing-only非线性EKF;调试器Watch切换 */
+extern uint8_t ekf_mode;         /* 0=旧6态KF(vision_ins), 1=新6态bearing-only非线性EKF;调试器Watch切换 */
 #endif //IMU_H

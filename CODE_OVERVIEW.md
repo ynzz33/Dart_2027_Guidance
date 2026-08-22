@@ -50,7 +50,7 @@ imcalib/                ← 用户应用代码（核心都在这）
 │   ├── adrc.c/.h              LADRC 线性自抗扰（单环二阶 LESO+LSEF）——**弃用留存**
 │   ├── filter.c/.h            标量卡尔曼(激活) + 2D卡尔曼(速度EKF已#if0禁用) + CMSIS矩阵宏别名
 │   ├── vision_ins.c/.h        视觉/IMU 紧耦合 6 态 EKF(世界系 p,v)，给不漂的速度+距离估计
-│   ├── vision_bearing_eskf.c/.h  6态 bearing-only 非线性EKF(位置+速度，姿态借用Mahony，不用距离)，与 vision_ins 并行，eskf_mode 切换
+│   ├── vision_ekf.c/.h          6态 bearing-only 非线性EKF(位置+速度，姿态借用Mahony，不用距离)，与 vision_ins 并行，ekf_mode 切换
 │   ├── ADC_Battery.c/.h       电池电压 ADC（DMA + 标量卡尔曼）
 │   └── Vofa_send.c/.h         Vofa+ 上位机 2/4/8/16/24/32 通道 float 发送
 ├── lqr_tool/                  **弃用留存**：LQR 姿态控制器 + MATLAB Coder 生成 K 表（LQR_K_Dart_d*）——不再使用
@@ -293,8 +293,8 @@ Stable/Terminal 段且 `imu_is_static==0` → **LQI 力矩控制**（`lqi_mode=1
 | `Vision_Rx_Data` | CallBack_Task.c | 视觉接收（ISR 写、控制读，含 New_Data_flag/dist_cm/area/radius/Euler_norm） |
 | `vision_los_final[2][3]` / `vision_los_rate[3]` | surface_control_task.c | 末制导世界系视线终点（视觉新帧锁存，`target` 直接取用、无额外平滑）/ 惯性视线率 λ̇（终点帧间差分，PN 用，当前 `#if 0`） |
 | `vins_out` | vision_ins.c | EKF 输出（p_world/v_world/range_m/vc/locked） |
-| `eskf_out` | vision_bearing_eskf.c | ESKF 输出（同构 VinsOut_t，eskf_mode=1 时替代 vins_out） |
-| `eskf_mode` | IMU.c | 速度估计切换：0=旧6态KF(vision_ins), 1=新6态bearing-only非线性EKF(不用距离) |
+| `ekf_out` | vision_ekf.c | EKF 输出（同构 VinsOut_t，ekf_mode=1 时替代 vins_out） |
+| `ekf_mode` | IMU.c | 速度估计切换：0=旧6态KF(vision_ins), 1=新6态bearing-only非线性EKF(不用距离) |
 | `gamma_pitch_fwd_deg` / `gamma_pitch_deg` | IMU.c | 弹道角γ姿态前向估计°(不漂，常用) / 速度积分版°(已停用，保留) |
 | `Vel_Reanchor_Flag` / `imu_is_static` | IMU.c | 俯冲入段锚定请求位 / ZUPT 静止标志 |
 | ~~`pitch_dive_floor` / `closeness_s`~~ | surface_control_task.c | 旧 `Pitch_Dive_Floor` 的 Vofa 观测，已 `#if 0` 封存（定义已注释） |

@@ -4,7 +4,7 @@
 //#include "cmsis_os.h"
 #include "filter.h"
 #include "vision_ins.h"
-#include "vision_bearing_eskf.h"
+#include "vision_ekf.h"
 #include "main.h"
 #include "user_lib.h"
 #include "tim.h"
@@ -47,7 +47,7 @@ void TotalInitTask(void)
 		PNG_Init(&PNG_Data);
 
 		VisInsEKF_Init();   /* 视觉/IMU 紧耦合速度 EKF 初始化(取代纯积分速度,见 Tool/vision_ins.c) */
-		BearingESKF_Init(); /* 6态bearing-only非线性EKF初始化(与 vision_ins 并行,eskf_mode 切换) */
+		EKF_Init(); /* 6态bearing-only非线性EKF初始化(与 vision_ins 并行,ekf_mode 切换) */
 
 		// LADRC_Init_All();   /* [弃用留存] LADRC 已不再使用(2026-08-11)，激活链路为 LQI；adrc.c 留存仅供对照 */
 		// LQR_Init();         /* [弃用留存] LQR 已不再使用(2026-08-11)；lqr.c 留存仅供对照 */

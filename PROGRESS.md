@@ -413,30 +413,30 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **IMU.c**：`IMU_Calibrate` 直接用理论重力公式；Mahony 归一化始终用去偏值；ZUPT 加 `pre_launch` 门控；删除在线 refine 代码。
 - **未编译**（eIDE）。**待台架验证**：① 发射架静置上电：~3s 后 `A_Offset` 固定，`A_World` 无持续单轴偏置，ZUPT 后速度≈0；② 冷启动重复性：新偏置和初始 pitch/roll 应稳定；③ 发射后：偏置不再变化，ZUPT 不误清飞行速度。
 
-### 2026-08-20：6态 bearing-only 非线性EKF（vision_bearing_eskf.c/.h，未编译/待台架）
+### 2026-08-20：6态 bearing-only 非线性EKF（vision_ekf.c/.h，未编译/待台架）
 
 - **动机**：现有 vision_ins.c 6态KF需要距离量测(dist_cm)才能工作；没有距离时速度/位置沿LOS方向不可观。新EKF仅用方位/俯仰角(bearing)做量测，不需要距离，可与旧KF并行运行、运行时切换。
 - **方案**：6态 bearing-only 非线性EKF——名义位置p(3)+速度v(3)。姿态借用Mahony(R_matrix_T)，不自己估计姿态误差。IMU预测1kHz(世界系加速度)，视觉方位/俯仰量测更新~30Hz。Joseph形式协方差更新+新息卡方门控。
 - **量测模型**：`Vision_Rx_Data.Euler[NOW][PITCH/YAW]` → 弧度 → 机体系视线方向 atan2 得 az/el。u_b=R×(-nom_p)，H=∂z/∂u_b×(-R)。
 - **限制**：无距离量测→沿LOS方向位置/速度不可观；`range_m`和`V_c`仅供参考，禁止用于控制调度(H_tau/距离增益等)。
-- **开关**：`eskf_mode`(IMU.c,调试器Watch切换)=0→旧KF输出,=1→新EKF输出。两滤波器始终并行运行、同步predict/update/ZUPT。
-- **新增文件**：`imcalib/Tool/vision_bearing_eskf.c/.h`。
-- **修改文件**：IMU.c(predict/update/ZUPT/SetVel并行调用+速度回写按eskf_mode选源)、IMU.h(eskf_mode extern)、Init_Config.c(BearingESKF_Init)。
-- **未编译**（eIDE）。**待台架验证**：① eskf_mode=1静置：EKF速度≈0；② 手动使目标向右/上：az/el新息正负一致；③ 连续运行无NaN/Inf/协方差负对角；④ eskf_mode=0/1切换速度回写无跳变；⑤ 实飞前确认EKF未写入控制链路或状态机条件。
+- **开关**：`ekf_mode`(IMU.c,调试器Watch切换)=0→旧KF输出,=1→新EKF输出。两滤波器始终并行运行、同步predict/update/ZUPT。
+- **新增文件**：`imcalib/Tool/vision_ekf.c/.h`。
+- **修改文件**：IMU.c(predict/update/ZUPT/SetVel并行调用+速度回写按ekf_mode选源)、IMU.h(ekf_mode extern)、Init_Config.c(EKF_Init)。
+- **未编译**（eIDE）。**待台架验证**：① ekf_mode=1静置：EKF速度≈0；② 手动使目标向右/上：az/el新息正负一致；③ 连续运行无NaN/Inf/协方差负对角；④ ekf_mode=0/1切换速度回写无跳变；⑤ 实飞前确认EKF未写入控制链路或状态机条件。
 
-### 2026-08-21：速度估计可靠性修复（vision_bearing_eskf.c + IMU.c，未编译/待台架）
+### 2026-08-21：速度估计可靠性修复（vision_ekf.c + IMU.c，未编译/待台架）
 
 - **Phase 1 雅可比验证**：统一测试文件与主代码符号约定（真梯度+(-R)），PC 端 Python 有限差分 14/14 PASS（天顶/天底奇异跳过）。
 - **Phase 2 视觉快照**：IMU.c 视觉 EKF 更新段加 `taskENTER_CRITICAL` 局部快照 `Vision_Rx_Buf_t vision`，防止 UART 中断撕裂多字段读取。
-- **Phase 3 速度限幅**：移除 predict 和 ZUPT 内部的 `abs_limit(&nom_v,VEL_MAX_MS)`，仅在 publish() 输出时限幅 `eskf_out.v_world`；内部 nom_v 保持滤波器数学连续性。publish 加 NaN/Inf 兜底（非有限→输出 0）。
+- **Phase 3 速度限幅**：移除 predict 和 ZUPT 内部的 `abs_limit(&nom_v,VEL_MAX_MS)`，仅在 publish() 输出时限幅 `ekf_out.v_world`；内部 nom_v 保持滤波器数学连续性。publish 加 NaN/Inf 兜底（非有限→输出 0）。
 - **Phase 4 ZUPT 奇异保护**：S 含 NaN/Inf 或 det≈0 时跳过本次 ZUPT（不再直接写 nom_v=0 + P_vv=固定小值）。ZUPT 后强制 P 对称 `P=0.5*(P+Pᵀ)`。
-- **Phase 5 初速度先验语义**：`ESKF_P0_VEL` 重命名为 `ESKF_P0_VEL_VAR`（方差，非标准差），注释明确"待离线测速确定"。确认 R_matrix_T 第1行用于机体前向(ENU fwd_x/fwd_y/fwd_z)，无 Y/Z 交换。
-- **Phase 6 离线标定**：IMU.h V_NOM_MS 注释补充标定方法（两条标记+高速录像→中位数/标准差→ESKF_P0_VEL_VAR=sigma²）。
+- **Phase 5 初速度先验语义**：`ESKF_P0_VEL` 重命名为 `EKF_P0_VEL_VAR`（方差，非标准差），注释明确"待离线测速确定"。确认 R_matrix_T 第1行用于机体前向(ENU fwd_x/fwd_y/fwd_z)，无 Y/Z 交换。
+- **Phase 6 离线标定**：IMU.h V_NOM_MS 注释补充标定方法（两条标记+高速录像→中位数/标准差→EKF_P0_VEL_VAR=sigma²）。
 - **Phase 7 零偏检查**：确认 A_Offset 仅上电标定一次、Mahony 和 A_World 用同一去偏值、飞行段不重估。无代码修改。
-- **Phase 8 复位检查**：当前单次发射模型，BearingESKF_Reset() 未被调用（仅 Init），注释说明若改重复发射需同步复位哪些状态。
+- **Phase 8 复位检查**：当前单次发射模型，EKF_Reset() 未被调用（仅 Init），注释说明若改重复发射需同步复位哪些状态。
 - **Phase 9 文档同步**：CODE_OVERVIEW 修正"12态/15态"→"6态 bearing-only"；PROGRESS 修正 2026-08-20 条目+新增本条。
-- **修改文件**：vision_bearing_eskf.c（速度限幅/ZUPT保护/publish兜底）、vision_bearing_eskf.h（P0_VEL重命名）、IMU.c（视觉快照）、IMU.h（V_NOM_MS标定注释）、test_bearing_jacobian.c（符号统一）、test_jacobian.py（新增PC测试）、CODE_OVERVIEW.md、PROGRESS.md。
-- **未编译**（eIDE）。**待台架**：① ZUPT 后速度≈0；② eskf_mode=0/1 切换无跳变；③ 长跑无 NaN/Inf；④ 离线标定 V_NOM_MS。
+- **修改文件**：vision_ekf.c（速度限幅/ZUPT保护/publish兜底）、vision_ekf.h（P0_VEL重命名）、IMU.c（视觉快照）、IMU.h（V_NOM_MS标定注释）、test_bearing_jacobian.c（符号统一）、test_jacobian.py（新增PC测试）、CODE_OVERVIEW.md、PROGRESS.md。
+- **未编译**（eIDE）。**待台架**：① ZUPT 后速度≈0；② ekf_mode=0/1 切换无跳变；③ 长跑无 NaN/Inf；④ 离线标定 V_NOM_MS。
 
 ### 2026-07-14：BMI088 加速度计支持（BMX055 可切换）
 
