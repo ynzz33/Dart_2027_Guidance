@@ -56,45 +56,58 @@ FRAME_Y_OFFSET = -5                 # 与主脚本一致: 飞控俯仰偏置
 
 # ======================== 距离档参数表 (2026-08-07 按用户给定参数) ========================
 # 三档数值照抄用户给定配置 (与项目内 Guidance_vision_scrpit.py 转置版不同, 以本套为准).
+# ⚠️ 以下参数直接从主脚本 Guidance_vision_scrpit.py 复制，改参请改主脚本再同步到这里
 DIST_TIERS = [
-    # ---- 远档 (>5m) ---- 像素 2~18, 启动/丢目标默认档
+    # ---- 远档 (>5m) ----
     {
         "name": "FAR",
-        "pixels_min": 2, "pixels_max": 18,
-        "threshold": (25, 93, -29, 46, 12, 41),  # A_max=-20 严格滤草坪/绿广告
-        "min_brightness": 13, "max_brightness": 100,  # L 上限放 100 兜底洗白中心
-        "pixels_threshold": 4,                   # ⚠ 小于 4px 的 blob 不进候选 (demo 目标 2-3px 会被滤掉)
-        "roundness_min": 0.36,                   # 远距倾斜更明显, 圆度放宽
-        "density_min": 0.10, "density_max": 0.95,
+        "pixels_min": 1,
+        "pixels_max": 15,
+        "threshold": (40, 74, -49, -27, 12, 50),
+        "min_brightness": 9,
+        "max_brightness": 100,
+        "pixels_threshold": 1,
+        "roundness_min": 0.39,
+        "density_min": 0.03,
+        "density_max": 0.95,
         "min_center_green": 1,
-        "min_center_saturated": 99,  # 99 = 禁用 HALO (远距 LED 不会饱和)
-        "min_ring_green": 0, "max_ring_noise": 4,
+        "min_center_saturated": 99,
+        "min_ring_green": 0,
+        "max_ring_noise": 6,
     },
-    # ---- 中档 (1-5m) ---- 工作区间, 参数最标准
+    # ---- 中档 (1-5m) ----
     {
         "name": "MID",
-        "pixels_min": 18, "pixels_max": 3000,  # 衔接 FAR 的 18 / NEAR 的 3000
-        "threshold": (25, 93, -29, 46, 12, 41),
-        "min_brightness": 40, "max_brightness": 100,
+        "pixels_min": 18,
+        "pixels_max": 3000,
+        "threshold": (40, 74, -49, -27, 12, 50),
+        "min_brightness": 32,
+        "max_brightness": 100,
         "pixels_threshold": 4,
-        "roundness_min": 0.50,
-        "density_min": 0.20, "density_max": 0.95,
+        "roundness_min": 0.40,
+        "density_min": 0.10,
+        "density_max": 0.95,
         "min_center_green": 2,
-        "min_center_saturated": 3,
-        "min_ring_green": 2, "max_ring_noise": 2,
+        "min_center_saturated": 1,
+        "min_ring_green": 1,
+        "max_ring_noise": 3,
     },
-    # ---- 近档 (<1m) ---- 中心必过曝白化, 靠"白核+绿环" (HALO) 兜底
+    # ---- 近档 (<1m) ----
     {
         "name": "NEAR",
-        "pixels_min": 3000, "pixels_max": 15000,
-        "threshold": (25, 93, -29, 46, 12, 41),
-        "min_brightness": 25, "max_brightness": 100,
+        "pixels_min": 3000,
+        "pixels_max": 15000,
+        "threshold": (40, 74, -49, -27, 12, 50),
+        "min_brightness": 25,
+        "max_brightness": 100,
         "pixels_threshold": 20,
         "roundness_min": 0.35,
-        "density_min": 0.40, "density_max": 0.95,
-        "min_center_green": 3,
-        "min_center_saturated": 2,
-        "min_ring_green": 2, "max_ring_noise": 4,
+        "density_min": 0.40,
+        "density_max": 0.95,
+        "min_center_green": 1,
+        "min_center_saturated": 1,
+        "min_ring_green": 1,
+        "max_ring_noise": 4,
     },
 ]
 DEFAULT_TIER_IDX = 0               # 启动 / 丢失目标时停在 FAR

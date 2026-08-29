@@ -14,84 +14,15 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-// #define  Servo_UL_ZERO      1510
-// #define  Servo_UR_ZERO      1480
-// #define  Servo_DR_ZERO      1460
-// #define  Servo_DL_ZERO      1560      
-// #define Shot_Pitch       24.5 
-// #define Shot_Roll 5  
-// #define USE_BMX055   1
-// #define USE_BMI088   0
-//////////镖架力是2860
-/////////////1000
- 
-// //镖体2 红色
-// #define  Servo_UL_ZERO      1690
-// #define  Servo_UR_ZERO      1530
-// #define  Servo_DR_ZERO      1590
-// #define  Servo_DL_ZERO      1415    
-// #define Shot_Pitch 16
-// #define Shot_Roll 7.5
-// #define USE_BMX055   1
-// #define USE_BMI088   0
+#define  Servo_UL_ZERO      1560
+#define  Servo_UR_ZERO      1630
+#define  Servo_DR_ZERO      1550
+#define  Servo_DL_ZERO      1460      
+#define Shot_Pitch       24.5 
+#define Shot_Roll 5.5  
+#define USE_BMX055   0
+#define USE_BMI088   1
 
-//镖体3 蓝色
-// #define  Servo_UL_ZERO      1570
-// #define  Servo_UR_ZERO      1580
-// #define  Servo_DR_ZERO      1620
-// #define  Servo_DL_ZERO      1630    
-// #define Shot_Pitch 31.5                   
-// #define Shot_Roll 0                                                                                                                                
-// #define USE_BMX055   0                                                       
-// #define USE_BMI088    1
-//2820
-///0
-
-// // // //镖体4 红
-#define  Servo_UL_ZERO      1490
-#define  Servo_UR_ZERO      1550
-#define  Servo_DR_ZERO      1480
-#define  Servo_DL_ZERO      1560    
-#define Shot_Pitch 28                   
-#define Shot_Roll -5                                                                                                                                
-#define USE_BMX055   1
-#define USE_BMI088   0
-
-// // //镖体5 红色
-// #define  Servo_UL_ZERO      1540
-// #define  Servo_UR_ZERO      1430
-// #define  Servo_DR_ZERO      1560
-// #define  Servo_DL_ZERO      1560    
-// #define Shot_Pitch 31                    
-// #define Shot_Roll 0 
-// #define USE_BMX055   0  
-// #define USE_BMI088   1 
-//////////////////2910
-//////////////////500
-
-// 镖体6 红色
-// #define  Servo_UL_ZERO      1420
-// #define  Servo_UR_ZERO      1440
-// #define  Servo_DR_ZERO      1590 
-// #define  Servo_DL_ZERO      1400      
-// #define Shot_Pitch 30.5                 
-// #define Shot_Roll 0.5    
-// // #define Shot_Pitch 23.5                 
-// // #define Shot_Roll -10.5                                                                                                                                     
-// #define USE_BMX055   0 
-// #define USE_BMI088   1
-////////////////镖架力是2920
-
-
-// 镖体7 红色
-// #define  Servo_UL_ZERO      1520
-// #define  Servo_UR_ZERO      1450
-// #define  Servo_DR_ZERO      1550
-// #define  Servo_DL_ZERO      1470    
-// #define Shot_Pitch 31                    
-// #define Shot_Roll  0
-// #define USE_BMX055   0  
-// #define USE_BMI088   1 
 /* 力大概在轧带哪里 */
 
 

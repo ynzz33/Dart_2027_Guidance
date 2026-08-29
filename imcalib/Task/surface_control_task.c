@@ -363,8 +363,8 @@ void get_current_State(void)
     }
     else if (Guidance_State == Start )
     { 
-        if(IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch+5.0f&&IMU_Data.Euler[NOW][PITCH]>=Shot_Pitch- 5.0f&&
-           IMU_Data.Euler[NOW][ROLL]<=Shot_Roll+6.0f&&IMU_Data.Euler[NOW][ROLL]>=Shot_Roll- 6.0f)
+        if(IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch+3.0f&&IMU_Data.Euler[NOW][PITCH]>=Shot_Pitch- 3.0f&&
+           IMU_Data.Euler[NOW][ROLL]<=Shot_Roll+3.0f&&IMU_Data.Euler[NOW][ROLL]>=Shot_Roll- 3.0f)
         {
             Surface.Guidance_cnt[1]++;
             Vision_Transmit( Vision_Cmd_Record_Start );
@@ -377,7 +377,7 @@ void get_current_State(void)
             Surface.Stable_Euler_Angle[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
             Surface.Guidance_flag[1] = 1;
         } 
-        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.5f&&fabsf(IMU_Data.Velocity[Body][NOW][Y])>0.3f&&fabsf(IMU_Data.Velocity[Body][NOW][X])<0.5f)
+        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=0.7f&&fabsf(IMU_Data.Velocity[Body][NOW][Y])>0.2f&&fabsf(IMU_Data.Velocity[Body][NOW][X])<0.5f)
         {
             Buzzer_Remind();
             Guidance_State = Stable;

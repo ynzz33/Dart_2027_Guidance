@@ -51,15 +51,15 @@ DIST_TIERS = [
     # roundness 放到 0.40 (远距倾斜更明显), halo 禁用 (远距通常不会过曝).
     {
         "name": "FAR",                          # 档名, 仅用于切档时的串口打印 / HUD 显示
-        "pixels_min": 3,                        # 本档对应的 blob 像素数下界 (含); 改它要同步改前一档的 pixels_max
+        "pixels_min": 1,                        # 本档对应的 blob 像素数下界 (含); 改它要同步改前一档的 pixels_max
         "pixels_max": 15,                       # iter4: 25->18 (排十字 px=20+)
         # "threshold": (22, 90, -103, -20, 10, 109),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
-        "threshold": (25, 93, -29, 46, 12, 41),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
+        "threshold": (40, 74, -49, -27, 12, 50),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
                                                 # LAB 阈值 (L_min, L_max, A_min, A_max, B_min, B_max), 传给 find_blobs 粗筛;
                                                 # FAR 把 L_max 放到 100 让洗白中心也能进同 blob, A_max=-27 严格滤草坪/绿广告
         "min_brightness": 9,                   # manual: 收紧 10% (15->17)
         "max_brightness": 100,                  # L 均值上限; 100 = 几乎不限上限 (远距不会被压扁)
-        "pixels_threshold": 2,                  # find_blobs 最小连通像素数; FAR 远距目标小, 必须设小
+        "pixels_threshold": 1,                  # find_blobs 最小连通像素数; FAR 远距目标小, 必须设小
         "roundness_min": 0.39,                  # manual: 收紧 10% (0.40->0.44)
         "density_min": 0.03,                    # manual: 收紧 (0.05->0.06)
         "density_max": 0.95,                    # density 上限; >此值排除实心矩形 (路牌/墙壁等)
@@ -74,7 +74,7 @@ DIST_TIERS = [
         "name": "MID",                          # 档名
         "pixels_min": 18,                       # iter4: 5->18 衔接 FAR pixels_max
         "pixels_max": 3000,                     # 像素数上界, 衔接 NEAR 的 pixels_min
-        "threshold": (25, 93, -29, 46, 12, 41),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
+        "threshold": (40, 74, -49, -27, 12, 50),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
                                                 # 标准 LAB 阈值; L 下放到 25 兼容稍弱光
         "min_brightness": 32,                   # 标准亮度区间, 与户外环境光配合; tune-auto iter4: 30->40 (iter6 revert 35->40)
         "max_brightness": 100,                  # 比 FAR 严, 过亮的灯反而被判为白灯排除; tune-auto iter2: 80->100
@@ -84,7 +84,7 @@ DIST_TIERS = [
         "density_min": 0.10,                    # 比 FAR 稍宽, 中距 blob 可能不那么紧凑; tune-auto iter2: 0.25->0.20
         "density_max": 0.95,                    # 同 FAR, 排矩形
         "min_center_green": 2,                  # 中心绿点要求, 中距能稳定见到绿核
-        "min_center_saturated": 3,              # MID 距离也可能轻微饱和, 给 HALO 留个保底入口
+        "min_center_saturated": 1,              # MID 距离也可能轻微饱和, 给 HALO 留个保底入口
         "min_ring_green": 1,                    # HALO 模式: 外环至少 2 点见绿才算 LED, 排除纯白灯
         "max_ring_noise": 3,                    # 比 FAR 严, 中距外环杂色多说明不是单 LED
     },
@@ -96,7 +96,7 @@ DIST_TIERS = [
         "name": "NEAR",                         # 档名
         "pixels_min": 3000,                     # 像素数下界, 衔接 MID
         "pixels_max": 15000,                    # 像素数上界, 接近全画面
-        "threshold": (15, 95, -64, -8, -32, 32),
+        "threshold": (40, 74, -49, -27, 12, 50),
                                                 # L 下放到 15 兼容大目标的暗边缘, A_max=-8 比 MID 宽一点适应过曝退色
         "min_brightness": 25,                   # 比 MID 还低, 因为近距 blob 边缘亮度被中心过曝拉低均值
         "max_brightness": 100,                  # 上限放开, 不限大目标
@@ -104,9 +104,9 @@ DIST_TIERS = [
         "roundness_min": 0.35,                  # 近距倾斜+视差大, 椭圆很扁, 圆度阈值最低
         "density_min": 0.40,                    # 近距 blob 比较饱满, 适度限制
         "density_max": 0.95,                    # 同前
-        "min_center_green": 3,                  # 中心绿点要求, 大目标的中心 5 点要更多见绿才信任
-        "min_center_saturated": 2,              # HALO 模式: 近距大概率 halo, 2 个饱和点即触发
-        "min_ring_green": 2,                    # HALO 必须见绿环, 否则可能是纯白灯
+        "min_center_green": 1,                  # 中心绿点要求, 大目标的中心 5 点要更多见绿才信任
+        "min_center_saturated": 1,              # HALO 模式: 近距大概率 halo, 2 个饱和点即触发
+        "min_ring_green": 1,                    # HALO 必须见绿环, 否则可能是纯白灯
         "max_ring_noise": 4,                    # 比 MID 宽, 近距外环更大, 噪声色点容忍多一点
     },
 ]
@@ -735,8 +735,8 @@ def detect_green_target(img):
     if roi is not None:
         if not blobs:
             blobs = _find_blobs(img, tier, None)     # ROI 落空 → 全图重搜
-        else:
-            img.draw_rectangle(roi, color=(0, 128, 0), thickness=1)    # 调试: ROI 命中框
+        # else:
+            # img.draw_rectangle(roi, color=(0, 128, 0), thickness=1)    # 调试: ROI 命中框
 
     last_candidate_count = len(blobs)
 
@@ -1044,12 +1044,12 @@ try:
 
     # ----- 调试可视化 (比赛关掉省 16-19ms/帧, +5~12fps) -----
     # render_debug_overlay(img, has_target, locked_blob, x_out, y_out)
-    # img.draw_cross(FRAME_CENTER_X+FRAME_X_OFFSET, FRAME_CENTER_Y+FRAME_Y_OFFSET, color=(255, 255, 0), size=10, thickness=1)
-    # draw_hud(img, has_target, fps, x_out, y_out)
-    # draw_imu_debug(img)                       # 串口收到的 12 个 IMU/姿态量, 3 个一组
-    # if has_target:
-    #     r_in = max(2, min(locked_blob.w(), locked_blob.h()) // 2)
-    #     img.draw_circle(locked_blob.cx(), locked_blob.cy(), r_in, color=(255, 0, 0), thickness=2)
+    img.draw_cross(FRAME_CENTER_X+FRAME_X_OFFSET, FRAME_CENTER_Y+FRAME_Y_OFFSET, color=(255, 255, 0), size=10, thickness=1)
+    draw_hud(img, has_target, fps, x_out, y_out)
+    draw_imu_debug(img)                       # 串口收到的 12 个 IMU/姿态量, 3 个一组
+    if has_target:
+        r_in = max(2, min(locked_blob.w(), locked_blob.h()) // 2)
+        img.draw_circle(locked_blob.cx(), locked_blob.cy(), r_in, color=(255, 0, 0), thickness=2)
 
     # ----- 录像 -----
     record_frame_to_sd(img)

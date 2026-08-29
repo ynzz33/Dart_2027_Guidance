@@ -115,20 +115,12 @@ void PNG_Apply_Lead(Surface_t* Surface , IMU_DATA_t* IMU_Data)
 		PNG_Data.lead_corr[YAW] = 0.0f;
 	}
 
-	/* 4) PITCH:仅俯冲到位(<pitch_control_limit_deg)才主动制导 pitch(与锁存条件一致)。
-	 *    flag=0 时退回原固定增益超前(PN_LEAD_K·λ̇),叠加常值配平 AOA_TRIM → 与改前逐字等价。*/
-	// if (Surface->current_angle_Euler[NOW][PITCH] < pitch_control_limit_deg)
-	// {
-		float corr_p = PNG_Pitch_Flag ? corr_pitch
-		                              : (PN_LEAD_K * vision_los_rate[PITCH]);
-		abs_limit(&corr_p, PNG_LEAD_LIMIT_DEG);
-		PNG_Data.lead_corr[PITCH] = corr_p;
-		Surface->target_angle_Euler[NOW][PITCH] -= corr_p + AOA_TRIM_DEG;
-	// }
-	// else
-	// {
-	// 	PNG_Data.lead_corr[PITCH] = 0.0f;
-	// }
+	/* 4) PITCH:无条件叠加超前(俯冲门控已去除) */
+	float corr_p = PNG_Pitch_Flag ? corr_pitch
+	                              : (PN_LEAD_K * vision_los_rate[PITCH]);
+	abs_limit(&corr_p, PNG_LEAD_LIMIT_DEG);
+	PNG_Data.lead_corr[PITCH] = corr_p;
+	Surface->target_angle_Euler[NOW][PITCH] -= corr_p + AOA_TRIM_DEG;
 }
 
 /* ============================================================================
@@ -209,17 +201,10 @@ void PNG_Apply_Lead_Pitch(Surface_t* Surface, IMU_DATA_t* IMU_Data)
 	float corr_yaw, corr_pitch;
 	png_common_calc(&corr_yaw, &corr_pitch);
 
-	/* 仅俯冲到位时才叠加 pitch 超前(调用方已做门控,此处再守一道) */
-	// if (Surface->current_angle_Euler[NOW][PITCH] < pitch_control_limit_deg)
-	// {
-		float corr_p = PNG_Pitch_Flag ? corr_pitch
-		                              : (PN_LEAD_K * vision_los_rate[PITCH]);
-		abs_limit(&corr_p, PNG_LEAD_LIMIT_DEG);
-		PNG_Data.lead_corr[PITCH] = corr_p;
-		Surface->target_angle_Euler[NOW][PITCH] -= corr_p + AOA_TRIM_DEG;
-	// }
-	// else
-	// {
-	// 	PNG_Data.lead_corr[PITCH] = 0.0f;
-	// }
+	/* 无条件叠加 pitch 超前(俯冲门控已去除) */
+	float corr_p = PNG_Pitch_Flag ? corr_pitch
+	                              : (PN_LEAD_K * vision_los_rate[PITCH]);
+	abs_limit(&corr_p, PNG_LEAD_LIMIT_DEG);
+	PNG_Data.lead_corr[PITCH] = corr_p;
+	Surface->target_angle_Euler[NOW][PITCH] -= corr_p + AOA_TRIM_DEG;
 }
