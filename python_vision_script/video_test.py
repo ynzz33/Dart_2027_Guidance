@@ -63,7 +63,7 @@ DIST_TIERS = [
         "name": "FAR",
         "pixels_min": 1,
         "pixels_max": 15,
-        "threshold": (40, 74, -49, -27, 12, 50),
+        "threshold": (10, 51, -31, 2, 9, 33),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
         "min_brightness": 9,
         "max_brightness": 100,
         "pixels_threshold": 1,
@@ -80,7 +80,7 @@ DIST_TIERS = [
         "name": "MID",
         "pixels_min": 18,
         "pixels_max": 3000,
-        "threshold": (40, 74, -49, -27, 12, 50),
+        "threshold": (10, 51, -31, 2, 9, 33),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
         "min_brightness": 32,
         "max_brightness": 100,
         "pixels_threshold": 4,
@@ -97,7 +97,7 @@ DIST_TIERS = [
         "name": "NEAR",
         "pixels_min": 3000,
         "pixels_max": 15000,
-        "threshold": (40, 74, -49, -27, 12, 50),
+        "threshold": (10, 51, -31, 2, 9, 33),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
         "min_brightness": 25,
         "max_brightness": 100,
         "pixels_threshold": 20,
@@ -629,7 +629,7 @@ def draw_reject_marker(viz, blob, reason_code):
     r = max(3, max(blob["w"], blob["h"]) // 2 + 1)
     cv2.circle(viz, (cx, cy), r, (90, 90, 90), 1)
     cv2.putText(viz, reason_code, (cx - 4, max(8, cy - r - 4)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.25, (200, 200, 200), 1)
 
 
 def draw_blob_samples(viz, blob):
@@ -647,7 +647,7 @@ def draw_pattern_label(viz, blob, pattern):
     color = (255, 255, 0) if pattern == "SOLID" else (0, 255, 255)
     cv2.putText(viz, pattern,
                 (int(blob["x"]), int(blob["y"] + blob["h"] + 12)),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.25, color, 1)
 
 
 def draw_velocity_arrow(viz, state):
@@ -679,9 +679,9 @@ def draw_hud(viz, state, has_target, fps, frame_idx, total_frames, x_out=0, y_ou
     else:
         line2 = "NO TARGET"
         line3 = "xout=-- yout=-- frame=%d/%d" % (frame_idx, total_frames)
-    cv2.putText(viz, line1, (2, 12), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
-    cv2.putText(viz, line2, (2, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
-    cv2.putText(viz, line3, (2, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+    cv2.putText(viz, line1, (2, 9), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (0, 255, 255), 1)
+    cv2.putText(viz, line2, (2, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (0, 255, 255), 1)
+    cv2.putText(viz, line3, (2, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (0, 255, 255), 1)
 
 
 def render_debug_overlay(viz, state, has_target, locked_blob,
@@ -719,6 +719,12 @@ def main():
     paused = False
     step_once = False
     show_zoom = True
+    show_binary = False
+
+    # 帧缓存: MJPEG 的 CAP_PROP_POS_FRAMES 不可靠, 用缓存实现后退
+    frame_cache = []
+    CACHE_SIZE = 60
+    frame_cache_idx = -1        # -1 = 正常播放, >=0 = 从缓存读
 
     fps_count = 0
     fps_t0 = time.time()
@@ -726,18 +732,27 @@ def main():
     viz = None
 
     print(f"video: {video_path}  frames={total_frames} src_fps={src_fps:.1f}")
-    print("controls: SPACE pause/play | m next-frame / n prev-frame | r reset | z zoom | q/ESC quit")
+    print("controls: SPACE pause/play | m next / n prev | b binary | r reset | z zoom | q/ESC quit")
 
     while True:
         if (not paused) or step_once:
-            ret, frame = cap.read()
-            if not ret:
-                # 视频播完 → 循环回放并重置跟踪
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                state = TrackerState()
-                continue
-            if frame.shape[1] != FRAME_W or frame.shape[0] != FRAME_H:
-                frame = cv2.resize(frame, (FRAME_W, FRAME_H))
+            # 从缓存后退/前进 或 正常读取
+            if frame_cache_idx >= 0:
+                frame = frame_cache[frame_cache_idx]
+            else:
+                ret, frame = cap.read()
+                if not ret:
+                    # 视频播完 → 循环回放并重置跟踪
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    state = TrackerState()
+                    frame_cache.clear()
+                    continue
+                if frame.shape[1] != FRAME_W or frame.shape[0] != FRAME_H:
+                    frame = cv2.resize(frame, (FRAME_W, FRAME_H))
+                # 存入缓存
+                frame_cache.append(frame.copy())
+                if len(frame_cache) > CACHE_SIZE:
+                    frame_cache.pop(0)
 
             # 自适应切档 (与 主脚本 主循环一致, 仅锁定到目标后切)
             if state.track_pixels > 0:
@@ -773,27 +788,61 @@ def main():
         show = cv2.resize(viz, (FRAME_W * 2, FRAME_H * 2),
                           interpolation=cv2.INTER_NEAREST) if show_zoom else viz
         cv2.imshow("video_test", show)
+        raw_show = cv2.resize(frame, (FRAME_W * 2, FRAME_H * 2),
+                              interpolation=cv2.INTER_NEAREST) if show_zoom else frame
+        cv2.imshow("raw", raw_show)
+
+        if show_binary:
+            tier = DIST_TIERS[state.current_tier_idx]
+            img_lab = bgr_to_lab_opencv(frame)
+            L_min, L_max, A_min, A_max, B_min, B_max = tier["threshold"]
+            lo = np.array([L_min * 255 / 100, A_min + 128, B_min + 128], dtype=np.uint8)
+            hi = np.array([L_max * 255 / 100, A_max + 128, B_max + 128], dtype=np.uint8)
+            mask = cv2.inRange(img_lab, lo, hi)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            binary_show = cv2.resize(mask, (FRAME_W * 2, FRAME_H * 2),
+                                     interpolation=cv2.INTER_NEAREST) if show_zoom else mask
+            cv2.imshow("binary_mask", binary_show)
+        else:
+            try:
+                cv2.destroyWindow("binary_mask")
+            except cv2.error:
+                pass
 
         key = cv2.waitKey(delay_ms if not paused else 30) & 0xFF
         if key == ord('q') or key == 27:
             break
         elif key == ord(' '):
             paused = not paused
+            if not paused:
+                frame_cache_idx = -1   # 恢复播放时退出缓存浏览
         elif key == ord('m') and paused:
-            # 暂停时向前(下一帧)走一帧. read() 读 POS_FRAMES 指向的下一帧, 即正确前进.
-            step_once = True
+            # 前进一帧: 如果在缓存浏览模式, 往前走; 否则正常读下一帧
+            if frame_cache_idx >= 0:
+                if frame_cache_idx < len(frame_cache) - 1:
+                    frame_cache_idx += 1
+                else:
+                    # 已到缓存末尾, 恢复正常播放读下一帧
+                    frame_cache_idx = -1
+                step_once = True
+            else:
+                step_once = True
         elif key == ord('n') and paused:
-            # 暂停时向后(上一帧)走一帧.
-            # CAP_PROP_POS_FRAMES 语义 = "下一帧索引": 显示第 F 帧时其值 = F+1.
-            # 退到上一帧要 set(F-1) = cur-2; 之前写 cur-1 会停在当前帧 = "m 没效果" 的 bug.
-            cur = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, cur - 2))
+            # 后退一帧: 从缓存读, 不依赖 cap.set()
+            if frame_cache_idx < 0:
+                # 首次后退, 从缓存末尾开始
+                frame_cache_idx = max(0, len(frame_cache) - 2)
+            elif frame_cache_idx > 0:
+                frame_cache_idx -= 1
             step_once = True
         elif key == ord('r'):
             state = TrackerState()
             print("tracker reset")
         elif key == ord('z'):
             show_zoom = not show_zoom
+        elif key == ord('b'):
+            show_binary = not show_binary
 
     cap.release()
     cv2.destroyAllWindows()

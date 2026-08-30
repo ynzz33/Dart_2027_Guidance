@@ -1098,3 +1098,1103 @@ finally:
     except Exception as e:
         print("sync failed: {}".format(e))
 0
+# ====================================================================
+# guidance.py - 无人机绿灯追踪 (OpenMV Cam H7)
+#
+# - 距离档 (FAR/MID/NEAR) 按 blob 像素数自适应, 适应 10m → 0m 全程
+# - ROI 预测: 用上一帧位置 + 速度限定搜索窗口
+# - 距离粗估: dist_cm = DIST_K / sqrt(pixels)
+# - 模式分类: SOLID (中心绿) vs HALO (白核 + 绿环), 应对近距过曝
+#
+# 现场标定 (首飞必做):
+#   1. 50cm 测 LED 像素数 N, 写入 DIST_K = 50 * sqrt(N)
+#   2. 10m/5m/1m 实测各档像素数, 更新 DIST_TIERS 的 pixels_min/pixels_max
+# ====================================================================
+
+import sensor
+import time
+from machine import UART
+import os
+from pyb import SD
+import image
+import math
+import struct
+import mjpeg
+from array import array
+# ======================== 常用可调参数区 ============ ============
+# ----- 硬件 & 通信 -----
+UART_BUS = 3                       # UART3 = TX:P4 / RX:P5
+UART_BAUDRATE = 115200             # 与飞控约定的波特率 [
+DEBUG_AUTO_RECORD = True           # True SD 挂载后自动开始录像, 不等 0x03. 比赛改 False.
+ENABLE_LOG_RECORDING = True        # True=记录日志, False=不记录日志
+ENABLE_VIDEO_RECORDING = True     # True=录视频, False=不录视频
+RECORD_QUALITY = 100                # JPEG quality 0-100
+RECORD_EVERY_N_FRAMES = 2          # 每 N 帧录 1 帧
+# ----- 图像坐标系 (QVGA 320×240) -----
+# 输出坐标以画面中心为原点: x 向右为正, y 向上为正 (符合飞控期望).
+FRAME_CENTER_X = 120               # 画面宽度的一半
+FRAME_CENTER_Y = 160                # 画面高度的一半
+FRAME_Y_OFFSET = 0+145
+FRAME_X_OFFSET = 0-15
+# FRAME_X_OFFSET = 0-13
+# ----- 曝光 & 增益 & 白平衡 -----
+LOCKED_EXPOSURE_US = 800
+LOCKED_GAIN_DB = 10.0
+LOCKED_RGB_GAIN_DB = (64.54, 60.21, 61.30)
+
+# ----- 距离档参数表 -----
+# 三档自适应识别参数. 按上一帧锁定 blob 像素数选档 (pick_tier); 启动/丢目标停在 DEFAULT_TIER_IDX.
+DIST_TIERS = [
+    # ---- 远档 (>5m) ----
+    # LED 看起来很小且颜色淡, 中心仍可能因为镜头眩光洗白.2
+    # L 上限放到 100 兜底洗白情况; A 上限收紧到 -27 排除草坪/绿广告牌噪声.
+    # roundness 放到 0.40 (远距倾斜更明显), halo 禁用 (远距通常不会过曝).
+    {
+        "name": "FAR",                          # 档名, 仅用于切档时的串口打印 / HUD 显示
+        "pixels_min": 1,                        # 本档对应的 blob 像素数下界 (含); 改它要同步改前一档的 pixels_max
+        "pixels_max": 15,                       # iter4: 25->18 (排十字 px=20+)
+        # "threshold": (22, 90, -103, -20, 10, 109),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
+        "threshold": (10, 51, -31, 2, 9, 33),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
+                                                # LAB 阈值 (L_min, L_max, A_min, A_max, B_min, B_max), 传给 find_blobs 粗筛;
+                                                # FAR 把 L_max 放到 100 让洗白中心也能进同 blob, A_max=-27 严格滤草坪/绿广告
+        "min_brightness": 10,                   # manual: 收紧 10% (15->17)
+        "max_brightness": 100,                  # L 均值上限; 100 = 几乎不限上限 (远距不会被压扁)
+        "pixels_threshold": 2,                  # find_blobs 最小连通像素数; FAR 远距目标小, 必须设小
+        "roundness_min": 0.05,                  # manual: 收紧 10% (0.40->0.44)
+        "density_min": 0.01,                    # manual: 收紧 (0.05->0.06)
+        "density_max": 0.85,                    # density 上限; >此值排除实心矩形 (路牌/墙壁等)
+        "min_center_green": 1,                  # iter3: 2->1 (远距 LED 中心采样常只命中 1 绿)
+        "min_center_saturated": 99,             # HALO 模式触发阈值; 99=禁用 HALO (远距 LED 不会饱和)
+        "min_ring_green": 0,                    # HALO 模式: 外环最少绿点数; FAR 用不上 HALO 所以 0
+        "max_ring_noise": 6,                    # manual: 2->4 (小 blob 环采样大部分落背景, 放开噪声容忍)
+    },
+    # ---- 中档 (1-5m) ----
+    # 工作区间, 大部分参数最标准. 调参时先把这一档调通, 再调远近两档.
+    {
+        "name": "MID",                          # 档名
+        "pixels_min": 18,                       # iter4: 5->18 衔接 FAR pixels_max
+        "pixels_max": 3000,                     # 像素数上界, 衔接 NEAR 的 pixels_min
+        "threshold": (10, 51, -31, 2, 9, 33),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
+                                                # 标准 LAB 阈值; L 下放到 25 兼容稍弱光
+        "min_brightness": 20,                   # 标准亮度区间, 与户外环境光配合; tune-auto iter4: 30->40 (iter6 revert 35->40)
+        "max_brightness": 100,                  # 比 FAR 严, 过亮的灯反而被判为白灯排除; tune-auto iter2: 80->100
+        "pixels_threshold": 4,                  # 与 FAR 同, 兼容中距偏远的小目标
+        "roundness_min": 0.40,                  # 中距 LED 倾斜不严重, 圆度可以严一点压杂噪
+                                                # tune-auto iter2:0.40->0.45 iter3:0.45->0.50
+        "density_min": 0.00,                    # 比 FAR 稍宽, 中距 blob 可能不那么紧凑; tune-auto iter2: 0.25->0.20
+        "density_max": 0.85,                    # 同 FAR, 排矩形
+        "min_center_green": 2,                  # 中心绿点要求, 中距能稳定见到绿核
+        "min_center_saturated": 1,              # MID 距离也可能轻微饱和, 给 HALO 留个保底入口
+        "min_ring_green": 1,                    # HALO 模式: 外环至少 2 点见绿才算 LED, 排除纯白灯
+        "max_ring_noise": 3,                    # 比 FAR 严, 中距外环杂色多说明不是单 LED
+    },
+    # ---- 近档 (<1m) ----
+    # LED 占屏面积非常大, 中心几乎必然过曝白化, 只能靠"白核+绿环"形态兜底.
+    # roundness 进一步放低到 0.35 (近距倾斜+视差大, 椭圆可能很扁).
+    # halo 阈值收紧 (2 个饱和点即触发), 配合 ring_green 强制要求外环还见绿.
+    {
+        "name": "NEAR",                         # 档名
+        "pixels_min": 3000,                     # 像素数下界, 衔接 MID
+        "pixels_max": 15000,                    # 像素数上界, 接近全画面
+        "threshold": (10, 51, -31, 2, 9, 33),
+                                                # L 下放到 15 兼容大目标的暗边缘, A_max=-8 比 MID 宽一点适应过曝退色
+        "min_brightness": 35,                   # 比 MID 还低, 因为近距 blob 边缘亮度被中心过曝拉低均值
+        "max_brightness": 100,                  # 上限放开, 不限大目标
+        "pixels_threshold": 20,                 # 近距小杂点不算 (要 >= 20 像素), 加速 find_blobs
+        "roundness_min": 0.35,                  # 近距倾斜+视差大, 椭圆很扁, 圆度阈值最低
+        "density_min": 0.00,                    # 近距 blob 比较饱满, 适度限制
+        "density_max": 0.85,                    # 同前
+        "min_center_green": 1,                  # 中心绿点要求, 大目标的中心 5 点要更多见绿才信任
+        "min_center_saturated": 1,              # HALO 模式: 近距大概率 halo, 2 个饱和点即触发
+        "min_ring_green": 1,                    # HALO 必须见绿环, 否则可能是纯白灯
+        "max_ring_noise": 4,                    # 比 MID 宽, 近距外环更大, 噪声色点容忍多一点
+    },
+]
+DEFAULT_TIER_IDX = 0               # 启动/丢目标停在哪档. 0=FAR/1=MID/2=NEAR.
+                                   # 4-5m 距离 LED 只有 4-14 px, 默认 FAR 才能冷启动检测
+
+# ----- 距离估算 -----
+DIST_K = 1000.0                    # dist_cm = DIST_K / sqrt(pixels). 现场标定: K = d_cm * sqrt(N).
+
+# ----- ROI 预测搜索 -----
+# 锁定后只在"上次位置+速度外推"附近搜. 半径 = max(基础, 上次半径*4) + |v|*VEL_GAIN + 丢失帧*LOST_GAIN.
+ROI_BASE_RADIUS = 40
+ROI_VELOCITY_GAIN = 5
+ROI_LOST_GAIN = 30
+ROI_FULL_SEARCH_LOST = 10          # 连续丢这么多帧就放弃 ROI 回到全图
+
+# ----- 像素颜色判定 -----
+MIN_GREEN_DOMINANCE = 26           # G 必须比 R 高这么多才算绿. 越大越严
+MIN_GREEN_VALUE = 55               # G 通道最小值; 低于此值视为暗像素
+MIN_COLOR_SPREAD = 18              # 色度跨度 (max-min RGB); 太小是灰白不是有色
+MAX_WHITE_DELTA = 16               # 判为"白"的 RGB 三通道最大差
+WHITE_BRIGHTNESS_MIN = 70          # 白像素最低亮度 (max(R,G,B) 下限)
+NOISE_COLOR_DELTA = 12             # 偏红/偏蓝: 主导通道超出其他通道这么多
+NOISE_MIXED_DELTA = 8              # 暖色黄: R/G 都亮, B 比它们弱这么多
+CENTER_SATURATED_MIN_RGB = 80      # halo 核三通道下限; tune-auto iter24: 100->80
+HALO_PATTERN_SCORE_BONUS = 20      # HALO 命中加分; 别太高免得抢 SOLID
+
+# ----- blob 校验阈值 -----
+BLOB_A_LIMIT_DEFAULT = -15         # 中/近档 a_mean 上限; tune-auto iter1: -10->-15 (reduce FP)
+BLOB_A_LIMIT_FAR = -2              # 远档颜色淡, 放宽到 -2
+FAR_TINY_BLOB_PX = 14              # manual: 8->14 (4-14 px LED 全部跳过采样校验, 信任 find_blobs)
+
+# ----- 跟踪 & 滤波 -----
+LPF_FACTOR = 0.3                   # 坐标 LPF; 越大越跟手但抖, 越小越平滑但滞后
+TRACK_CONFIRM_FRAMES = 2           # 新目标连续命中多少帧才锁定, 防闪烁瞬时误识
+TRACK_LOST_TOLERANCE = 4           # 容忍连续丢失帧数, 期间 ROI 继续外推
+TRACK_DISTANCE_MARGIN = 30         # 跟踪距离裕度 (像素), 适应飞行抖动
+
+# ----- UART RX 协议 -----
+# 帧格式: 0x5A + cmd(1B) + 0xA5. cmd: 0x00 识别开/0x01 停/0x02 自检/0x03 录像开/0x04 录像停.
+Rx_Head = 0x5A
+Rx_Tail = 0xA5
+Rx_Length = 3
+
+# ----- 工作状态机 -----
+STATE_IDLE = 0                     # 空闲, 不发包 (自检结束短暂进入)
+STATE_WORK = 1                     # 工作, 每帧发坐标
+STATE_STOP = 2                     # 停止, 不发包 (启动默认)
+STATE_Self_Text = 3                # 自检, 一次性回包后回 IDLE (拼写保留兼容)
+STATE_RECORD_START = 4
+STATE_RECORD_STOP = 5
+
+# ----- 功能开关 -----
+SEND_DISTANCE_PACKET = True       # True 时每帧加发 6B 距离+面积包 (0x5B). 飞控不解析就设 False.
+
+# ======================== 常用可调参数区结束 ========================
+
+uart = UART(UART_BUS, UART_BAUDRATE)
+uart.init(UART_BAUDRATE, bits=8, parity=None, stop=1, rxbuf=512)
+
+sensor.reset()                                # 复位传感器
+sensor.set_pixformat(sensor.RGB565)           # 16-bit 彩色; 颜色识别必须用 RGB 不能 GRAYSCALE
+sensor.set_framesize(sensor.QVGA)             # 320×240; 提高分辨率会降帧率, 一般维持 QVGA
+sensor.set_auto_gain(False, gain_db=LOCKED_GAIN_DB)
+sensor.set_auto_exposure(False, exposure_us=LOCKED_EXPOSURE_US)
+sensor.set_auto_whitebal(False, rgb_gain_db=LOCKED_RGB_GAIN_DB)
+sensor.skip_frames(time=2000)                 # 在固定参数下跳 2 秒等传感器稳定
+sensor.set_vflip(True)                        # 垂直翻转: 因镜头倒装, 不翻则上下颠倒
+sensor.set_hmirror(False)                      # 水平镜像: 因镜头倒装, 不镜像则左右颠倒
+sensor.set_transpose(True)                    # 转置图像: 整体逆时针旋转90度
+
+
+# ======================== 运行时共享状态 ========================
+fps_count = 0
+fps_window_start = time.ticks_ms()
+fps = 0.0
+
+# ----- SD 卡 / 录像 -----
+sd_mount_flag = 0                  # 0=未挂载/1=挂载完成/2=刚挂载待标记
+record_state_flag = 0              # 录像状态通知阶段: 0=未通知/1=已发(1,0)/2=已发(1,5)
+mjpeg_flag = 0                     # 录像状态标志
+m_handle = None                    # mjpeg.Mjpeg 句柄
+log_file = None                    # 文本日志文件句柄
+_record_frame_skip = 0             # 抽帧计数; 每 RECORD_EVERY_N_FRAMES 帧录 1 帧
+_auto_record_triggered = False     # DEBUG_AUTO_RECORD 一次性闩, 防失败循环
+
+# ----- UART RX 状态机 -----
+uart_rx_buf = bytearray()          # 接收滑窗 ≤1024B; 防脏字节累积
+current_state = STATE_STOP         # 工作状态机, 默认 STOP 等飞控 0x00
+Record_State = STATE_STOP          # 录像状态机, 默认不录
+
+# ----- Tracker (检测/跟踪/档位状态) -----
+# 描述当前追的目标, update_tracking() 每帧更新. track_cx<0 表示无目标.
+track_cx = -1
+track_cy = -1
+track_radius = 0                   # 内接圆半径 (像素), 给 tracking_bonus/ROI 用
+track_pixels = 0                   # blob 像素数; 给 pick_tier/距离估算用
+track_vx = 0                       # 一阶速度 (像素/帧), 给 ROI 外推
+track_vy = 0
+track_confirm_count = 0            # 连续命中计数, 达 TRACK_CONFIRM_FRAMES 才算锁定
+track_lost_count = 0               # 连续丢失计数, 决定清状态/扩 ROI
+track_pattern = "?"                # SOLID/HALO/?, 仅打印调试
+current_tier_idx = DEFAULT_TIER_IDX
+tier_switch_msg = ""               # 本帧 tier 切档信息, 渲染时附在 per-frame print 末尾
+last_candidate_count = 0           # 上帧 find_blobs 候选数, HUD 显示 "cand=N"
+last_x = 0                         # 上帧 LPF 输出, 给本帧 LPF
+last_y = 0
+# ====================================================================
+
+
+# ======================== SD 卡 ========================
+def mount_sdcard_manually():
+    # sd_mount_flag 三态: 0=未挂载(每帧重试)/2=刚成功(下一帧转1)/1=稳定可写.
+    global sd_mount_flag
+    if sd_mount_flag != 0:
+        return
+    try:
+        os.mount(SD, "/sd")
+        sd_mount_flag = 2
+    except OSError as e:
+        sd_mount_flag = 0
+        print("sd mount failed: {}".format(e))
+
+
+def next_log_index():
+    # 找到下一个可用的日志编号（从 1 开始递增）
+    try:
+        files = os.listdir("/sd")
+        max_idx = 0
+        for f in files:
+            if f.startswith("log_") and f.endswith(".txt"):
+                try:
+                    idx = int(f[4:-4])      # 去掉 "log_" 和 ".txt"
+                    if idx > max_idx:
+                        max_idx = idx
+                except ValueError:
+                    pass                     # 旧格式（时间戳）跳过
+        return max_idx + 1
+    except Exception:
+        return 1
+
+
+def next_file_index(prefix, suffix):
+    # 找到下一个可用的文件编号（从 1 开始递增）
+    try:
+        files = os.listdir("/sd")
+        max_idx = 0
+        for f in files:
+            if f.startswith(prefix) and f.endswith(suffix):
+                try:
+                    idx = int(f[len(prefix):-len(suffix)])
+                    if idx > max_idx:
+                        max_idx = idx
+                except ValueError:
+                    pass
+        return max_idx + 1
+    except Exception:
+        return 1
+
+
+def update_recording_state():
+    # 录制开始时根据标志位打开日志/视频文件, 停止时关闭
+    global Record_State, mjpeg_flag, m_handle, log_file, record_state_flag, _record_frame_skip
+
+    if Record_State == STATE_RECORD_START:
+        if sd_mount_flag != 1:
+            return
+        if mjpeg_flag == 0:
+            try:
+                status = []
+                if ENABLE_LOG_RECORDING:
+                    idx = next_file_index("log_", ".txt")
+                    log_file = open("/sd/log_{}.txt".format(idx), "w")
+                    log_file.write("# tier, pixels, dist_cm, x, y, fps, pattern, t, V, d_phi, d_theta, d_psi, p, q, r, delta1, delta2, delta3, delta4\n")
+                    status.append("log_{}.txt".format(idx))
+                if ENABLE_VIDEO_RECORDING:
+                    idx = next_file_index("record_", ".mjpeg")
+                    m_handle = mjpeg.Mjpeg("/sd/record_{}.mjpeg".format(idx))
+                    status.append("record_{}.mjpeg".format(idx))
+                    _record_frame_skip = 0
+                print("start record ({})".format(" + ".join(status) if status else "none"))
+                mjpeg_flag = 1
+            except Exception as e:
+                Record_State = STATE_STOP
+                print("record open failed: {}".format(e))
+
+    elif Record_State == STATE_RECORD_STOP:
+        if mjpeg_flag == 1:
+            try:
+                if m_handle is not None:
+                    m_handle.close()
+                if log_file is not None:
+                    log_file.close()
+                mjpeg_flag = 0
+                if record_state_flag < 2:
+                    send_record_state(1, 5)
+                    record_state_flag = 2
+                print("record stopped")
+            except Exception as e:
+                print("record close failed: {}".format(e))
+            finally:
+                mjpeg_flag = 0
+                m_handle = None
+                log_file = None
+        Record_State = STATE_IDLE
+
+
+# ======================== UART 通信 ========================
+Rx_Head_Debug = 0x57
+Rx_Tail_Debug = 0x75
+Rx_Length_Debug = 50                     # 1 头 + 12×4B float + 1 尾 = 50
+# uart_rx_buf_Debug 已废弃: 两种帧共用 uart_rx_buf, 由 Uart_Rx_Data 统一收发
+
+data = array('f', [0.0] * 12)            # 调试帧解出的 12 个 float
+
+def Uart_Rx_Data():
+    # 单 UART 同时收两种帧, 必须由一个函数统一 read 再按帧头分流:
+    #   命令帧 0x5A + cmd + 0xA5            (3B)  -> 改状态机
+    #   调试帧 0x57 + 12×float(大端) + 0x75  (50B) -> 填 data[0..11]
+    # 为何不能拆成两个函数各自调: uart.read() 一次清空 FIFO, 谁先读谁拿走全部字节, 另一个永远收不到.
+    # 容忍脏字节: 帧头不认识跳 1B; 帧尾不对(帧头是巧合)也跳 1B; 残帧留到下次拼齐.
+    global current_state, uart_rx_buf, Record_State
+
+    if uart.any():
+        rx_data = uart.read(uart.any())
+        if rx_data is not None:
+            uart_rx_buf += rx_data
+            uart_rx_buf = uart_rx_buf[-1024:]
+
+    i = 0
+    n = len(uart_rx_buf)
+    while i < n:
+        b = uart_rx_buf[i]
+
+        if b == Rx_Head:                                  # ---- 命令帧 (3B) ----
+            if i + Rx_Length > n:                         # 残帧, 留到下次拼齐
+                break
+            if uart_rx_buf[i + Rx_Length - 1] != Rx_Tail:
+                i += 1                                    # 帧尾不对, 0x5A 是巧合, 跳 1B
+                continue
+            cmd = uart_rx_buf[i + 1]
+            if cmd == 0x00:
+                current_state = STATE_WORK
+            elif cmd == 0x01:
+                current_state = STATE_STOP
+            elif cmd == 0x02:
+                current_state = STATE_Self_Text
+            elif cmd == 0x03:
+                Record_State = STATE_RECORD_START
+                print("1")
+            elif cmd == 0x04:
+                Record_State = STATE_RECORD_STOP
+                print("2")
+            i += Rx_Length
+            continue
+
+        if b == Rx_Head_Debug:                            # ---- 调试帧 (50B) ----
+            if i + Rx_Length_Debug > n:                   # 残帧, 留到下次拼齐
+                break
+            if uart_rx_buf[i + Rx_Length_Debug - 1] != Rx_Tail_Debug:
+                i += 1                                    # 帧尾不对, 0x57 是巧合, 跳 1B
+                continue
+            vals = struct.unpack('>12f', uart_rx_buf[i + 1:i + 49])   # 大端 12 个 float
+            for k in range(12):
+                data[k] = vals[k]
+            # print("Debug", vals)                          # 确认收到; 不需要可删/降频
+            i += Rx_Length_Debug
+            continue
+
+        i += 1                                            # 垃圾字节, 跳过
+
+    uart_rx_buf = uart_rx_buf[i:]                         # 丢弃已处理部分, 残帧留到下次
+
+
+def _send_xy(head, tail, x, y):
+    # 共用 6B (x,y) 包. & 0xFF 显式截位, 防 x/y 是负数时 bytearray 报错.
+    uart.write(bytearray([
+        head,
+        (x >> 8) & 0xFF, x & 0xFF,
+        (y >> 8) & 0xFF, y & 0xFF,
+        tail,
+    ]))
+
+
+def send_data(x, y):                          # [识别到] 0x5A + xy + 0xA5
+    _send_xy(0x5A, 0xA5, x, y)
+    print(x,y)
+
+
+def send_none(x, y):                          # [未识别] 0x7A + xy + 0xA7, 一般 x=y=0
+    _send_xy(0x7A, 0xA7, x, y)
+
+
+def send_Self_Text_data():
+    # 自检回包 0x5A 0x02 0xA5 01 02 03. 飞控 0x02 触发, 确认 UART 通路.
+    uart.write(bytearray([0x5A, 0x02, 0xA5, 1, 2, 3]))
+    print("self test sent")
+
+
+def send_distance(dist_cm, area):
+    # 距离+面积扩展包 (6B): 0x5B + dist_hi + dist_lo + area_hi + area_lo + 0xA6.
+    # 均 uint16 大端: dist_cm = DIST_K/sqrt(px) (cm), area = 当前目标 blob 像素数.
+    dist_cm = max(0, min(65535, int(dist_cm)))
+    area = max(0, min(65535, int(area)))
+    uart.write(bytearray([
+        0x5B,
+        (dist_cm >> 8) & 0xFF, dist_cm & 0xFF,
+        (area >> 8) & 0xFF, area & 0xFF,
+        0xA6,
+    ]))
+
+
+def send_record_state(x, y):
+    # 录像状态通知包 (6B): 0x9A + xy + 0xA9, 与 main.py 协议一致.
+    # (1,0)=录像已开始; (1,5)=录像已结束. x/y 占位语义, 非像素.
+    uart.write(bytearray([
+        0x9A,
+        (x >> 8) & 0xFF, x & 0xFF,
+        (y >> 8) & 0xFF, y & 0xFF,
+        0xA9,
+    ]))
+
+
+# ======================== 视觉: 距离档辅助 ========================
+def pick_tier(pixels):
+    # 按 pixels 选档. pixels=0 (无目标) 返回 DEFAULT_TIER_IDX 防跳到 FAR.
+    for i, tier in enumerate(DIST_TIERS):
+        if tier["pixels_min"] <= pixels < tier["pixels_max"]:
+            return i
+    return DEFAULT_TIER_IDX
+
+
+def apply_tier(tier_idx):
+    # 切档只更新索引 + 累积本帧 tier_switch_msg. 曝光全程锁定, 不动 set_auto_exposure.
+    global current_tier_idx, tier_switch_msg
+    if tier_idx != current_tier_idx:
+        current_tier_idx = tier_idx
+        tier_switch_msg = " switch->%s" % DIST_TIERS[tier_idx]["name"]
+
+
+def estimate_distance_cm(pixels):
+    # 反平方根估算 (cm). pixels<=1 返回 9999 (无穷远 sentinel). 粗估, 不要做闭环.
+    if pixels <= 1:
+        return 9999
+    return DIST_K / math.sqrt(pixels)
+
+
+# ======================== 视觉: 像素颜色判定 ========================
+# 单像素级判定, 是 classify_pattern / is_noise_color 的基础. 所有 fn 接受 None 像素返回 False.
+
+def get_pixel_safe(img, px, py):
+    # 取 RGB 像素元组. 越界返回 None.
+    if 0 <= px < img.width() and 0 <= py < img.height():
+        return img.get_pixel(px, py)
+    return None
+
+
+def is_green_pixel(pixel):
+    # 青绿容忍版 (per led-physics 记忆): 实测 LED 中心 RGB ≈ (100,255,245), B 几乎和 G 同高.
+    # 4 条: G>=阈值 / G-R 主导 / G>=B (排青蓝) / 非饱和时色度跨度>=阈值 (排灰白).
+    if pixel is None:
+        return False
+    r, g, b = pixel
+    if g < MIN_GREEN_VALUE:
+        return False
+    if (g - r) < MIN_GREEN_DOMINANCE:
+        return False
+    if g < b:                                 # B>G → 青/蓝, 非绿
+        return False
+    if max(r, g, b) < 200 and (max(r, g, b) - min(r, g, b)) < MIN_COLOR_SPREAD:
+        return False                          # 非饱和但 RGB 接近 → 灰白
+    return True
+
+
+def is_white_pixel(pixel):
+    # max(R,G,B)>=WHITE_BRIGHTNESS_MIN 且三通道极差<=MAX_WHITE_DELTA → 白/灰白. is_noise_color 用.
+    if pixel is None:
+        return False
+    r, g, b = pixel
+    max_rgb = max(r, g, b)
+    min_rgb = min(r, g, b)
+    return max_rgb >= WHITE_BRIGHTNESS_MIN and (max_rgb - min_rgb) <= MAX_WHITE_DELTA
+
+
+def is_saturated_bright(pixel):
+    # halo 核判定: min(RGB)>=160 (三通道高亮) + (颜色接近中性 OR 本身就是绿色).
+    # 原始只认中性白核, 但绿灯过曝中心是绿白色 (G>>R,B), 也应当能触发 HALO.
+    if pixel is None:
+        return False
+    r, g, b = pixel
+    min_rgb = min(r, g, b)
+    max_rgb = max(r, g, b)
+    if min_rgb < CENTER_SATURATED_MIN_RGB:
+        return False
+    # 中性白核 (R≈G≈B)
+    if (max_rgb - min_rgb) <= MAX_WHITE_DELTA + 14:
+        return True
+    # 绿白色核 (绿灯过曝: G 很高, R/B 相对低但仍 >= 阈值)
+    if is_green_pixel(pixel):
+        return True
+    return False
+
+
+def is_noise_color(pixel):
+    # 非绿高亮干扰判定. 覆盖 4 类典型 FP: 白/灰白高亮、偏红、偏蓝、暖色黄 (R/G 亮 B 弱).
+    # 真绿优先排除 — 用途: classify_pattern 数外环 4 点采样里几个是噪声色.
+    if pixel is None:
+        return False
+    if is_green_pixel(pixel):
+        return False
+    r, g, b = pixel
+    if is_white_pixel(pixel):
+        return True
+    if r > g + NOISE_COLOR_DELTA and r > b + NOISE_COLOR_DELTA:    # 偏红
+        return True
+    if b > g + NOISE_COLOR_DELTA and b > r + NOISE_COLOR_DELTA:    # 偏蓝
+        return True
+    if r > WHITE_BRIGHTNESS_MIN and g > WHITE_BRIGHTNESS_MIN and b < min(r, g) - NOISE_MIXED_DELTA:
+        return True                                                # 暖色黄 (排除 R+G+B 都高的纯白)
+    return False
+
+
+# ======================== 视觉: blob 采样与分类 ========================
+def sample_offsets_rotated(blob):
+    # 沿 blob 主轴/次轴生成中心 5 点 + 外环 4 点采样偏移 (相对中心).
+    # 为什么旋转感知: LED 倾斜成椭圆 (per led-physics 记忆), bbox 水平/垂直采样会落椭圆外.
+    # 半径用 min(w,h)/2 (内接圆) 而非 max, 旋转后采样点仍在椭圆内.
+    theta = blob.rotation()
+    cos_t = math.cos(theta)
+    sin_t = math.sin(theta)
+    radius = max(2, min(blob.w(), blob.h()) // 2)
+    inner = max(1, radius // 2)
+
+    def rot(dx, dy):
+        return (int(round(dx * cos_t - dy * sin_t)),
+                int(round(dx * sin_t + dy * cos_t)))
+
+    center = (                                # 5 点: 正中 + 主轴±inner + 次轴±inner
+        (0, 0),
+        rot(-inner, 0), rot(inner, 0),
+        rot(0, -inner), rot(0, inner),
+    )
+    ring = (                                  # 4 点: 主/次轴两端, 探测环上被噪声污染
+        rot(-radius, 0), rot(radius, 0),
+        rot(0, -radius), rot(0, radius),
+    )
+    return center, ring
+
+
+def classify_pattern(tier, center_samples, ring_samples):
+    # 显式判定 SOLID (中心绿, 远/中距标准) / HALO (白核+绿环, 近距过曝标准) / None (拒).
+    # 关键: 近距 LED 中心必然洗白, 单阈值挡不住 — 必须靠两种形态二选一.
+    # 返回 {pattern, center_green, ring_green, ring_noise} 或 None.
+    cg = sum(1 for p in center_samples if is_green_pixel(p))
+    cs = sum(1 for p in center_samples if is_saturated_bright(p))
+    rg = sum(1 for p in ring_samples if is_green_pixel(p))
+    rn = sum(1 for p in ring_samples if is_noise_color(p))
+
+    if rn > tier["max_ring_noise"]:           # 环境太脏直接拒
+        return None
+
+    is_solid = cg >= tier["min_center_green"]
+    is_halo = (cs >= tier["min_center_saturated"]
+               and rg >= tier["min_ring_green"])
+    if not (is_solid or is_halo):
+        return None
+
+    return {                                  # SOLID 优先 (可信度比 HALO 高)
+        "pattern": "SOLID" if is_solid else "HALO",
+        "center_green": cg,
+        "ring_green": rg,
+        "ring_noise": rn,
+    }
+
+
+def measure_green_blob(img, blob, tier, is_tracked=False):
+    # 几何 + 结构化校验, 通过返回 {blob, score, radius, center_green, [pattern]}, 失败返回 None.
+    # 校验顺序按代价从低到高: roundness → density → brightness → a_mean → classify_pattern (最贵).
+    # is_tracked=True 快路径跳过第 5 步采样 (信任上一帧已验证), 省 1-2ms/帧, 失锁后会重做完整校验.
+    bw = blob.w()
+    bh = blob.h()
+    if bw <= 0 or bh <= 0:
+        return None
+
+    radius = max(1, min(bw, bh) // 2)
+    roundness_ratio = min(bw, bh) / max(bw, bh)
+
+    # 1) 圆度
+    if roundness_ratio < tier["roundness_min"]:
+        # draw_reject_marker(img, blob, "R")
+        return None
+
+    # 2) 密度: pixels/bbox_area. <min=散点/L 形, >max=完整矩形
+    density = blob.density()
+    if density < tier["density_min"] or density > tier["density_max"]:
+        # draw_reject_marker(img, blob, "D")
+        return None
+
+    # 3) 亮度: blob 区域 L 通道均值
+    stats = img.get_statistics(roi=blob.rect())
+    l_mean = stats.l_mean()
+    if l_mean < tier["min_brightness"] or l_mean > tier["max_brightness"]:
+        # draw_reject_marker(img, blob, "L")
+        return None
+
+    # 4) LAB 色度 a_mean (越负越偏绿)
+    a_limit = BLOB_A_LIMIT_FAR if tier["name"] == "FAR" else BLOB_A_LIMIT_DEFAULT
+    if stats.a_mean() > a_limit:
+        # draw_reject_marker(img, blob, "A")
+        return None
+
+    # 快速路径 1: 跟踪命中 — pattern 缺失, 主循环用 track_pattern
+    if is_tracked:
+        return {
+            "blob": blob,
+            "score": blob.pixels() + int(roundness_ratio * 100) + 100,
+            "radius": radius,
+            "center_green": tier["min_center_green"],
+        }
+
+    # 快速路径 2: 远档微小 blob (radius 太小, 采样退化) — 信任 find_blobs LAB 阈值
+    if tier["name"] == "FAR" and blob.pixels() < FAR_TINY_BLOB_PX:
+        return {
+            "blob": blob,
+            "score": blob.pixels() * 5 + int(roundness_ratio * 100),
+            "radius": radius,
+            "center_green": tier["min_center_green"],
+        }
+
+    # 5) 结构化采样 + SOLID/HALO 分类
+    center_offs, ring_offs = sample_offsets_rotated(blob)
+    cx, cy = blob.cx(), blob.cy()
+    center_samples = [get_pixel_safe(img, cx + dx, cy + dy) for dx, dy in center_offs]
+    ring_samples = [get_pixel_safe(img, cx + dx, cy + dy) for dx, dy in ring_offs]
+
+    cls = classify_pattern(tier, center_samples, ring_samples)
+    if cls is None:
+        # Fallback SOLID: cg>=1 + blob is green enough (a_mean <= -10) → accept anyway
+        cg = sum(1 for p in center_samples if is_green_pixel(p))
+        if cg >= 1 and stats.a_mean() <= -10:
+            cls = {"pattern": "SOLID", "center_green": cg, "ring_green": 0, "ring_noise": 0}
+        else:
+            # draw_reject_marker(img, blob, "S")
+            return None
+
+    # 综合打分: sqrt(area)*20 + 圆度*100 + 中心绿*40 + 环绿*15 - 环噪*25 [+ HALO bonus]
+    import math
+    score = (int(math.sqrt(blob.pixels()) * 20)
+             + int(roundness_ratio * 100)
+             + cls["center_green"] * 40
+             + cls["ring_green"] * 15
+             - cls["ring_noise"] * 25)
+    if cls["pattern"] == "HALO":
+        score += HALO_PATTERN_SCORE_BONUS
+
+    return {
+        "blob": blob,
+        "score": score,
+        "radius": radius,
+        "center_green": cls["center_green"],
+        "pattern": cls["pattern"],
+    }
+
+
+# ======================== 视觉: 检测流水线 ========================
+def tracking_bonus(blob, radius):
+    # 靠近上次目标加分远离扣分, 防多绿灯场景跳目标. 阈值用半径而非固定值适应大小目标.
+    if track_cx < 0 or track_cy < 0:
+        return 0
+    dx = blob.cx() - track_cx
+    dy = blob.cy() - track_cy
+    distance_sq = dx * dx + dy * dy
+    allowed = max(radius, track_radius) + TRACK_DISTANCE_MARGIN
+    if distance_sq > allowed * allowed:
+        return -80                            # 重罚: 基本被其他候选挤掉
+    return 30                                 # 范围内: 中等加分
+
+
+def predict_roi(img):
+    # 根据上一帧位置 + 速度外推 + 丢失帧数预测搜索 ROI. 返回 (x0,y0,w,h) 或 None.
+    # 半径 = max(基础, radius*4) + |v|*VEL_GAIN + 丢失帧*LOST_GAIN.
+    if track_cx < 0 or track_lost_count >= ROI_FULL_SEARCH_LOST:
+        return None
+
+    base = max(ROI_BASE_RADIUS, track_radius * 4)
+    extra = (abs(track_vx) + abs(track_vy)) * ROI_VELOCITY_GAIN
+    extra += track_lost_count * ROI_LOST_GAIN
+    r = int(base + extra)
+
+    cx = track_cx + track_vx                  # 一阶外推 (假定速度恒定)
+    cy = track_cy + track_vy
+    x0 = max(0, cx - r)
+    y0 = max(0, cy - r)
+    x1 = min(img.width(), cx + r)
+    y1 = min(img.height(), cy + r)
+    w = x1 - x0
+    h = y1 - y0
+    if w < 20 or h < 20:                      # ROI 太小不如全图
+        return None
+    return (x0, y0, w, h)
+
+
+def _find_blobs(img, tier, roi=None):
+    # find_blobs 统一调用. 抽出来是为了 ROI 命中/落空双路径不复制参数.
+    kwargs = {
+        "pixels_threshold": tier["pixels_threshold"],
+        "area_threshold": tier["pixels_threshold"],
+        "merge": True,                        # 重叠 blob 合并防被切成碎块
+    }
+    if roi is not None:
+        kwargs["roi"] = roi
+    return img.find_blobs([tier["threshold"]], **kwargs)
+
+
+def detect_green_target(img):
+    # 完整检测流水线 (每帧一次):
+    #   1) predict_roi 算搜索窗 (无历史就全图)
+    #   2) _find_blobs 找候选, ROI 落空回退全图
+    #   3) measure_green_blob 校验+打分 + tracking_bonus 防跳目标
+    #   4) 返回最高分 (无候选 None)
+    global last_candidate_count
+    tier = DIST_TIERS[current_tier_idx]
+
+    roi = predict_roi(img)
+    blobs = _find_blobs(img, tier, roi)
+    if roi is not None:
+        if not blobs:
+            blobs = _find_blobs(img, tier, None)     # ROI 落空 → 全图重搜
+        # else:
+            # img.draw_rectangle(roi, color=(0, 128, 0), thickness=1)    # 调试: ROI 命中框
+
+    last_candidate_count = len(blobs)
+
+    best_result = None
+    best_score = -99999
+    # is_tracked 判断只在上帧命中时启用, 防失锁多帧后还用老位置
+    track_active = track_cx >= 0 and track_lost_count == 0
+    track_allowed_sq = 0
+    if track_active:
+        track_allowed = track_radius + TRACK_DISTANCE_MARGIN
+        track_allowed_sq = track_allowed * track_allowed
+    for blob in blobs:
+        is_tracked = False
+        if track_active:
+            dx = blob.cx() - track_cx
+            dy = blob.cy() - track_cy
+            is_tracked = (dx * dx + dy * dy) <= track_allowed_sq
+        result = measure_green_blob(img, blob, tier, is_tracked=is_tracked)
+        if result is None:
+            continue
+        score = result["score"] + tracking_bonus(blob, result["radius"])
+        if score > best_score:
+            best_score = score
+            best_result = result
+
+    if best_result is None:
+        return None
+    best_result["score"] = best_score
+    return best_result
+
+
+def update_tracking(result):
+    # 时序滤波. 返回 None 表示"还不算锁定 / 已丢失", 返回 blob 表示主循环可上报坐标.
+    # 丢失分级: <4 帧保留全状态; 4-9 帧保留 last_xy + vxvy 让 ROI 继续外推; >=10 帧彻底清零回到全图搜.
+    # 命中分级: confirm 累计到 TRACK_CONFIRM_FRAMES (2) 才算"真锁定", 防 LED 闪烁瞬时单帧误命中.
+    global track_cx, track_cy, track_radius, track_pixels
+    global track_vx, track_vy, track_confirm_count, track_lost_count, track_pattern
+
+    if result is None:
+        track_lost_count += 1
+        if track_lost_count >= 5:
+            apply_tier(DEFAULT_TIER_IDX)       # 丢 5 帧就回 DEFAULT (FAR), 不要停留在意外切到的档
+        if track_lost_count >= TRACK_LOST_TOLERANCE:
+            if track_lost_count >= ROI_FULL_SEARCH_LOST:
+                track_cx = -1
+                track_cy = -1
+                track_radius = 0
+                track_pixels = 0
+                track_vx = 0
+                track_vy = 0
+                track_confirm_count = 0
+                track_pattern = "?"
+        return None
+
+    blob = result["blob"]
+    new_cx = blob.cx()
+    new_cy = blob.cy()
+
+    if track_cx >= 0:                         # 一阶速度估计 (首帧 vx=vy=0)
+        track_vx = new_cx - track_cx
+        track_vy = new_cy - track_cy
+
+    track_cx = new_cx
+    track_cy = new_cy
+    track_radius = result["radius"]
+    track_pixels = blob.pixels()
+    track_pattern = result.get("pattern", "?")    # 远档微小 blob 没 pattern
+    track_lost_count = 0
+    if track_confirm_count < TRACK_CONFIRM_FRAMES:
+        track_confirm_count += 1
+
+    if track_confirm_count < TRACK_CONFIRM_FRAMES:
+        return None
+    return blob
+
+
+# ======================== 调试绘制 ========================
+# 全部无条件画. 不要时在调用点把对应 draw_*/render_debug_overlay 注释掉即可.
+def _classify_sample_color(pixel):
+    # 采样点分类色: 绿=is_green, 白=halo 核, 品红=干扰, 中灰=未分类, 暗灰=越界
+    if pixel is None:
+        return (60, 60, 60)
+    if is_green_pixel(pixel):
+        return (0, 255, 0)
+    if is_saturated_bright(pixel):
+        return (255, 255, 255)
+    if is_noise_color(pixel):
+        return (255, 0, 255)
+    return (120, 120, 120)
+
+
+def draw_blob_samples(img, blob):
+    # 画中心 5 点 + 外环 4 点采样, 颜色显示分类
+    center_offs, ring_offs = sample_offsets_rotated(blob)
+    cx, cy = blob.cx(), blob.cy()
+    for dx, dy in center_offs + ring_offs:
+        px, py = cx + dx, cy + dy
+        img.draw_circle(px, py, 2,
+                        color=_classify_sample_color(get_pixel_safe(img, px, py)),
+                        thickness=1, fill=True)
+
+
+def draw_reject_marker(img, blob, reason_code):
+    # 被拒 blob 灰圆 + 字母 (R=圆度/D=密度/L=亮度/A=色度a/S=采样).
+    # 比赛要彻底关 → measure_green_blob 里 5 处 draw_reject_marker 都注释.
+    r = max(3, max(blob.w(), blob.h()) // 2 + 1)
+    img.draw_circle(blob.cx(), blob.cy(), r, color=(90, 90, 90), thickness=1)
+    img.draw_string(blob.cx() - 4, max(0, blob.cy() - r - 9), reason_code,
+                    color=(200, 200, 200), scale=1)
+
+
+def draw_pattern_label(img, blob, pattern):
+    # blob 下方写命中模式 (SOLID 青 / HALO 黄)
+    color = (0, 255, 255) if pattern == "SOLID" else (255, 255, 0)
+    img.draw_string(blob.x(), blob.y() + blob.h() + 2, pattern, color=color, scale=1)
+
+
+def draw_velocity_arrow(img):
+    # 跟踪中心画速度矢量 (放大 3 倍). 没目标/v=0 跳过
+    if track_cx < 0 or (track_vx == 0 and track_vy == 0):
+        return
+    end_x = int(track_cx + track_vx * 3)
+    end_y = int(track_cy + track_vy * 3)
+    img.draw_arrow(track_cx, track_cy, end_x, end_y, color=(255, 128, 0), thickness=2)
+
+
+def draw_locked_target(img, blob):
+    # 锁定: inner 红圆 + outer 青圆 + 采样/pattern/速度图层
+    r_in = max(2, min(blob.w(), blob.h()) // 2)
+    r_out = max(r_in + 3, max(blob.w(), blob.h()) // 2 + 2)
+    img.draw_circle(blob.cx(), blob.cy(), r_out, color=(0, 255, 255), thickness=2)
+    img.draw_circle(blob.cx(), blob.cy(), r_in, color=(255, 0, 0), thickness=2)
+    # draw_blob_samples(img, blob)
+    draw_pattern_label(img, blob, track_pattern)
+    draw_velocity_arrow(img)
+
+
+def draw_hud(img, has_target, fps, x_out=0, y_out=0):
+    # 左上角 HUD: 档位 / 候选数 / pattern / 像素 / 距离 / fps / xout / yout.
+    tier_name = DIST_TIERS[current_tier_idx]["name"]
+    line1 = "tier=%s cand=%d fps=%.1f" % (tier_name, last_candidate_count, fps)
+    if has_target:
+        line2 = "%s px=%d dist=%.0fcm" % (
+            track_pattern, track_pixels, estimate_distance_cm(track_pixels))
+        line3 = "xout=%d yout=%d" % (x_out, y_out)
+    else:
+        line2 = "NO TARGET"
+        line3 = "xout=-- yout=--"
+    img.draw_string(2, 2, line1, color=(255, 255, 0), scale=1, mono_space=False)
+    img.draw_string(2, 12, line2, color=(255, 255, 0), scale=1, mono_space=False)
+    img.draw_string(2, 22, line3, color=(0, 255, 255), scale=1, mono_space=False)
+
+
+def draw_imu_debug(img):
+    # 串口调试帧 data[0..11] 的 12 个量, 3 个一组画在 HUD 下方:
+    #   ACC 加速度XYZ / GYR 陀螺PRY / CUR 当前欧拉角PRY / TGT 目标欧拉角PRY.
+    groups = (("1", 0), ("2", 3), ("3", 6), ("4", 9))
+    for row, (label, base) in enumerate(groups):
+        img.draw_string(2, 34 + row * 10,
+                        "%s % 8.2f % 8.2f % 8.2f" % (label, data[base], data[base + 1], data[base + 2]),
+                        color=(255, 0, 255), scale=1, mono_space=True)
+
+
+def render_debug_overlay(img, has_target, locked_blob, x_out, y_out):
+    # 统一调试输出: 中心绿十字 + 锁定红/青双圈 + 采样点 + pattern + 速度箭头 + per-frame print + HUD.
+    # 比赛关掉 → 主循环里调用行整行注释掉. 实测吃 16-19ms/帧.
+    global tier_switch_msg
+    img.draw_cross(FRAME_CENTER_X, FRAME_CENTER_Y, color=(0, 255, 0), size=10, thickness=1)
+    img.draw_cross(FRAME_CENTER_X+FRAME_X_OFFSET, FRAME_CENTER_Y+FRAME_Y_OFFSET, color=(255, 255, 0), size=10, thickness=1)
+    if has_target:
+        draw_locked_target(img, locked_blob)
+    # print("tier=%s  px=%d dist=%.0fcm x=%d y=%d fps=%.1f pattern=%s%s" % (
+    #     DIST_TIERS[current_tier_idx]["name"], track_pixels,
+    #     estimate_distance_cm(track_pixels) if track_pixels > 0 else 0,
+    #     x_out, y_out, fps, track_pattern, tier_switch_msg))
+    tier_switch_msg = ""
+    draw_hud(img, has_target, fps, x_out, y_out)
+    draw_imu_debug(img)                       # 串口收到的 12 个 IMU/姿态量, 3 个一组
+
+
+# ======================== 主循环 helpers ========================
+def update_fps():
+    # 1s 滚动窗口 FPS. 不用 time.clock() 因为它只算单帧间隔, 切档抖动时数字跳.
+    global fps, fps_count, fps_window_start
+    fps_count += 1
+    elapsed = time.ticks_diff(time.ticks_ms(), fps_window_start)
+    if elapsed >= 1000:
+        fps = fps_count * 1000.0 / elapsed
+        fps_count = 0
+        fps_window_start = time.ticks_ms()
+
+
+def mount_sd_if_needed():
+    global sd_mount_flag
+    if sd_mount_flag == 0:
+        print("try mount sd")
+        mount_sdcard_manually()
+    elif sd_mount_flag == 2:
+        print("sd mounted")
+        sd_mount_flag = 1
+
+
+def compute_target_xy(locked_blob):
+    # blob 像素坐标 → 飞控期望的"中心化 + 翻Y + LPF"输出. 状态化(跨帧用 last_x/last_y), 每帧只调一次.
+    global last_x, last_y
+    raw_x = locked_blob.cx() - FRAME_CENTER_X - FRAME_X_OFFSET
+    raw_y = FRAME_CENTER_Y - locked_blob.cy() + FRAME_Y_OFFSET    # 翻 Y + 飞控俯仰偏置
+    x = int(LPF_FACTOR * raw_x + (1 - LPF_FACTOR) * last_x)
+    y = int(LPF_FACTOR * raw_y + (1 - LPF_FACTOR) * last_y)
+    last_x = x
+    last_y = y
+    return x, y
+
+
+def record_frame_to_sd(img):
+    # 每 N 帧写 1 帧到 SD 视频文件
+    global _record_frame_skip, record_state_flag
+    if not ENABLE_VIDEO_RECORDING or Record_State != STATE_RECORD_START:
+        return
+    if mjpeg_flag != 1 or m_handle is None:
+        return
+    _record_frame_skip += 1
+    if _record_frame_skip < RECORD_EVERY_N_FRAMES:
+        return
+    _record_frame_skip = 0
+    try:
+        m_handle.write(img, quality=RECORD_QUALITY)
+        if record_state_flag < 1:
+            send_record_state(1, 0)
+            record_state_flag = 1
+    except Exception as e:
+        print("write failed: {}".format(e))
+
+
+def log_detection_data(has_target, x_out, y_out):
+    # 记录识别数据到文本文件 (含 IMU 数据)
+    if not ENABLE_LOG_RECORDING or log_file is None or Record_State != STATE_RECORD_START:
+        return
+    try:
+    #     tier_name = DIST_TIERS[current_tier_idx]["name"]
+    #     if has_target:
+    #         dist_cm = estimate_distance_cm(track_pixels)
+    #         log_file.write("{}, {}, {:.0f}, {}, {}, {:.1f}, {}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}\n".format(
+    #             tier_name, track_pixels, dist_cm, x_out, y_out, fps, track_pattern,
+    #             data[0], data[1], data[2], data[3], data[4], data[5],
+    #             data[6], data[7], data[8], data[9], data[10], data[11]))
+    #     else:
+    #         log_file.write("{}, 0, 0, 0, 0, {:.1f}, NONE, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}\n".format(
+    #             tier_name, fps,
+    #             data[0], data[1], data[2], data[3], data[4], data[5],
+    #             data[6], data[7], data[8], data[9], data[10], data[11]))
+
+        tier_name = DIST_TIERS[current_tier_idx]["name"]
+        if has_target:
+            dist_cm = estimate_distance_cm(track_pixels)
+            log_file.write("{}, {}, {:.0f}, {}, {}, {:.1f}, {}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}\n".format(
+                tier_name, track_pixels, dist_cm, x_out, y_out, fps, track_pattern,
+                data[0], data[1], data[2], data[3], data[4], data[5],
+                data[6], data[7], data[8], data[9], data[10], data[11]))
+        else:
+            log_file.write("{}, 0, 0, 0, 0, {:.1f}, NONE, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}\n".format(
+                tier_name, fps,
+                data[0], data[1], data[2], data[3], data[4], data[5],
+                data[6], data[7], data[8], data[9], data[10], data[11]))
+    except Exception as e:
+        print("log failed: {}".format(e))
+
+
+# ======================== 主循环 ========================
+# 曝光已在 sensor.reset() → skip_frames 之间锁定, 这里不再重复设置.
+
+try:
+  while True:
+    # ----- 帧率 & 通信 & SD (前置) -----
+    update_fps()
+    Uart_Rx_Data()                            # 可能改 current_state / Record_State
+    mount_sd_if_needed()                      # SD 延迟挂载 (开机/失败重试)
+
+    # IDE 测试: SD 挂载后自动触发录像. _auto_record_triggered 一次性闩防失败循环.
+    if (DEBUG_AUTO_RECORD and not _auto_record_triggered
+            and sd_mount_flag == 1 and Record_State == STATE_STOP):
+        Record_State = STATE_RECORD_START
+        _auto_record_triggered = True
+        print("DEBUG: auto-record triggered (no FC)")
+
+    # ----- 抓帧 -----
+    img = sensor.snapshot()
+    update_recording_state()
+
+    # ----- 自适应切档 -----
+    # 只在 track_pixels>0 时切. 启动/丢目标时停在 DEFAULT_TIER_IDX (=FAR),
+    # 远距 4-14 px LED 只有 FAR 档能识别, MID/NEAR 的 min_brightness 会拒掉.
+    if track_pixels > 0:
+        apply_tier(pick_tier(track_pixels))
+
+    # ----- 检测 + 时序跟踪 -----
+    detection = detect_green_target(img)
+    locked_blob = update_tracking(detection)
+    has_target = locked_blob is not None
+
+    # ----- 命中: 算坐标 -----
+    x_out, y_out = 0, 0
+    if has_target:
+        x_out, y_out = compute_target_xy(locked_blob)
+        
+    # render_debug_overlay(img, has_target, locked_blob, x_out, y_out)
+    # ----- 调试可视化 (比赛关掉省 16-19ms/帧, +5~12fps) -----
+    # img.draw_cross(FRAME_CENTER_X+FRAME_X_OFFSET, FRAME_CENTER_Y+FRAME_Y_OFFSET, color=(255, 255, 0), size=10, thickness=1)
+    # draw_hud(img, has_target, fps, x_out, y_out)
+    # draw_imu_debug(img)                       # 串口收到的 12 个 IMU/姿态量, 3 个一组
+    # if has_target:
+    #     r_in = max(2, min(locked_blob.w(), locked_blob.h()) // 2)
+    #     img.draw_circle(locked_blob.cx(), locked_blob.cy(), r_in, color=(255, 0, 0), thickness=2)
+
+    # ----- 录像 -----
+    record_frame_to_sd(img)
+
+    # ----- 记录识别数据到文本日志 -----
+    log_detection_data(has_target, x_out, y_out)
+
+    # ----- 根据工作状态机决定是否发包 -----
+    if current_state == STATE_WORK:
+        if has_target:
+            send_data(int(x_out), int(y_out))         # 识别到目标 → 发坐标包
+            if SEND_DISTANCE_PACKET:
+                send_distance(estimate_distance_cm(track_pixels), track_pixels)
+        else:
+            send_none(0, 0)                           # 没识别 → 心跳"无目标"包
+    if current_state == STATE_Self_Text:
+        i = 0
+        if(i<10):
+            i+=1
+            current_state = STATE_IDLE                    # 自检一次性, 回包后立即回 IDLE
+            send_Self_Text_data()
+
+
+except KeyboardInterrupt:
+    print("interrupted by user")
+except Exception as e:
+    print("main loop crashed: {}".format(e))
+finally:
+    # 关闭视频文件
+    if m_handle is not None:
+        try:
+            m_handle.close()
+            print("mjpeg closed")
+        except Exception as e:
+            print("mjpeg close failed: {}".format(e))
+    # 关闭日志文件
+    if log_file is not None:
+        try:
+            log_file.close()
+            print("log closed")
+        except Exception as e:
+            print("log close failed: {}".format(e))
+    try:
+        os.sync()
+        print("sd synced")
+    except Exception as e:
+        print("sync failed: {}".format(e))
+0

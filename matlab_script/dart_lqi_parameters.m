@@ -148,7 +148,7 @@ Cm_yaw_ref   = 0;   % yaw restoring, 1/s²    PLACEHOLDER  (应为负)
 % Q_aug: 9×9 状态权重（角度误差 + 角速度 + 积分误差）
 % % 状态顺序：[e_roll, e_pitch, e_yaw, p, q, r, ∫e_roll, ∫e_pitch, ∫e_yaw]
 Q_aug = diag([ ... 
-    100.0,   ...  % e_roll  角度误差权重（高：roll 要追准）
+    70.0,   ...  % e_roll  角度误差权重（高：roll 要追准）
     0.01,   ...  % e_pitch 角度误差权重（极低：不主动追 pi tch 角度）
     500,    ...  % e_yaw   角度误差权重（高：yaw 要追准）
     1.0,    ...  % p (roll rate)  权重

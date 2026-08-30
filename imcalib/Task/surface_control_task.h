@@ -14,9 +14,9 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-#define  Servo_UL_ZERO      1560
+#define  Servo_UL_ZERO      1520
 #define  Servo_UR_ZERO      1630
-#define  Servo_DR_ZERO      1550
+#define  Servo_DR_ZERO      1560
 #define  Servo_DL_ZERO      1460      
 #define Shot_Pitch       24.5 
 #define Shot_Roll 5.5  
