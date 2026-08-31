@@ -377,7 +377,7 @@ void get_current_State(void)
             Surface.Stable_Euler_Angle[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
             Surface.Guidance_flag[1] = 1;
         } 
-        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.2f&&fabsf(IMU_Data.Velocity[Body][NOW][Y])>0.2f&&fabsf(IMU_Data.Velocity[Body][NOW][X])<0.5f)
+        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.1f&&IMU_Data.Velocity[Body][NOW][Y]>0.2f)
         {
             Buzzer_Remind();
             Guidance_State = Stable;

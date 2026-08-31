@@ -53,6 +53,9 @@ FRAME_CENTER_Y = 120                 # = FRAME_H // 2
 FRAME_X_OFFSET = 145                  # 与主脚本一致: raw_x 额外平移
 FRAME_Y_OFFSET = -5                 # 与主脚本一致: 飞控俯仰偏置
 
+# 视频测试专用: 跳过顶部 HUD 区域, 避免录屏中的可视化叠加层被误识别
+HUD_SKIP_Y = 40                     # 顶部40像素内的 blob 直接忽略
+
 
 # ======================== 距离档参数表 (2026-08-07 按用户给定参数) ========================
 # 三档数值照抄用户给定配置 (与项目内 Guidance_vision_scrpit.py 转置版不同, 以本套为准).
@@ -62,14 +65,14 @@ DIST_TIERS = [
     {
         "name": "FAR",
         "pixels_min": 1,
-        "pixels_max": 15,
-        "threshold": (10, 51, -31, 2, 9, 33),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
-        "min_brightness": 9,
+        "pixels_max": 150,
+        "threshold": (14, 43, -56, -12, -7, 54),
+        "min_brightness": 5,
         "max_brightness": 100,
         "pixels_threshold": 1,
-        "roundness_min": 0.39,
-        "density_min": 0.03,
-        "density_max": 0.95,
+        "roundness_min": 0.55,
+        "density_min": 0.01,
+        "density_max": 0.85,
         "min_center_green": 1,
         "min_center_saturated": 99,
         "min_ring_green": 0,
@@ -80,13 +83,13 @@ DIST_TIERS = [
         "name": "MID",
         "pixels_min": 18,
         "pixels_max": 3000,
-        "threshold": (10, 51, -31, 2, 9, 33),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
-        "min_brightness": 32,
+        "threshold": (14, 43, -56, -12, -7, 54),
+        "min_brightness": 20,
         "max_brightness": 100,
         "pixels_threshold": 4,
-        "roundness_min": 0.40,
-        "density_min": 0.10,
-        "density_max": 0.95,
+        "roundness_min": 0.55,
+        "density_min": 0.00,
+        "density_max": 0.85,
         "min_center_green": 2,
         "min_center_saturated": 1,
         "min_ring_green": 1,
@@ -97,13 +100,13 @@ DIST_TIERS = [
         "name": "NEAR",
         "pixels_min": 3000,
         "pixels_max": 15000,
-        "threshold": (10, 51, -31, 2, 9, 33),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
-        "min_brightness": 25,
+        "threshold": (14, 43, -56, -12, -7, 54),
+        "min_brightness": 35,
         "max_brightness": 100,
         "pixels_threshold": 20,
-        "roundness_min": 0.35,
-        "density_min": 0.40,
-        "density_max": 0.95,
+        "roundness_min": 0.55,
+        "density_min": 0.00,
+        "density_max": 0.85,
         "min_center_green": 1,
         "min_center_saturated": 1,
         "min_ring_green": 1,
@@ -527,6 +530,8 @@ def detect_green_target(img_bgr, state, viz):
     else:
         candidate_blobs = find_blobs_opencv(img_bgr, tier["threshold"],
                                             pixels_threshold=tier["pixels_threshold"])
+    # 跳过顶部 HUD 区域的 blob (录屏中可视化叠加层会被误识别)
+    candidate_blobs = [b for b in candidate_blobs if b["cy"] >= HUD_SKIP_Y]
     state.last_candidate_count = len(candidate_blobs)
 
     # 跟踪快路径判定 (上一帧锁定位置附近 blob 跳过结构化采样)
@@ -742,11 +747,16 @@ def main():
             else:
                 ret, frame = cap.read()
                 if not ret:
-                    # 视频播完 → 循环回放并重置跟踪
+                    # 视频播完 → 从头循环
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     state = TrackerState()
                     frame_cache.clear()
-                    continue
+                    step_once = False
+                    # 重新读第一帧
+                    ret, frame = cap.read()
+                    if not ret:
+                        print("ERROR: cannot re-read video, quitting")
+                        break
                 if frame.shape[1] != FRAME_W or frame.shape[0] != FRAME_H:
                     frame = cv2.resize(frame, (FRAME_W, FRAME_H))
                 # 存入缓存

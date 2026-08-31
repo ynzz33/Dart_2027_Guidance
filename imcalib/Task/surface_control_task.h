@@ -19,9 +19,9 @@
 #define  Servo_DR_ZERO      1560
 #define  Servo_DL_ZERO      1460      
 #define Shot_Pitch       24.5 
-#define Shot_Roll 5.5  
-#define USE_BMX055   0
-#define USE_BMI088   1
+#define Shot_Roll 6.5  
+#define USE_BMX055   1
+#define USE_BMI088   0
 
 /* 力大概在轧带哪里 */
 
