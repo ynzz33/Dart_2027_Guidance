@@ -386,7 +386,7 @@ void get_current_State(void)
             Surface.Guidance_flag[1] = 2;
         }
     }
-    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch-15.0&&(IMU_Data.Euler[NOW][ROLL]>=Shot_Roll-10.0||IMU_Data.Euler[NOW][ROLL]<=Shot_Roll+10.0)&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
+    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch-15.0&&(IMU_Data.Euler[NOW][ROLL]>=Shot_Roll-5.0||IMU_Data.Euler[NOW][ROLL]<=Shot_Roll+5.0)&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
     {
         Vision_Transmit( Vision_Cmd_Work );
         if(Surface.Guidance_cnt[2]++>5)
@@ -450,9 +450,10 @@ void surface_control_task(void)
         }
         else
         {
-            /* [弃用留存] LQR 一步 6态→4舵——LQR 已不再使用（2026-08-11），代码留存仅供对照，
-             * 正常恒走 LQI 分支（lqi_mode=1）。 */
-            Euler_LQR_Cale(delta_time);
+            /* [弃用留存] 原 Euler_LQR_Cale(delta_time)——LQR 一步 6态→4舵已弃用(2026-08-11)，
+             * lqr_tool/ 已移出 eIDE 编译列表(lqr.c 不再链接)，保留该调用会链接期 undefined symbol；
+             * lqi_mode 恒=1 恒走 LQI。LQR 代码留存 lqr_tool/ 仅供对照。 */
+            // Euler_LQR_Cale(delta_time);
         }
         for (int i = 0; i < 4; i++)                    /* 安全网:分配已保证在限内,此处仅兜底 FP 误差 */
             abs_limit(&Surface.output_angle_Servo[NOW][i], SERVO_ANGLE_LIMIT);

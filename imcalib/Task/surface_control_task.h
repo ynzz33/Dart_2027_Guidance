@@ -18,8 +18,8 @@
 #define  Servo_UR_ZERO      1630
 #define  Servo_DR_ZERO      1560
 #define  Servo_DL_ZERO      1460      
-#define Shot_Pitch       24.5 
-#define Shot_Roll 6.5  
+#define Shot_Pitch       25.5 
+#define Shot_Roll 4.2  
 #define USE_BMX055   1
 #define USE_BMI088   0
 

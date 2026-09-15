@@ -686,22 +686,30 @@ void IMU_Init(void)
 }
 
 /*
- * 静态零偏校准:上电后保持飞镖静止 3 秒,采样均值作为 gyro/acc 零偏。
- * 校准期间 calib_done=0,IMU_Data_Read 不减偏,保证采样的是真实零位。
- *
- * 关键改进:校准期间同步运行姿态算法,让 R_matrix_T 收敛后再计算零偏,
- * 确保零偏与重力投影自洽,静止时 A_World≈0。
+ * 静态零偏校准:上电后保持飞镖静止 3 秒,采样陀螺仪和加速度均值。
+ * 校准期间 calib_done=0,IMU_Data_Read 不减陀螺零偏,保证采样的是真实零位。
+ * 校准期间同步运行姿态算法,让姿态在当前实际摆放方向上收敛;
+ * 加速度零偏使用 amean - R_col3,与后续 Mahony 和去重力公式保持一致。
  */
 void IMU_Calibrate(void)
 {
     const uint16_t WARMUP_MS = 1000;   /* 姿态收敛等待 */
     const uint16_t SAMPLE_MS = 2000;   /* 零偏采样 */
-    float gsum[3] = {0}, asum[3] = {0};
+    float gsum[3] = {0};
+    float asum[3] = {0};
+    float amean[3] = {0};
+    int i;
+    uint16_t n;
 
     IMU_Data.calib_done = 0;
+    /* 防止重复上电/重新校准时沿用上一轮加速度偏置影响 Mahony。 */
+    for (i = 0; i < 3; i++)
+    {
+        IMU_Data.A_Offset[i] = 0.0f;
+    }
 
     /* Phase 1: 姿态收敛期 — 持续读传感器+解算姿态,不采零偏 */
-    for (uint16_t n = 0; n < WARMUP_MS; n++)
+    for (n = 0; n < WARMUP_MS; n++)
     {
         IMU_Data_Read();
         IMU_Attitude_Algorithm();
@@ -709,11 +717,11 @@ void IMU_Calibrate(void)
     }
 
     /* Phase 2: 零偏采样期 — 姿态已收敛,R_col3≈真重力方向,此时采零偏与去重力自洽 */
-    for (uint16_t n = 0; n < SAMPLE_MS; n++)
+    for (n = 0; n < SAMPLE_MS; n++)
     {
         IMU_Data_Read();
         IMU_Attitude_Algorithm();
-        for (int i = 0; i < 3; i++)
+        for (i = 0; i < 3; i++)
         {
             gsum[i] += IMU_Data.G[NOW][i];
             asum[i] += IMU_Data.A[NOW][i];
@@ -721,28 +729,17 @@ void IMU_Calibrate(void)
         osDelay(1);
     }
 
-    /* 零偏计算:用发射架已知姿态构造理论重力向量(机体系),不依赖 Mahony 收敛质量。
-     * Shot_Pitch/Roll 是发射架真实机械角(°),见 surface_control_task.h。
-     * yaw 绕重力轴旋转不影响重力在机体系投影,故不需要 yaw。
-     * 机体系 ENU:X=右,Y=前,Z=上;静止加速度计读 +1g 朝上。
-     * g_ref_body = R_body_to_world^T * [0,0,1] = 世界重力(上)在机体系的投影。*/
-    float amean[3];
-    for (int i = 0; i < 3; i++)
+    /* 零偏 = 静止均值 - 当前姿态对应的重力方向。
+     * R_matrix_T 第 3 列是世界向上方向在机体系中的投影。
+     * 该补偿与后续 a_no_gravity = gravity * ((a_raw - A_Offset) - R_col3) 自洽。 */
+    for (i = 0; i < 3; i++)
     {
         IMU_Data.G_Offset[i] = gsum[i] / (float)SAMPLE_MS;
         amean[i] = asum[i] / (float)SAMPLE_MS;
     }
-    {
-        float pitch_rad = DEG2RAD(Shot_Pitch);
-        float roll_rad  = DEG2RAD(Shot_Roll);
-        float g_ref[3];
-        g_ref[X] = -sinf(roll_rad);
-        g_ref[Y] =  cosf(roll_rad) * sinf(pitch_rad);
-        g_ref[Z] =  cosf(roll_rad) * cosf(pitch_rad);
-        IMU_Data.A_Offset[X] = amean[X] - g_ref[X];
-        IMU_Data.A_Offset[Y] = amean[Y] - g_ref[Y];
-        IMU_Data.A_Offset[Z] = amean[Z] - g_ref[Z];
-    }
+    IMU_Data.A_Offset[X] = amean[X] - IMU_Data.R_matrix_T[0][2];
+    IMU_Data.A_Offset[Y] = amean[Y] - IMU_Data.R_matrix_T[1][2];
+    IMU_Data.A_Offset[Z] = amean[Z] - IMU_Data.R_matrix_T[2][2];
 
     IMU_Data.calib_done = 1;
 }

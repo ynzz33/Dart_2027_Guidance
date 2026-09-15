@@ -187,7 +187,7 @@ Stable(自稳,锁 Stable_Euler_Angle) ──(Euler[PITCH]≤Shot_Pitch−10 且 
 
 ### LQR 状态反馈（`lqr.c/.h`，**已弃用留存 2026-08-11**）
 
-**不再使用**。`lqr_mode` 从未定义（仅 .h extern 已注释）；`surface_control_task()` 调用点是 `if (lqi_mode==1) Euler_LQI_Cale else Euler_LQR_Cale`，`lqi_mode` 恒 1 → 恒走 LQI。`LQR_Init()` 已从 Init_Config.c 注释；LQR 代码（含 MATLAB Coder 生成的 `LQR_K_Dart_d` 系列）留存仅供对照。原方案：`u=-K_d·x` 6 态→4 舵一步含混控。
+**不再使用**。`lqr_mode` 从未定义（仅 .h extern 已注释）；`surface_control_task()` 调用点是 `if (lqi_mode==1) Euler_LQI_Cale`（`lqi_mode` 恒 1 → 恒走 LQI）；else 分支原 `Euler_LQR_Cale` 调用已注释(2026-09-03，`lqr_tool/` 移出 eIDE 编译列表)。`LQR_Init()` 已从 Init_Config.c 注释；LQR 代码（含 MATLAB Coder 生成的 `LQR_K_Dart_d` 系列）留存仅供对照。原方案：`u=-K_d·x` 6 态→4 舵一步含混控。
 
 **与 PID/LADRC 的本质区别**：PID/LADRC 是两步（先算三轴力矩 `output_gyro_Euler` → 再过 `Servo_Mix_*` 混控）；LQR 的 `K_d[4][6]` 已把 X 翼混控几何 G 烘焙进模型，**一步替代 PID+混控两步**，`Euler_LQR_Cale` 直接写 `output_angle_Servo[NOW][...]`、绕过 `output_gyro_Euler` 与 `Servo_Mix_*`（调用点已加 `lqr_mode!=1` 跳过混控）。
 
@@ -316,7 +316,7 @@ Stable/Terminal 段且 `imu_is_static==0` → **LQI 力矩控制**（`lqi_mode=1
 - **LQI 积分仅 YAW 有效**：阈值 0.5°、限幅 5°·s（2026-08-11 修正，原 1.5°/2° 导致积分积不起来）。
 - **angle_wrap 未启用**：LQI 里 yaw 误差恒环绕（`Angle_Wrap_180`）；roll 按 `lqi_ctrl.roll_wrap`（默认 0）。
 - **Pitch 方案A**：LQI 里 pitch 误差恒 0、只留角速度阻尼——依托初始动力，不追目标角度。
-- **加速度零偏新公式（2026-08-20）**：`A_Offset = mean(a) − g_ref_body`（发射架已知姿态 `Shot_Pitch/Roll` 构造理论重力），取代旧 `mean(a) − R_col3`（依赖含零偏的 Mahony 输出）。Mahony 始终用去偏加速度 `a_corr` 做归一化、ZUPT 仅在 `Self_Text||Start` 时允许、零偏标定后立即冻结不在线 refine。待台架验证。
+- **加速度零偏处理（当前）**：不在单一上电姿态下估计 `A_Offset`，上电时将 `A_Offset` 置零；`Shot_Pitch/Roll` 仅用于发射姿态判定，不参与加速度校准。Mahony 仍使用 `a − A_Offset`，ZUPT 仅在 `Self_Text||Start` 时允许。加速度计物理零偏如需补偿，应使用多姿态离线标定。待台架验证。
 - 失效/未启用（2026-08-11 现状）：MAG、PNG 主环(`#if 0`)、PN 超前补偿(`#if 0`)、LQR(弃用)、LADRC/ADRC(弃用)、PID 串级 `Euler_pid_Cale`(无调用)、Servo_Mix_* 分配器(无定义)、`vel_pursuit_mode`(悬空已注释)、欧拉运动学变换(注释)。
 - 死代码/卫生：`FIXED_WING` 整段 `#if 0`；`PWM_Init` 启了若干未配置/无 GPIO 通道（实际用的 4 路正常）；`Button.c` `Press_Long_Cnt!=0`（数组地址恒真，实际不触发越界）；`filter.c` 注释 GBK 乱码；~~`TermLock`（末端锁定）死代码~~ **已删除（2026-08-12）**；悬空声明已从 .h 注释清理。
 

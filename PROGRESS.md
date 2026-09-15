@@ -405,7 +405,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 ### 2026-08-20：加速度零偏重做——发射架姿态标定 + Mahony 去偏输入 + ZUPT 门控（未编译/待台架）
 
 - **根因**：旧零偏公式 `A_Offset = mean(a) − R_col3` 中 `R_col3` 由含零偏的 Mahony 输出决定——横向零偏先被 Mahony 解释为倾角、再被此公式抵消，结果仅在当前摆放姿态下自洽，不是真正的物理零偏。
-- **新方案**：用发射架已知姿态 `Shot_Pitch/Roll`（surface_control_task.h）直接构造理论重力 `g_ref_body`，`A_Offset = mean(a) − g_ref_body`。零偏物理定义正确，不依赖 Mahony 收敛质量。
+- **当前修正**：取消在单一上电姿态下估计加速度零偏，`IMU_Calibrate()` 上电将 `A_Offset` 置零；`Shot_Pitch/Roll` 仅用于发射姿态判定，不再参与加速度校准。物理加速度零偏需用多姿态离线标定。
 - **Mahony 输入改为去偏值**：`a_corr = a − A_Offset` 归一化后喂 Mahony 误差叉乘。避免横向零偏在 Mahony 中被当倾角。
 - **ZUPT 门控收紧**：只在 `Guidance_State == Self_Text_State || Start` 时允许零速更新（飞行段即使 |a|≈1g 也不误归零）。零偏标定后立即冻结，不再在线 refine。
 - **A_World 数据流不变**：已有 `gravity·((a_raw−A_Offset)−R_col3)` 公式与新零偏自洽。
@@ -437,6 +437,13 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **Phase 9 文档同步**：CODE_OVERVIEW 修正"12态/15态"→"6态 bearing-only"；PROGRESS 修正 2026-08-20 条目+新增本条。
 - **修改文件**：vision_ekf.c（速度限幅/ZUPT保护/publish兜底）、vision_ekf.h（P0_VEL重命名）、IMU.c（视觉快照）、IMU.h（V_NOM_MS标定注释）、test_bearing_jacobian.c（符号统一）、test_jacobian.py（新增PC测试）、CODE_OVERVIEW.md、PROGRESS.md。
 - **未编译**（eIDE）。**待台架**：① ZUPT 后速度≈0；② ekf_mode=0/1 切换无跳变；③ 长跑无 NaN/Inf；④ 离线标定 V_NOM_MS。
+
+### 2026-09-03：移除 LQR 唯一残留调用（修复 eIDE 链接 undefined symbol）
+
+- **现象**：eIDE 编译 `Error: L6218E: Undefined symbol Euler_LQR_Cale (referred from surface_control_task.o)`。
+- **根因**：[.eide/eide.yml](.eide/eide.yml)（未提交改动）删除了 `lqr_Tool` 虚拟目录（含 `lqr_tool/lqr.c`），但 [surface_control_task.c](imcalib/Task/surface_control_task.c) 的 else 分支仍调用 `Euler_LQR_Cale`——LQR 弃用(2026-08-11)后其余引用（`LQR_Init`/`LQR_Gain_Update50Hz`/`lqr_ctrl` 观测）均已注释，仅漏此一处。
+- **修复**：注释掉 [surface_control_task.c](imcalib/Task/surface_control_task.c) else 分支的 `Euler_LQR_Cale(delta_time)` 调用（保留「弃用留存」说明）。`lqi_mode` 恒=1 恒走 LQI，行为不变。`lqr_tool/` 代码留存仅供对照。
+- **未编译**（eIDE 需重新编译确认链接通过）。
 
 ### 2026-07-14：BMI088 加速度计支持（BMX055 可切换）
 
