@@ -306,6 +306,8 @@ void get_current_Target(void)
             }break;
             case Terminal:
             {
+                 //Stable_Flag = 1;
+                 //Guidance_Stable();
                 Guidance_Terminal();
             }break;
             case End:
@@ -331,6 +333,14 @@ void get_current_Target(void)
 }   
 void get_current_State(void)
 {
+    if (Guidance_State == Stable)
+    {
+        Surface.Stable_Time_Cnt++;   /* 自稳计时:进入Stable后每拍累加 */
+    }
+    else
+    {
+        Surface.Stable_Time_Cnt = 0; /* 非Stable清零,下次进入自稳重新计时 */
+    }
     if(cnt<target_Cnt)
     {
         cnt++;
@@ -377,7 +387,8 @@ void get_current_State(void)
             Surface.Stable_Euler_Angle[PITCH] = Surface.current_angle_Euler[NOW][PITCH];
             Surface.Guidance_flag[1] = 1;
         } 
-        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.1f&&IMU_Data.Velocity[Body][NOW][Y]>0.2f)
+        //if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.1f&&IMU_Data.Velocity[Body][NOW][Y]>0.2f)
+        if(Surface.Guidance_flag[1] == 1&&V_DART_Lqi>=1.1f&&fabsf(IMU_Data.Velocity[Body][NOW][Y])>0.1f&&fabsf(IMU_Data.Velocity[Body][NOW][X])<2.0f)
         {
             Buzzer_Remind();
             Guidance_State = Stable;
@@ -386,7 +397,7 @@ void get_current_State(void)
             Surface.Guidance_flag[1] = 2;
         }
     }
-    else if (Guidance_State == Stable && (IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch-15.0&&(IMU_Data.Euler[NOW][ROLL]>=Shot_Roll-5.0||IMU_Data.Euler[NOW][ROLL]<=Shot_Roll+5.0)&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
+    else if (Guidance_State == Stable && Surface.Stable_Time_Cnt>=STABLE_MIN_TIME_CNT && (IMU_Data.Euler[NOW][PITCH]<=Shot_Pitch-20.0&&(IMU_Data.Euler[NOW][ROLL]>=Shot_Roll-5.0 || IMU_Data.Euler[NOW][ROLL]<=Shot_Roll+5.0)&&Vision_Rx_Data.Vision_recognize_flag==RECOGNIZE_SUCCESS))
     {
         Vision_Transmit( Vision_Cmd_Work );
         if(Surface.Guidance_cnt[2]++>5)
@@ -397,7 +408,7 @@ void get_current_State(void)
             Vel_Reanchor_Flag = 1;   /* 俯冲入段:请求 IMU 下一拍用"姿态前向×V_NOM"锚定世界速度 → γ起始≈机体俯仰 */
         }
     }
-    else if (Guidance_State == Terminal &&(V_DART_Lqi<4.0f||IMU_Data.A[NOW][Y]<-0.8f))
+    else if (Guidance_State == Terminal &&(V_DART_Lqi<4.0f||IMU_Data.A[NOW][Y]<-0.4f))
     {
         if(Surface.Guidance_cnt[3]++>50)
         {

@@ -243,11 +243,10 @@ void Euler_LQI_Cale(float dt)
 
     /* ---- 5) 计算 H_tau = Vs * H_tau_Vref（动压缩放；H_tau 是 力矩→舵角 换算矩阵） ----
      * 理想：Vs = (V_DART_Lqi / V_ref)² —— 气动力矩 ∝ 动压 q = ½ρV²。
-     * 现状(2026-08-11)：EKF 速度不准（视觉 dist_cm 由 blob 像素反算、极粗 → V 抖），
-     *  直接喂 V² 会让 H_tau/舵角抖；故固定 Vs=6 换取稳定（当前调试基线）。
-     * ⚠ 注意：Vs=6 ≠ "速度 6"。真按 V=V_NOM=6 的动压缩放应为 (6/6)² = 1，
-     *  此处 =6 是把 H_tau 整体放大 6 倍（≈等效舵效/动压的台架标定系数），
-     *  若 V 真≈6，则舵角会被 pinv(H_tau) 缩小 6 倍——台架务必验证舵效量级。
+     * 现状(2026-10-08)：EKF 速度不准 → 固定 Vs 调试。原 Vs=6 把 H_tau 放大 6 倍、
+     *  舵角被 pinv(H_tau) 缩小 6 倍，是 yaw 转头慢的头号嫌疑；已试 1/3/5 又改回 6，
+     *  本轮调参暂回原点，待台架标定舵效后再定 Vs。
+     * ⚠ Vs 是"动压/舵效"标定系数：V≈V_ref=6 时动压缩放应为 (6/6)²=1。最终值待台架。
      * 根治方向(见 PROGRESS TODO)：① EKF 速度先低通(~0.4s)再平方；
      *  ② 改"初速 V_NOM + 气动阻力衰减"弹道模型 V(t)；③ 台架标真实 V 衰减曲线。 */
     float Vs;
@@ -258,7 +257,7 @@ void Euler_LQI_Cale(float dt)
         if (v_cur > LQI_V_MAX) v_cur = LQI_V_MAX;
         Vs = (v_cur / LQI_V_REF) * (v_cur / LQI_V_REF);
     }
-#else  /* 固定动压（当前调试基线：H_tau 放大 6 倍，V 不再参与） */
+#else  /* 固定动压（2026-10-08：试 1/3/5 后改回 6，待台架标定） */
     Vs = 6.0f;
 #endif
     float H_tau[3][4];

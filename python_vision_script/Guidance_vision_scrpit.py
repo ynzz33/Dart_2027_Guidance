@@ -35,7 +35,7 @@ RECORD_EVERY_N_FRAMES = 2          # 每 N 帧录 1 帧
 FRAME_CENTER_X = 120               # 画面宽度的一半
 FRAME_CENTER_Y = 160                # 画面高度的一半
 FRAME_Y_OFFSET = 0+145
-FRAME_X_OFFSET = 0-15
+FRAME_X_OFFSET = 0+2
 # FRAME_X_OFFSET = 0-13
 # ----- 曝光 & 增益 & 白平衡 -----
 LOCKED_EXPOSURE_US = 800
@@ -54,7 +54,7 @@ DIST_TIERS = [
         "pixels_min": 1,                        # 本档对应的 blob 像素数下界 (含); 改它要同步改前一档的 pixels_max
         "pixels_max": 150,                       # iter4: 25->18 (排十字 px=20+)
         # "threshold": (22, 90, -103, -20, 10, 109),  # manual: 收紧 10% (L_min 20->22, A_max -10->-11)
-        "threshold": (14, 91, -56, -23, -7, 54),
+        "threshold": (10, 91, -56, -20, -7, 54),
                                                 # LAB 阈值 (L_min, L_max, A_min, A_max, B_min, B_max), 传给 find_blobs 粗筛;
                                                 # FAR 把 L_max 放到 100 让洗白中心也能进同 blob, A_max=-27 严格滤草坪/绿广告
         "min_brightness": 5,                   # manual: 收紧 10% (15->17)
@@ -74,7 +74,7 @@ DIST_TIERS = [
         "name": "MID",                          # 档名
         "pixels_min": 18,                       # iter4: 5->18 衔接 FAR pixels_max
         "pixels_max": 3000,                     # 像素数上界, 衔接 NEAR 的 pixels_min
-        "threshold": (14, 91, -56, -23, -7, 54),
+        "threshold": (10, 91, -56, -20, -7, 54),
                                                 # 标准 LAB 阈值; L 下放到 25 兼容稍弱光
         "min_brightness": 20,                   # 标准亮度区间, 与户外环境光配合; tune-auto iter4: 30->40 (iter6 revert 35->40)
         "max_brightness": 100,                  # 比 FAR 严, 过亮的灯反而被判为白灯排除; tune-auto iter2: 80->100
@@ -96,7 +96,7 @@ DIST_TIERS = [
         "name": "NEAR",                         # 档名
         "pixels_min": 3000,                     # 像素数下界, 衔接 MID
         "pixels_max": 15000,                    # 像素数上界, 接近全画面
-        "threshold": (14, 91, -56, -23, -7, 54),
+        "threshold": (10, 91, -56, -20, -7, 54),
                                                 # L 下放到 15 兼容大目标的暗边缘, A_max=-8 比 MID 宽一点适应过曝退色
         "min_brightness": 35,                   # 比 MID 还低, 因为近距 blob 边缘亮度被中心过曝拉低均值
         "max_brightness": 100,                  # 上限放开, 不限大目标

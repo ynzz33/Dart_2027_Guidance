@@ -142,7 +142,7 @@ BMX055/BMI088(SPI2阻塞读) ─IMU_Data_Read─► IMU_Data.A/G(原始,去饱�
 Self_Text_OK ─► Start ──(Euler[PITCH]∈Shot_Pitch±5 且 Euler[ROLL]∈Shot_Roll±6，连续50)──► 对准检测(Guidance_flag[1])
     │                                                                                     │ V_DART_Lqi≥1.5 且 Body[Y]>0.3 且 |Body[X]|<0.5
     ▼                                                                                     ▼
-Stable(自稳,锁 Stable_Euler_Angle) ──(Euler[PITCH]≤Shot_Pitch−10 且 视觉识别成功,连续5)──► Terminal(视觉制导)
+Stable(自稳,锁 Stable_Euler_Angle) ──(自稳已满 STABLE_MIN_TIME_CNT 拍(默认1000=1s) 且 Euler[PITCH]≤Shot_Pitch−15 且 视觉识别成功,连续6拍)──► Terminal(视觉制导)
                                                                                             │ V_DART_Lqi<4 或 A[Y]<−0.8,连续50
                                                                                             ▼
                                                                     End(停录,2000拍) ──► PROCESS_OK(延时断电5000拍)

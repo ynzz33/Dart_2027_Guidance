@@ -14,12 +14,14 @@
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
 //镖体1 红色
-#define  Servo_UL_ZERO      1520
+#define  Servo_UL_ZERO      1500
 #define  Servo_UR_ZERO      1630
-#define  Servo_DR_ZERO      1560
-#define  Servo_DL_ZERO      1460      
-#define Shot_Pitch       25.5 
-#define Shot_Roll 4.2  
+#define  Servo_DR_ZERO      1490
+#define  Servo_DL_ZERO      1160      
+#define Shot_Pitch       25.8 
+#define Shot_Roll 2.0  
+/* 自稳最短保持时间(拍;控制环1kHz=1ms/拍):进入Stable后待满此拍数才允许切制导。1000=1s,调大自稳更久 */
+#define STABLE_MIN_TIME_CNT 450u
 #define USE_BMX055   1
 #define USE_BMI088   0
 
@@ -212,6 +214,7 @@ typedef struct
     float Stable_Euler_Angle[3];      /* 自稳基准角:自检后锁存,作 Start/Stable/Terminal 的 roll/yaw(及保持时 pitch)目标 */
     int16_t Guidance_cnt[6];          /* 制导状态机各跳变的去抖计数 */
     uint16_t  Guidance_flag[6];          /* 制导状态机各跳变的去抖计数 */
+    uint16_t  Stable_Time_Cnt;           /* 自稳(Stable)已保持的拍数:每拍自增,非Stable清零;作"最短自稳时间"门控 */
 }Surface_t;
 
 /* 上电自检流程(视觉 + 镖头触发板)状态 */

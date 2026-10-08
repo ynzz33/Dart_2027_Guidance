@@ -12,7 +12,7 @@
 
 STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（4 舵机，TIM3 CH2 + TIM4 CH2–CH4），**LQI 力矩控制（lqi_tool/）+ 舵面分配（torque_allocator）**，Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度。磁力计不启用（场景磁干扰大），PNG 比例导引拆分接口已就绪但主环仍 `#if 0`。
 
-> **当前实际在飞的链路（2026-08-11 快照，以代码为准）**：Stable/Terminal 段 → **LQI**（`lqi_mode=1` 恒激活，9 态→3 轴力矩；pitch 误差恒 0 只留阻尼；yaw 制导段带积分；roll 自稳）→ **`Torque_Allocate_Simple`**（`lqi_alloc_mode=0` 简单 pinv，H_tau 用固定 Vs=6 缩放）→ X 翼 4 舵。真实飞行速度 6~10 m/s。LQR/ADRC/LADRC/PID 串级/Servo_Mix_*/pitch_glide/TermLock 均已弃用或未实现、代码留存。
+> **当前实际在飞的链路（2026-08-11 快照，以代码为准）**：Stable/Terminal 段 → **LQI**（`lqi_mode=1` 恒激活，9 态→3 轴力矩；pitch 误差恒 0 只留阻尼；yaw 制导段带积分；roll 自稳）→ **`Torque_Allocate_Simple`**（`lqi_alloc_mode=0` 简单 pinv，H_tau 用固定 Vs=6 缩放，2026-10-08 试探后改回 6）→ X 翼 4 舵。真实飞行速度 6~10 m/s。LQR/ADRC/LADRC/PID 串级/Servo_Mix_*/pitch_glide/TermLock 均已弃用或未实现、代码留存。
 
 ---
 
@@ -31,6 +31,22 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 ---
 
 ## 进度时间线
+
+### 2026-10-08：yaw 转头慢——H_tau 动压系数 Vs 试探 1/3/5 后改回 6（未编译/待台架）
+
+- **现象（用户报）**：制导态 yaw 转头慢、转不到位；视频上力矩数字也偏小。
+- **根因定位**：[lqi_torque.c](imcalib/lqi_tool/lqi_torque.c) 固定 `Vs=6.0f` 把 H_tau 整体放大 6 倍 → `pinv(H_tau)` 反解让舵角缩小 6 倍 → 同样力矩指令下舵面只打 1/6 舵角、实际气动力矩只有需求 1/6。真实速度 6~10 m/s，按 V_ref=6 动压缩放应为 (6/6)²=1，Vs=6 相当于 V≈14.7 m/s、明显偏大。
+- **改动**：[lqi_torque.c](imcalib/lqi_tool/lqi_torque.c) `Vs` 6→1→3→5→**6**（本轮试探后回原基线），注释同步。**只动这一个变量**，K 增益/积分/限幅/分配器均未动。
+- **未编译**（eIDE 需 IDE 编译）。**待台架**：本轮 Vs 试探未定论，已回 6 原基线；yaw 转头慢的根因待台架标定舵效后再定 Vs，或回头查 `K[2][2]` 增益。最终 Vs 以台架舵效标定为准。
+
+### 2026-09-22：自稳最短保持时间门控（未编译/待台架）
+
+- **现象**：镖一打出去就能看到灯、俯仰掉得快，立刻满足「俯仰比发射时低 15° + 看到灯」的切换条件，几乎没在自稳(Stable)停留就切进了制导(Terminal)。
+- **方案（用户定）**：用「固定最短自稳时间」计时器门控（非俯仰门槛方案）。进入 Stable 后必须待满 `STABLE_MIN_TIME_CNT` 拍（默认 1000=1s，1kHz 控制环 1 拍=1ms）才允许切制导。
+- **落地**：
+  - [surface_control_task.h](imcalib/Task/surface_control_task.h)：新增宏 `STABLE_MIN_TIME_CNT`(1000，可调)；`Surface_t` 新增 `uint16_t Stable_Time_Cnt`(供 Watch 观测)。
+  - [surface_control_task.c](imcalib/Task/surface_control_task.c)：`get_current_State()` 开头每拍自增 / 非 Stable 清零 `Stable_Time_Cnt`；Stable→Terminal 条件加前置门 `Surface.Stable_Time_Cnt>=STABLE_MIN_TIME_CNT`。
+- **未编译**（eIDE/Keil 需 IDE 编译）。**待台架**：Watch `Stable_Time_Cnt` 进入 Stable 从 0 每拍 +1、切 Terminal 后清零；切制导时刻比改动前晚约 1s；调大/调小 `STABLE_MIN_TIME_CNT` 重编验证门控生效。
 
 ### 硬件适配与基础功能（已完成 — 见 git log）
 - 适配新版硬件；解算改为 X 翼。
@@ -270,7 +286,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 ## 当前 TODO
 
 ### 🎯 2026-08-11 主链路（LQI）— 当前唯一优先级
-- **台架标定 `Vs=6` 实际舵效**：H_tau 放大 6 倍到底等于多少倍真实舵效，直接决定 LQI"推不推得动"。方法：固定一组误差，Vofa 看 `lqi_ctrl.torque_cmd_Nm` 与 `servo_cmd_deg`，反推实际力矩→舵角。
+- **台架标定 `Vs=6` 实际舵效**：H_tau 放大 6 倍到底等于多少倍真实舵效，直接决定 LQI"推不推得动"（2026-10-08 yaw 转头慢试探 1/3/5 后改回 6，待台架定）。方法：固定一组误差，Vofa 看 `lqi_ctrl.torque_cmd_Nm` 与 `servo_cmd_deg`，反推实际力矩→舵角。
 - **验证 yaw 积分真正收敛**：拉 `lqi_ctrl.integral_error[2]`（应随误差积累、丢目标清零、不 windup）与 `torque_integral_Nm[2]`。阈值 0.5°/限幅 5° 是否合适，台架按需调。
 - **验证 pitch 方案A**：pitch 不追角度只阻尼后，飞行是否稳定（无发散、无低频摇摆）；确认删 `q/=cnt` 后 pitch 阻尼手感。
 - **LQI 分配器输出不超限**：Vofa 拉 `servo_cmd_deg[0..3]` 全程 ≤±60°，长跑无 NaN。
