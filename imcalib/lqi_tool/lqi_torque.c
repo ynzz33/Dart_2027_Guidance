@@ -162,6 +162,7 @@ void LQI_Init(void)
 
     lqi_ctrl.cached_V = LQI_V_REF;  /* 初始默认 V_ref */
     lqi_ctrl.state_valid = 1;
+    lqi_ctrl.stable_gain_scale_yaw = 0.8f;   /* 默认=老行为;自稳段 yaw 偏抖时往小调 */
 }
 
 /*============================================================================
@@ -236,6 +237,14 @@ void Euler_LQI_Cale(float dt)
     else
     {
         lqi_ctrl.freeze_integrator[2] = 0;             /* Terminal 段：YAW 积分放行（消静差） */
+    }
+
+    /* ---- 3.6) Stable 段 yaw 增益柔化（2026-10-08）：自稳段拿制导调的强 yaw 增益(权重950→K≈10.79)
+     * 锁航向会偏抖；仅在 Stable 段对 yaw 角度误差反馈乘一个 ≤1 系数(默认1.0=不生效,Watch 在线调)。
+     * 只压角度误差(P项)、速率阻尼(q/r)保留满量；roll/pitch 不动(权重正常、无需柔化)。 */
+    if (Guidance_State == Stable)
+    {
+        lqi_ctrl.attitude_error_rad[2] *= lqi_ctrl.stable_gain_scale_yaw;   /* [2]=yaw, 顺序[roll,pitch,yaw] */
     }
 
     /* ---- 4) LQI 解算力矩 ---- */

@@ -212,6 +212,7 @@ Stable(自稳,锁 Stable_Euler_Angle) ──(自稳已满 STABLE_MIN_TIME_CNT �
 - 阈值 `LQI_INTEG_THRESHOLD_RAD` = **0.5°**（原 `0.008726646*3` 实际 1.5°，注释写 0.5° → 积分被分离闸门每拍清零、永远积不起来）
 - YAW 积分限幅 `LQI_INTEG_LIMIT_YAW` = **5°·s**（原 2° clamp 死）
 - `Euler_LQI_Cale` §3.5 积分门控：ROLL/PITCH 恒清零冻结；YAW 非 Terminal 段冻结、Terminal 段放行。LQI_Update 内积分分离 + 限幅接管。
+- **Stable 段 yaw 增益柔化（2026-10-08）**：`lqi_ctrl.stable_gain_scale_yaw`（默认 1.0=不生效，Watch 在线调）。自稳段拿制导调的强 yaw 增益（Q 权重 950 → K≈10.79）锁航向偏抖，仅在 Stable 段对 yaw 角度误差乘此系数（P 项柔化，速率阻尼保留满量）；roll/pitch 不动。A/B 回退：设回 1.0。
 
 **H_tau 力矩矩阵**（3×4，N·m/rad）：`H_tau = Vs · H_tau_Vref`。**Vs 固定 = 6（2026-08-11）**——因 EKF 速度不准（方向已验证、幅度不准），固定 Vs 使舵效可预测；⚠ Vs=6 ≠ "速度 6"（真按 V=6 应为 (6/6)²=1），是把 H_tau 整体放大 6 倍 = 等效舵效标定系数，**待台架**。速度平方调度保留 `#if 0`（EKF 速度验证准后启用：先低通再平方）。真实飞行速度 **6~10 m/s**（用户 2026-08-11）。
 

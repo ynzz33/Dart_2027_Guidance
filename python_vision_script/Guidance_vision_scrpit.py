@@ -35,10 +35,10 @@ RECORD_EVERY_N_FRAMES = 2          # 每 N 帧录 1 帧
 FRAME_CENTER_X = 120               # 画面宽度的一半
 FRAME_CENTER_Y = 160                # 画面高度的一半
 FRAME_Y_OFFSET = 0+145
-FRAME_X_OFFSET = 0+2
+FRAME_X_OFFSET = 0-10
 # FRAME_X_OFFSET = 0-13
 # ----- 曝光 & 增益 & 白平衡 -----
-LOCKED_EXPOSURE_US = 800
+LOCKED_EXPOSURE_US = 1300
 LOCKED_GAIN_DB = 10.0
 LOCKED_RGB_GAIN_DB = (64.54, 60.21, 61.30)
 
@@ -46,7 +46,7 @@ LOCKED_RGB_GAIN_DB = (64.54, 60.21, 61.30)
 # 三档自适应识别参数. 按上一帧锁定 blob 像素数选档 (pick_tier); 启动/丢目标停在 DEFAULT_TIER_IDX.
 DIST_TIERS = [
     # ---- 远档 (>5m) ----
-    # LED 看起来很小且颜色淡, 中心仍可能因为镜头眩光洗白.2
+    # LED 看起来很小且颜色淡, 中心仍可能因为v镜头眩光洗白.2
     # L 上限放到 100 兜底洗白情况; A 上限收紧到 -27 排除草坪/绿广告牌噪声.
     # roundness 放到 0.40 (远距倾斜更明显), halo 禁用 (远距通常不会过曝).
     {

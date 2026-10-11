@@ -13,19 +13,31 @@
 #define  Servo_DR_Channel   TIM_CHANNEL_3   /* htim4 CH3 → PB8 - DOWN_RIGHT  */   
 #define  Servo_DL_Channel   TIM_CHANNEL_4   /* htim4 CH4 → PB9 - DOWN_LEFT   */
 
-//镖体1 红色
-#define  Servo_UL_ZERO      1500
-#define  Servo_UR_ZERO      1630
-#define  Servo_DR_ZERO      1490
-#define  Servo_DL_ZERO      1160      
-#define Shot_Pitch       25.8 
-#define Shot_Roll 2.0  
-/* 自稳最短保持时间(拍;控制环1kHz=1ms/拍):进入Stable后待满此拍数才允许切制导。1000=1s,调大自稳更久 */
-#define STABLE_MIN_TIME_CNT 450u
-#define USE_BMX055   1
-#define USE_BMI088   0
+// //镖体1 红色
+// #define  Servo_UL_ZERO      1500
+// #define  Servo_UR_ZERO      1750
+// #define  Servo_DR_ZERO      1470
+// #define  Servo_DL_ZERO      1500      
+// #define Shot_Pitch       25.8 
+// #define Shot_Roll 2.0  
+// /* 自稳最短保持时间(拍;控制环1kHz=1ms/拍):进入Stable后待满此拍数才允许切制导。1000=1s,调大自稳更久 */
+// #define STABLE_MIN_TIME_CNT 400u
+// #define USE_BMX055   1
+// #define USE_BMI088   0
 
 /* 力大概在轧带哪里 */
+
+//镖体1 红色
+#define  Servo_UL_ZERO      1550
+#define  Servo_UR_ZERO      1490
+#define  Servo_DR_ZERO      1470
+#define  Servo_DL_ZERO      1500      
+#define Shot_Pitch       32.1 
+#define Shot_Roll -0.1
+/* 自稳最短保持时间(拍;控制环1kHz=1ms/拍):进入Stable后待满此拍数才允许切制导。1000=1s,调大自稳更久 */
+#define STABLE_MIN_TIME_CNT 500u
+#define USE_BMX055   0
+#define USE_BMI088   1
 
 
 /* ---- 加速度量程常量:按传感器型号切换 ---- */

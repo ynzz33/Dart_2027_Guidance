@@ -97,6 +97,9 @@ typedef struct
     /* ---- 积分抗饱和 ---- */
     uint8_t freeze_integrator[3];     /* 冻结积分标志 [roll,pitch,yaw] */
 
+    /* ---- Stable 段增益柔化 ---- */
+    float stable_gain_scale_yaw;      /* Stable段 yaw 角度误差增益系数(<1=更柔);默认1.0=不生效,Watch 在线调 */
+
 } LQI_Control_t;
 
 /*============================================================================

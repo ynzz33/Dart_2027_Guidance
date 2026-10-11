@@ -4,7 +4,7 @@
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
 > 🌐 跨 AI 工作规则/约束见 [AGENTS.md](AGENTS.md)（任何 AI 接手前先读：沟通方式、改动哲学、文档/验证纪律、红线）。
-> 最后更新：2026-08-21（**速度估计可靠性修复**：视觉快照一致性+速度限幅移至输出+ZUPT奇异保护+初速度先验语义+离线标定注释+文档修正12/15态→6态；未编译/待台架）。前次：2026-08-20 加速度零偏重做+6态bearing-only ESKF）
+> 最后更新：2026-10-08（**自稳段 yaw 增益柔化**：新增 `lqi_ctrl.stable_gain_scale_yaw`，默认 1.0，Watch 在线调；未编译/待台架）。前次：2026-10-08 yaw 转头慢 Vs 试探 / 2026-09-22 自稳最短保持时间门控
 >
 > ⚠️ **本项目处于高频调参期**（几乎每个 commit 都在改增益/档位/门控）。本文档**只记结构、方案与"为什么"，不追具体数值**——所有增益/阈值/默认档**以代码为准**（lqi_torque.h 宏、lqi_gain_table.h K、pid.c `pid_init` 等）。文中数值均为"某时刻快照"，可能已变。**2026-08-11 起：文档中带"弃用/留存"标记的旧算法（PID 串级/LQR/LADRC/Servo_Mix/pitch_glide）均不在代码中激活，仅历史对照。**
 
@@ -38,6 +38,15 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **根因定位**：[lqi_torque.c](imcalib/lqi_tool/lqi_torque.c) 固定 `Vs=6.0f` 把 H_tau 整体放大 6 倍 → `pinv(H_tau)` 反解让舵角缩小 6 倍 → 同样力矩指令下舵面只打 1/6 舵角、实际气动力矩只有需求 1/6。真实速度 6~10 m/s，按 V_ref=6 动压缩放应为 (6/6)²=1，Vs=6 相当于 V≈14.7 m/s、明显偏大。
 - **改动**：[lqi_torque.c](imcalib/lqi_tool/lqi_torque.c) `Vs` 6→1→3→5→**6**（本轮试探后回原基线），注释同步。**只动这一个变量**，K 增益/积分/限幅/分配器均未动。
 - **未编译**（eIDE 需 IDE 编译）。**待台架**：本轮 Vs 试探未定论，已回 6 原基线；yaw 转头慢的根因待台架标定舵效后再定 Vs，或回头查 `K[2][2]` 增益。最终 Vs 以台架舵效标定为准。
+
+### 2026-10-08（同日）：自稳段 yaw 增益柔化——Stable 段 `stable_gain_scale_yaw`（未编译/待台架）
+
+- **现象（用户报）**：自稳段（Stable）偏抖 / 偏猛。
+- **根因定位**：两段共用同一套 `lqi_K[3][9]`（[lqi_gain_table.h](imcalib/lqi_tool/lqi_gain_table.h)），它是给「制导跟踪」调的——Q 里 yaw 误差权重 950（roll 才 50）→ K 里 yaw 误差增益 ≈10.79。自稳段目标锁死（`Stable_Euler_Angle`）、是调节问题，拿这强增益锁航向就偏抖。
+- **方案（最小 + 可回退，未拆两套 K）**：只给 yaw 这一根轴加一个 Stable 段增益系数，默认 1.0（= 老行为；A/B 回退设回 1.0 即可）。
+  - [lqi_torque.h](imcalib/lqi_tool/lqi_torque.h)：`LQI_Control_t` 新增 `float stable_gain_scale_yaw`（Watch 在线调）。
+  - [lqi_torque.c](imcalib/lqi_tool/lqi_torque.c)：`LQI_Init` 初始化 1.0；`Euler_LQI_Cale` §3.6 在 `Guidance_State == Stable` 时 `attitude_error_rad[2] *= stable_gain_scale_yaw`（[2]=yaw）。只压角度误差 P 项，速率阻尼 / 积分 / roll / pitch 全不动。
+- **未编译**（eIDE 需 IDE 编译）。**待台架**：Watch `lqi_ctrl.stable_gain_scale_yaw` 设 0.5 / 0.3，看自稳段 yaw 抖动是否减小，找到「稳而不钝」的值。验证有效后再议升级成两套完整 K（两套 Q/R 各导一张表）。
 
 ### 2026-09-22：自稳最短保持时间门控（未编译/待台架）
 
