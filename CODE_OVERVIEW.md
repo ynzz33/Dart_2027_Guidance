@@ -204,6 +204,7 @@ Stable(自稳,锁 Stable_Euler_Angle) ──(自稳已满 STABLE_MIN_TIME_CNT �
 **状态与输出**：
 - 状态 `xa[9]` = `[e_roll, e_pitch, e_yaw, p, q, r, ∫e_r, ∫e_p, ∫e_y]`（rad, rad/s, rad·s）
 - **pitch 方案A（2026-08-11）**：`e_pitch ≡ 0`（依托初始动力、不追目标角度），只保留 pitch 角速度阻尼 `q`；pitch 原 `q/=cnt` 阻尼削减残留已删（俯冲段裸奔发散根因）
+- **过顶俯冲 `pitch_dive_mode`（2026-10-12，默认 0 关）**：pitch 过最高点后开始回落时，主动把镖头压到固定下压角 `pitch_dive_target_deg`（负=低头，默认 -15°）。力矩层独立叠加 `−pitch_dive_gain·(当前俯仰−目标下压角)`，不改 K 表、不动 roll/yaw、保留角速度阻尼。检测用 `current_angle_Euler` NOW/LAST 槽连续下降 `LQI_PITCH_DIVE_CNT`(10) 拍。符号待台架，反了把 `pitch_dive_gain` 取负。字段均在 `LQI_Control_t` 内（`pitch_dive_mode/triggered/cnt/target_deg/gain/err_deg`）。
 - LQI 输出 `tau[3]` = `[Mx, My, Mz]`（N·m）
 - K_lqi[3][9] 由 MATLAB dlqr 生成（[matlab_script/](matlab_script/)目录）
 - 舵面顺序全线统一为 `[UL, UR, DR, DL]`，C 端不再换序

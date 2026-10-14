@@ -35,11 +35,11 @@ RECORD_EVERY_N_FRAMES = 2          # 每 N 帧录 1 帧
 FRAME_CENTER_X = 120               # 画面宽度的一半
 FRAME_CENTER_Y = 160                # 画面高度的一半
 FRAME_Y_OFFSET = 0+145
-FRAME_X_OFFSET = 0-10
+FRAME_X_OFFSET = 0-4
 # FRAME_X_OFFSET = 0-13
 # ----- 曝光 & 增益 & 白平衡 -----
-LOCKED_EXPOSURE_US = 1300
-LOCKED_GAIN_DB = 10.0
+LOCKED_EXPOSURE_US = 1500
+LOCKED_GAIN_DB = 12.0
 LOCKED_RGB_GAIN_DB = (64.54, 60.21, 61.30)
 
 # ----- 距离档参数表 -----

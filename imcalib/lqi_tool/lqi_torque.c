@@ -162,7 +162,14 @@ void LQI_Init(void)
 
     lqi_ctrl.cached_V = LQI_V_REF;  /* 初始默认 V_ref */
     lqi_ctrl.state_valid = 1;
-    lqi_ctrl.stable_gain_scale_yaw = 0.8f;   /* 默认=老行为;自稳段 yaw 偏抖时往小调 */
+    lqi_ctrl.stable_gain_scale_yaw = 0.7f;   /* 默认=老行为;自稳段 yaw 偏抖时往小调 */
+
+    lqi_ctrl.pitch_dive_mode       = 0;                                  /* 默认关=A/B 回退 */
+    lqi_ctrl.pitch_dive_triggered  = 0;
+    lqi_ctrl.pitch_dive_cnt        = 0;
+    lqi_ctrl.pitch_dive_target_deg = LQI_PITCH_DIVE_TARGET_DEG_DEFAULT;
+    lqi_ctrl.pitch_dive_gain       = LQI_PITCH_DIVE_GAIN_DEFAULT;
+    lqi_ctrl.pitch_dive_err_deg    = 0.0f;
 }
 
 /*============================================================================
@@ -249,6 +256,30 @@ void Euler_LQI_Cale(float dt)
 
     /* ---- 4) LQI 解算力矩 ---- */
     LQI_Update(dt);
+
+    /* ---- 4.5) 过顶俯冲：检测 pitch 峰值后开始回落，触发后主动把镖头压到目标下压角 ----
+     * 方案A在 §1 里 pitch 误差恒 0(纯阻尼)；这里在力矩层独立叠加俯冲力矩，不干扰 roll/yaw、不改 K 表。
+     * 检测用 current_angle_Euler 的 NOW/LAST 槽(LAST=上一拍,由 surface_control_task 的 Data_Updata 维护)，
+     * 连续 N 拍下降即确认过顶。触发后 latch 持续压到 End(End 段 LQI 不跑,自然停)。
+     * ⚠ 符号待台架：若镖头反而抬起(力矩方向反了)，把 pitch_dive_gain 取负即可，不必改代码。 */
+    if (lqi_ctrl.pitch_dive_mode && !lqi_ctrl.pitch_dive_triggered)
+    {
+        if (Surface.current_angle_Euler[NOW][PITCH] < Surface.current_angle_Euler[LAST][PITCH])
+        {
+            if (++lqi_ctrl.pitch_dive_cnt >= LQI_PITCH_DIVE_CNT)
+                lqi_ctrl.pitch_dive_triggered = 1;
+        }
+        else
+        {
+            lqi_ctrl.pitch_dive_cnt = 0;
+        }
+    }
+    if (lqi_ctrl.pitch_dive_triggered)
+    {
+        lqi_ctrl.pitch_dive_err_deg = Surface.current_angle_Euler[NOW][PITCH]
+                                    - lqi_ctrl.pitch_dive_target_deg;
+        lqi_ctrl.torque_cmd_Nm[1] -= lqi_ctrl.pitch_dive_gain * lqi_ctrl.pitch_dive_err_deg;
+    }
 
     /* ---- 5) 计算 H_tau = Vs * H_tau_Vref（动压缩放；H_tau 是 力矩→舵角 换算矩阵） ----
      * 理想：Vs = (V_DART_Lqi / V_ref)² —— 气动力矩 ∝ 动压 q = ½ρV²。

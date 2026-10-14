@@ -27,17 +27,29 @@
 
 /* 力大概在轧带哪里 */
 
+// //镖体1 红色
+// #define  Servo_UL_ZERO      1550
+// #define  Servo_UR_ZERO      1490
+// #define  Servo_DR_ZERO      1470
+// #define  Servo_DL_ZERO      1500      
+// #define Shot_Pitch       32.1 
+// #define Shot_Roll -0.1
+// /* 自稳最短保持时间(拍;控制环1kHz=1ms/拍):进入Stable后待满此拍数才允许切制导。1000=1s,调大自稳更久 */
+// #define STABLE_MIN_TIME_CNT 500u
+// #define USE_BMX055   0
+// #define USE_BMI088   1
+
 //镖体1 红色
 #define  Servo_UL_ZERO      1550
 #define  Servo_UR_ZERO      1490
-#define  Servo_DR_ZERO      1470
+#define  Servo_DR_ZERO      1500
 #define  Servo_DL_ZERO      1500      
-#define Shot_Pitch       32.1 
-#define Shot_Roll -0.1
+#define Shot_Pitch       25.0 
+#define Shot_Roll 3.7
 /* 自稳最短保持时间(拍;控制环1kHz=1ms/拍):进入Stable后待满此拍数才允许切制导。1000=1s,调大自稳更久 */
 #define STABLE_MIN_TIME_CNT 500u
-#define USE_BMX055   0
-#define USE_BMI088   1
+#define USE_BMX055   1
+#define USE_BMI088   0
 
 
 /* ---- 加速度量程常量:按传感器型号切换 ---- */

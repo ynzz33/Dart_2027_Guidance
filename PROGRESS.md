@@ -4,7 +4,7 @@
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
 > 🌐 跨 AI 工作规则/约束见 [AGENTS.md](AGENTS.md)（任何 AI 接手前先读：沟通方式、改动哲学、文档/验证纪律、红线）。
-> 最后更新：2026-10-08（**自稳段 yaw 增益柔化**：新增 `lqi_ctrl.stable_gain_scale_yaw`，默认 1.0，Watch 在线调；未编译/待台架）。前次：2026-10-08 yaw 转头慢 Vs 试探 / 2026-09-22 自稳最短保持时间门控
+> 最后更新：2026-10-12（**过顶俯冲 pitch_dive_mode**：pitch 过最高点后主动压头到固定下压角，力矩层独立叠加、默认关，待台架）。前次：2026-10-08 自稳段 yaw 增益柔化 / 2026-10-08 yaw 转头慢 Vs 试探 / 2026-09-22 自稳最短保持时间门控
 >
 > ⚠️ **本项目处于高频调参期**（几乎每个 commit 都在改增益/档位/门控）。本文档**只记结构、方案与"为什么"，不追具体数值**——所有增益/阈值/默认档**以代码为准**（lqi_torque.h 宏、lqi_gain_table.h K、pid.c `pid_init` 等）。文中数值均为"某时刻快照"，可能已变。**2026-08-11 起：文档中带"弃用/留存"标记的旧算法（PID 串级/LQR/LADRC/Servo_Mix/pitch_glide）均不在代码中激活，仅历史对照。**
 
@@ -31,6 +31,16 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 ---
 
 ## 进度时间线
+
+### 2026-10-12：过顶俯冲——pitch 过最高点后主动压头到固定下压角（未编译/待台架）
+
+- **现象（用户报）**：现在 pitch 是方案 A 纯阻尼（`e_pitch≡0`），飞镖爬到弹道顶点后镖头是被动自然下落的，想要「pitch 在最高点开始下降时主动控制舵机把镖头降低」。
+- **用户定**：① 压到**固定下压角**（追一个向下目标俯仰角，到位稳住、不持续猛压）；② **俯仰角一过顶就压**（检测俯仰角峰值后开始回落即触发，不限 Stable/Terminal 段）。
+- **方案**：不改 K 表、不动 `attitude_error_rad[1]`（K[1][1]=0.0589 被 Q 权重 0.01 压得太低、注误差也压不动），改在 **LQI 力矩层独立叠加俯冲力矩**——检测到过顶后 latch，每拍 `torque_cmd_Nm[1] −= pitch_dive_gain·(当前俯仰 − pitch_dive_target_deg)`。保留角速度阻尼、不干扰 roll/yaw。A/B 开关 `pitch_dive_mode` 默认 0=关（=纯阻尼，可回退）。
+- **落地**：
+  - [lqi_torque.h](imcalib/lqi_tool/lqi_torque.h)：宏 `LQI_PITCH_DIVE_TARGET_DEG_DEFAULT`(-15) / `LQI_PITCH_DIVE_GAIN_DEFAULT`(0.02) / `LQI_PITCH_DIVE_CNT`(10)；`LQI_Control_t` 新增 `pitch_dive_mode/triggered/cnt/target_deg/gain/err_deg`。
+  - [lqi_torque.c](imcalib/lqi_tool/lqi_torque.c)：`LQI_Init` 初始化新字段；`Euler_LQI_Cale` §4.5 过顶检测（NOW<LAST 连续 10 拍）+ 俯冲力矩叠加。
+- **未编译**（eIDE 需 IDE 编译）。**待台架**：① `pitch_dive_triggered` 在过顶转折点置 1；② `torque_cmd_Nm[1]`/`servo_cmd_deg` 出现俯冲舵偏且 ≤±60°、无 NaN；③ 方向反了把 `pitch_dive_gain` 取负；④ 先小 gain(0.02) 验稳再加大，`pitch_dive_target_deg` 按俯冲陡度/是否压过头调。
 
 ### 2026-10-08：yaw 转头慢——H_tau 动压系数 Vs 试探 1/3/5 后改回 6（未编译/待台架）
 

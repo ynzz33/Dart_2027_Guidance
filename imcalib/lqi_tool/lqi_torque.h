@@ -54,6 +54,14 @@
 #define LQI_INTEG_TORQUE_LIMIT_YAW    0.3f
 
 /*============================================================================
+ *  过顶俯冲（pitch dive）：pitch 过最高点后主动压头到目标下压角（负=低头）
+ *  默认关（=方案 A 纯阻尼）。待台架标定。
+ *============================================================================*/
+#define LQI_PITCH_DIVE_TARGET_DEG_DEFAULT  (-15.0f)  /* 目标下压俯仰角°(负=低头)，Watch 在线调 */
+#define LQI_PITCH_DIVE_GAIN_DEFAULT        (0.02f)   /* 独立P增益(误差°→力矩 N·m)，符号待台架，反了取负 */
+#define LQI_PITCH_DIVE_CNT                 (10u)     /* 俯仰角连续下降拍数确认过顶(10=10ms) */
+
+/*============================================================================
  *  NaN/Inf 安全兜底
  *============================================================================*/
 #define LQI_IS_FINITE(x)  (((x) * 0.0f) == 0.0f)  /* IEEE754: NaN*0=NaN, Inf*0=NaN */
@@ -99,6 +107,14 @@ typedef struct
 
     /* ---- Stable 段增益柔化 ---- */
     float stable_gain_scale_yaw;      /* Stable段 yaw 角度误差增益系数(<1=更柔);默认1.0=不生效,Watch 在线调 */
+
+    /* ---- 过顶俯冲（pitch dive）---- */
+    uint8_t  pitch_dive_mode;        /* 0=关(方案A纯阻尼) 1=过顶后主动压头；A/B 开关，默认 0 */
+    uint8_t  pitch_dive_triggered;   /* 已检测到俯仰角过顶(latch，触发后保持到 End) */
+    uint16_t pitch_dive_cnt;         /* 下降去抖计数 */
+    float    pitch_dive_target_deg;  /* 目标下压俯仰角°(负=低头)，Watch 在线调 */
+    float    pitch_dive_gain;        /* 独立P增益(误差°→力矩 N·m)，符号待台架，反了取负 */
+    float    pitch_dive_err_deg;     /* 观测：当前压头误差° */
 
 } LQI_Control_t;
 
