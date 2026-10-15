@@ -4,13 +4,13 @@
 > 本文件与 Claude 的 memory（`control-tuning-progress` / `control-approach-preferences`）**双向同步**，改进度时两边保持一致。
 > 📖 代码速查地图见 [CODE_OVERVIEW.md](CODE_OVERVIEW.md)（答题/接手前先读，含环境/任务/数据流/坐标系/状态机/分配器/全局/陷阱）。
 > 🌐 跨 AI 工作规则/约束见 [AGENTS.md](AGENTS.md)（任何 AI 接手前先读：沟通方式、改动哲学、文档/验证纪律、红线）。
-> 最后更新：2026-10-15（**只修改 MATLAB**：纯 LQR 六态→三轴力矩，完成软件核验；下位机仍为原 LQI，移植只给计划，由其他同学实施）。前次：2026-10-12 过顶俯冲 / 2026-10-08 yaw 调试 / 2026-09-22 自稳时间门控
+> 最后更新：2026-10-15（旧四舵 `lqr_tool` 已删除，原 `lqi_tool` 迁入 `lqr_tool`；MATLAB 直接覆盖代码 gain 表。作者确认九态→六态算法适配仍由其他同学做，**当前源码与新增益表不兼容，未编译、不可直接上机**）。前次：MATLAB 完整六态 LQR、pitch 角度反馈及一行输出。
 >
 > ⚠️ **本项目处于高频调参期**（几乎每个 commit 都在改增益/档位/门控）。本文档**只记结构、方案与"为什么"，不追具体数值**——所有增益/阈值/默认档**以代码为准**（lqi_torque.h 宏、lqi_gain_table.h K、pid.c `pid_init` 等）。文中数值均为"某时刻快照"，可能已变。**2026-08-11 起：文档中带"弃用/留存"标记的旧算法（PID 串级/LQR/LADRC/Servo_Mix/pitch_glide）均不在代码中激活，仅历史对照。**
 
 ## 项目简介
 
-STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（4 舵机，TIM3 CH2 + TIM4 CH2–CH4），**LQI 力矩控制（lqi_tool/）+ 舵面分配（torque_allocator）**，Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度。磁力计不启用（场景磁干扰大），PNG 比例导引拆分接口已就绪但主环仍 `#if 0`。
+STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（4 舵机，TIM3 CH2 + TIM4 CH2–CH4），控制模块现位于 **lqr_tool/**（原 LQI 目录迁入，六态适配未完成），舵面分配仍由 torque_allocator 负责。Mahony 姿态融合，视觉/IMU 紧耦合 6 态 EKF（vision_ins.c）给不漂的速度。磁力计不启用（场景磁干扰大），PNG 主环仍 `#if 0`。
 
 > **当前实际在飞的链路（2026-08-11 快照，以代码为准）**：Stable/Terminal 段 → **LQI**（`lqi_mode=1` 恒激活，9 态→3 轴力矩；pitch 误差恒 0 只留阻尼；yaw 制导段带积分；roll 自稳）→ **`Torque_Allocate_Simple`**（`lqi_alloc_mode=0` 简单 pinv，H_tau 用固定 Vs=6 缩放，2026-10-08 试探后改回 6）→ X 翼 4 舵。真实飞行速度 6~10 m/s。LQR/ADRC/LADRC/PID 串级/Servo_Mix_*/pitch_glide/TermLock 均已弃用或未实现、代码留存。
 
@@ -36,43 +36,47 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 
 ### 2026-10-15：MATLAB 改为纯 LQR 三轴力矩输出；下位机仅交接计划
 
-**作者确认的范围**：只改 MATLAB 并测试；不加积分、不用零空间、不在 MATLAB 建立舵效参数，输出三轴物理力矩，再由下位机计算四舵角。下位机代码留给其他同学实现，本轮没有修改 C、现有参数表或工程配置。
+**作者确认的范围**：MATLAB 不加积分、不用零空间、不建立舵效参数，输出三轴物理力矩。最新补充明确要求：删除旧四舵 `lqr_tool`，把现用 `lqi_tool` 迁入该目录，MATLAB 直接覆盖代码内 gain 表。作者再次确认六态、去积分及 pitch 接入仍由其他同学适配；本轮只改目录、include/工程路径和写表目标，不改 C 控制律、状态机、分配器或物理数据。
 
 **已经实现的 MATLAB 工作**：
 
-- `dart_lqi_parameters.m` → [dart_lqr_parameters.m](matlab_script/dart_lqr_parameters.m)：改为集中配置函数，仅保存原惯量矩阵、交叉项符号、有效 Q/R 权重和控制周期。移除积分、舵效、几何、速度调度等配置；仿真设置移至独立仿真文件。
-- `dart_attitude_lqi_torque_pitch_protected.m` → [dart_attitude_lqr.m](matlab_script/dart_attitude_lqr.m)：纯 LQR，六态 `[e_roll,e_pitch,e_yaw,p,q,r]` 输入，三轴 `[roll,pitch,yaw]` 力矩输出，`tau=-K_tau*x`，单位 N·m。内部用五个有效状态求解，再展开成 `3×6`，pitch 角度列为零，保留三轴速率阻尼和惯量耦合。**按作者最终补充要求求 K、显示数值可用性并自动覆盖 MATLAB 侧增益表**：输出完整 K、可控性、双精度及单精度系数闭环结论；通过后写表并返回 `header_path`，不包含积分、舵角分配、轨迹循环、绘图或仿真开关。
+- `dart_lqi_parameters.m` → [dart_lqr_parameters.m](matlab_script/dart_lqr_parameters.m)：集中提供原惯量矩阵、交叉项符号、Q/R 和控制周期，移除积分、舵效、几何、速度调度等配置，仿真设置移至独立仿真文件。**作者最新明确要求加入 pitch 角度控制**：Q 改为完整六态 `[e_roll,e_pitch,e_yaw,p,q,r]`，pitch 角度权重恢复旧配置值，其他权重、惯量及周期不变。日常在该文件改完参数后直接运行，就会求 K、检查并自动覆盖 MATLAB 侧生成表，不用切换文件；有返回值调用只读配置。
+- `dart_attitude_lqi_torque_pitch_protected.m` → [dart_attitude_lqr.m](matlab_script/dart_attitude_lqr.m)：完整六态纯 LQR，三轴角度误差及角速度均参与，输出三轴 `[roll,pitch,yaw]` 力矩，`tau=-K_tau*x`，单位 N·m，K 为 `3×6`。此前五态求解、pitch 角度列置零及中性极点特殊处理已删除。保留惯量耦合，无积分和舵角分配；双精度/单精度六态闭环检查通过后自动写表。**正常只输出一行“`K 矩阵数值检查通过，已覆盖。`”**，不打印矩阵、极点或路径；参数入口和求解入口都使用可选返回值，直接运行不会显示 `ans` 结构体，接收返回值仍可查看详细数据。
 - 新增 [dart_lqr_simulate.m](matlab_script/dart_lqr_simulate.m)：把轨迹计算和绘图独立到该文件，时长、初值及绘图设置放在文件头部。直接无参数运行即可仿真；传入已有 `result` 时复用 K 和模型，不再次求解。此前短暂采用的求解文件内仿真开关已删除。
-- `dart_lqi_export_c.m` → [dart_lqr_export_c.m](matlab_script/dart_lqr_export_c.m)：由求 K 主程序在数值检查通过后自动调用，覆盖固定的 [dart_lqr_torque_gain_table.h](matlab_script/export/dart_lqr_torque_gain_table.h)，无需手动导出。求解或数值检查失败不进入写表；只写独立 `matlab_script/export/`，不覆盖九态下位机原参数表。无参数仿真入口因会先求 K，也会更新该 MATLAB 产物；传入已有结果时不更新。
+- `dart_lqi_export_c.m` → [dart_lqr_export_c.m](matlab_script/dart_lqr_export_c.m)：求 K 检查通过后**直接覆盖 [imcalib/lqr_tool/lqi_gain_table.h](imcalib/lqr_tool/lqi_gain_table.h)**，失败不写表。旧 MATLAB 输出目录中的 gain 副本已删除，仅保留仿真图；无参数仿真入口先求 K，因而也更新代码内增益，复用已有结果时不更新。
+- 目录清理：旧四舵 LQR/Coder 的 21 个文件已删除，原 `lqi_tool` 的 6 个文件移入 `lqr_tool`；内部文件名和函数名暂保留，算法适配时再统一。4 个任务 C 文件只删除旧 `lqr.h` include、修改现用模块 include 路径及过时注释；eIDE 修改 srcDirs 并清除旧虚拟文件列表。增益表以外的 5 个模块文件保持原内容。
 - `dart_aero_identification.m` → [dart_lqr_log_check.m](matlab_script/dart_lqr_log_check.m)：改为当前 Vofa 24 通道日志检查，不再做气动拟合。支持 24 列加显式日志周期，或 25 列首列秒时间戳；统一有效行和裁剪索引，拒绝重复/倒序时间。修复大起点时间戳扣除后裁剪端点丢失问题。保留复合打包通道原值，不猜测状态、速度或指令力矩。
 
 **已经完成的软件核验**（本机 MATLAB R2024b；命令行临时执行，没有新增测试脚本）：
 
 - 五个当前 MATLAB 文件 `checkcode` 零警告；K 求解入口、独立仿真入口、绘图和重复计算结果通过。
-- 自动覆盖回归通过：默认求 K 会替换 MATLAB 产物中的旧内容，改变内存中的 Q 后新表与新 K 一致，求解失败保留原表；无参数仿真因调用求解入口而更新产物，复用已有设计的仿真不更新。测试结束恢复默认参数生成的表；下位机原文件未动。
+- 完整 pitch 控制及简洁输出回归通过：参数入口、求解入口在不加分号时也只输出一行，无 `ans` 结构体；程序接收配置/结果仍可正常读取。完整六态可控、双精度/单精度闭环均通过；三轴正负角度恢复和速率阻尼方向按当前模型核验。
+- 同文件改参运行回归通过：直接运行参数文件及通过完整路径 `run` 执行，均只求解/覆盖一次、不仿真；有返回值读取配置不触发写表，求解器回读参数无递归或重复执行。
+- 代码内写表回归通过：生成目标为 `imcalib/lqr_tool/lqi_gain_table.h`，18 个单精度系数与当前六态 K 一致，求解失败保留原表；不再生成 MATLAB 目录内 gain 副本，5 个 MATLAB 文件静态检查零警告。**这些测试不表示九态 C 控制器已兼容新表**。
+- 目录迁移核验通过：除被覆盖的 gain 表外，原模块 5 个文件移动前后 SHA256 一致；4 个任务 C 文件去除 include/注释后正文一致，控制律未修改。eIDE 源目录及旧文件登记已核对，不再引用原 `lqi_tool` 或已删除四舵模块；未编译下位机。
 - 独立仿真拆分回归通过：求解只需设计参数，无仿真字段、轨迹或图；新增单精度系数受控闭环检查通过。独立仿真的默认轨迹与拆分前一致，自定义关闭绘图可用，传入已有 K 时确实复用而不再次求解；无效时长及非有限轨迹按预期拒绝。K 及导出附件内容与拆分前完全一致。
-- 对照 Git 中旧参数确认惯量数值和交叉项符号一致，有效 Q/R 及周期未顺带调参。
-- 五态可控、受控闭环极点在单位圆内，完整模型保留一个 pitch 角度中性极点；pitch 角度列为零。32 组单轴正负误差/速率及组合输入通过收敛、对称性和有限值检查；恢复角加速度与速率阻尼方向按当前模型核验。
-- 导出 18 个单精度系数往返一致，32 组输入按标量单精度乘加模拟 C 控制律对拍通过，最大力矩计算差约 `1.62e-7 N·m`。这是数值对拍，**不是已编译或已运行下位机**。
+- 对照原参数确认惯量数值和交叉项符号保持；本次只恢复 pitch 角度权重，其余 Q/R 及周期不变。
+- 六态可控，完整六态双精度和单精度闭环极点均在单位圆内，三轴角度反馈列均有效。pitch 正负角度误差产生相应恢复角加速度，三轴速率反馈具有阻尼作用。此前“pitch 不追角度”的旧版测试结论已不作为当前验收依据。
+- 导出 18 个单精度系数按完整六态重新生成，32 组输入的全六态长期闭环收敛、正负对称性及单精度标量乘加对拍通过，最大力矩计算差约 `1.89e-7 N·m`。求解失败保留原表；直接运行参数文件与独立仿真/绘图通过。上述属于 MATLAB 计算核验，**不是已编译或已运行下位机**。
 - 日志通道映射、24/25 列裁剪一致性、NaN/Inf 行处理、带时间戳 CSV 文件读取通过；16 类错误输入按预期拒绝，包括列数、日志周期、裁剪范围、有效样本数、复数及时间顺序错误。
-- [独立理想力矩仿真的结果图](matlab_script/export/dart_lqr_torque_simulation.png) 已生成。只验 roll/yaw 误差和三轴速率衰减，不要求 pitch 角度归零；没有评估舵量、气动、执行器饱和或实飞命中效果。日常求 K 不生成仿真轨迹或图，需要时单独执行仿真文件。
+- [独立理想力矩仿真的结果图](matlab_script/export/dart_lqr_torque_simulation.png) 由独立仿真入口生成。当前三轴角度都参与反馈，pitch 应向目标恢复；权重沿用旧值，短时间内不保证完全收敛。没有评估舵量、气动、执行器饱和或实飞命中效果；日常求 K 不生成轨迹或图。
 
 **下位机移植交接计划——以下全部待其他同学实施，并非本轮已修改**：
 
-1. **在当前激活链路上移植**：改 `imcalib/lqi_tool/lqi_torque.c/.h` 及其调用，不恢复旧 `imcalib/lqr_tool/` 的六态→四舵控制器。新控制核心只输出三轴力矩，接口统一为 `LQR_Torque_Init/Update` 和 `Euler_LQR_Torque_Cale`；同步初始化、控制调度、回调和 Vofa 引用，避免同旧 LQR 接口重名。
-2. **统一六态接口**：控制输入、K 和循环上界从九态改为六态；采用附件 `dart_lqr_K_tau[3][6]` 和维度宏，不用旧 LQI 头文件解释新表，不作九列补零兼容。状态按下表组装，角差规则保持当前约定，不擅自加环绕或翻符号。
+1. **在迁移后的模块上移植**：改 `imcalib/lqr_tool/lqi_torque.c/.h` 及其调用。旧六态→四舵控制器已删除，该目录现装的是原 LQI 模块，不能据目录名判断已完成移植。新控制核心只输出三轴力矩，接口统一为 `LQR_Torque_Init/Update` 和 `Euler_LQR_Torque_Cale`；同步初始化、控制调度、回调和 Vofa 引用。若重命名 gain 文件，必须同步 MATLAB 写表目标。
+2. **先解决当前不兼容接口**：控制器仍定义九态、读取 `lqi_K`，而代码内新表为 `dart_lqr_K_tau[3][6]`。把状态、K 和循环上界改为六态，采用新维度宏，不作九列补零兼容；旧速度等元数据需从迁移前表的 Git 历史取原值放回分配侧。完成前不能编译/下载使用。状态按下表组装，角差规则保持当前约定，不擅自加环绕或翻符号。
 
    | 列 | 六态输入 | 单位/约定 |
    |---|---|---|
    | 0 | 当前 roll − 目标 roll | deg 转 rad |
-   | 1 | pitch 误差 | 恒 0；新 K 此列也为 0 |
+   | 1 | 当前 pitch − 目标 pitch | deg 转 rad；不得强制置零 |
    | 2 | 当前 yaw − 目标 yaw | deg 转 rad；保留现有阶段误差缩放 |
    | 3 | 当前 roll 角速度 | deg/s 转 rad/s |
    | 4 | 当前 pitch 角速度 | deg/s 转 rad/s |
    | 5 | 当前 yaw 角速度 | deg/s 转 rad/s |
 
 3. **删掉积分链**：移除积分状态、K 的积分列、积分权重/阈值/限幅宏、积分力矩贡献、冻结标志和积分更新；只保留角度项与速率项，合成 `tau[i] = -sum(K[i][j]*x[j])`，输出顺序 `[roll,pitch,yaw]`、单位 N·m。纯状态反馈不需要积分 dt；删除未使用参数前追踪调用，不能因此改变任务或状态机计时。
-4. **保留现有外层行为**：Stable/Terminal 运行许可、静止门控、Stable 段 yaw 系数、现有丢目标目标处理、过顶俯冲独立力矩叠加（默认关）、End 回中及非有限兜底沿用现状。MATLAB 附件是核心 LQR 增益，不包含这些外层修正；核心对拍时必须先把外层作用区分开。
+4. **外层行为与 pitch 目标**：Stable/Terminal 运行许可、静止门控、Stable 段 yaw 系数、现有丢目标处理、End 回中和非有限兜底沿用现状。必须删除旧桥接中的 pitch 误差恒零；另检查 `get_current_Target()` 的 pitch 目标来源，如果某阶段每拍把目标设成当前姿态，该阶段仍不会产生角度误差。要在哪些阶段保持或追踪什么 pitch 目标，由作者确认后落实，不能用随动目标冒充已实现角度控制。过顶俯冲独立 P 默认仍关闭；移植时核对其与新 pitch 角度反馈的叠加关系，不擅自启用或改符号。核心力矩对拍应先区分这些外层作用。
 5. **力矩→舵角仍由下位机完成**：固定走当前 `Torque_Allocate_Simple`，删除 PitchProtected 零空间分支和仅为它服务的函数、权重、零空间表。**保留当前 `H_tau_Vref` 数值、固定缩放、舵序 `[UL,UR,DR,DL]`、舵机零点与限位**，不从 MATLAB 重生成舵效表；不在输出端补乘旧 `SIGN_*`。速度/限位等分配元数据如原在旧增益头文件中，需要迁回分配侧，数值不改。
 6. **保持遥测含义清楚**：复用现有结构体的状态、角度/速率力矩、指令力矩、分配后力矩和舵角字段；删除积分字段的引用，不新增散落观测全局。当前 Vofa 9..11 是分配后估计力矩，核心力矩对拍优先 Watch `torque_cmd_Nm`；如改遥测布局，必须同步日志工具映射，不能把两者混淆。
 7. **编译和对拍后再台架**：用当前 eIDE 工程编译，不能用过时 MDK 工程代替验收。核对表维度、周期、轴序和 rad/rad/s/N·m 单位，选单轴正负误差/速率及组合输入逐点对比 MATLAB 与 C 核心力矩，再检查分配和限幅。无积分的六态表不能直接塞进旧九态实现。
@@ -80,30 +84,32 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 
 **未完成/不在本轮范围**：下位机移植与编译、烧录、真实飞行日志回归、惯量轴映射确认、真实舵效/极性及台架/试飞验证。旧 LQI 与零空间实施文档只作历史记录。
 
+> 以下为历史时间线。旧四舵 `lqr_tool` 已删除，原 `lqi_tool` 当前位于 `lqr_tool`；旧表的九态尺寸、旧接口和旧参数只代表当时快照，不得用于解释当前六态生成表。
+
 ### 2026-10-12：过顶俯冲——pitch 过最高点后主动压头到固定下压角（未编译/待台架）
 
 - **现象（用户报）**：现在 pitch 是方案 A 纯阻尼（`e_pitch≡0`），飞镖爬到弹道顶点后镖头是被动自然下落的，想要「pitch 在最高点开始下降时主动控制舵机把镖头降低」。
 - **用户定**：① 压到**固定下压角**（追一个向下目标俯仰角，到位稳住、不持续猛压）；② **俯仰角一过顶就压**（检测俯仰角峰值后开始回落即触发，不限 Stable/Terminal 段）。
 - **方案**：不改 K 表、不动 `attitude_error_rad[1]`（K[1][1]=0.0589 被 Q 权重 0.01 压得太低、注误差也压不动），改在 **LQI 力矩层独立叠加俯冲力矩**——检测到过顶后 latch，每拍 `torque_cmd_Nm[1] −= pitch_dive_gain·(当前俯仰 − pitch_dive_target_deg)`。保留角速度阻尼、不干扰 roll/yaw。A/B 开关 `pitch_dive_mode` 默认 0=关（=纯阻尼，可回退）。
 - **落地**：
-  - [lqi_torque.h](imcalib/lqi_tool/lqi_torque.h)：宏 `LQI_PITCH_DIVE_TARGET_DEG_DEFAULT`(-15) / `LQI_PITCH_DIVE_GAIN_DEFAULT`(0.02) / `LQI_PITCH_DIVE_CNT`(10)；`LQI_Control_t` 新增 `pitch_dive_mode/triggered/cnt/target_deg/gain/err_deg`。
-  - [lqi_torque.c](imcalib/lqi_tool/lqi_torque.c)：`LQI_Init` 初始化新字段；`Euler_LQI_Cale` §4.5 过顶检测（NOW<LAST 连续 10 拍）+ 俯冲力矩叠加。
+  - [lqi_torque.h](imcalib/lqr_tool/lqi_torque.h)：宏 `LQI_PITCH_DIVE_TARGET_DEG_DEFAULT`(-15) / `LQI_PITCH_DIVE_GAIN_DEFAULT`(0.02) / `LQI_PITCH_DIVE_CNT`(10)；`LQI_Control_t` 新增 `pitch_dive_mode/triggered/cnt/target_deg/gain/err_deg`。
+  - [lqi_torque.c](imcalib/lqr_tool/lqi_torque.c)：`LQI_Init` 初始化新字段；`Euler_LQI_Cale` §4.5 过顶检测（NOW<LAST 连续 10 拍）+ 俯冲力矩叠加。
 - **未编译**（eIDE 需 IDE 编译）。**待台架**：① `pitch_dive_triggered` 在过顶转折点置 1；② `torque_cmd_Nm[1]`/`servo_cmd_deg` 出现俯冲舵偏且 ≤±60°、无 NaN；③ 方向反了把 `pitch_dive_gain` 取负；④ 先小 gain(0.02) 验稳再加大，`pitch_dive_target_deg` 按俯冲陡度/是否压过头调。
 
 ### 2026-10-08：yaw 转头慢——H_tau 动压系数 Vs 试探 1/3/5 后改回 6（未编译/待台架）
 
 - **现象（用户报）**：制导态 yaw 转头慢、转不到位；视频上力矩数字也偏小。
-- **根因定位**：[lqi_torque.c](imcalib/lqi_tool/lqi_torque.c) 固定 `Vs=6.0f` 把 H_tau 整体放大 6 倍 → `pinv(H_tau)` 反解让舵角缩小 6 倍 → 同样力矩指令下舵面只打 1/6 舵角、实际气动力矩只有需求 1/6。真实速度 6~10 m/s，按 V_ref=6 动压缩放应为 (6/6)²=1，Vs=6 相当于 V≈14.7 m/s、明显偏大。
-- **改动**：[lqi_torque.c](imcalib/lqi_tool/lqi_torque.c) `Vs` 6→1→3→5→**6**（本轮试探后回原基线），注释同步。**只动这一个变量**，K 增益/积分/限幅/分配器均未动。
+- **根因定位**：[lqi_torque.c](imcalib/lqr_tool/lqi_torque.c) 固定 `Vs=6.0f` 把 H_tau 整体放大 6 倍 → `pinv(H_tau)` 反解让舵角缩小 6 倍 → 同样力矩指令下舵面只打 1/6 舵角、实际气动力矩只有需求 1/6。真实速度 6~10 m/s，按 V_ref=6 动压缩放应为 (6/6)²=1，Vs=6 相当于 V≈14.7 m/s、明显偏大。
+- **改动**：[lqi_torque.c](imcalib/lqr_tool/lqi_torque.c) `Vs` 6→1→3→5→**6**（本轮试探后回原基线），注释同步。**只动这一个变量**，K 增益/积分/限幅/分配器均未动。
 - **未编译**（eIDE 需 IDE 编译）。**待台架**：本轮 Vs 试探未定论，已回 6 原基线；yaw 转头慢的根因待台架标定舵效后再定 Vs，或回头查 `K[2][2]` 增益。最终 Vs 以台架舵效标定为准。
 
 ### 2026-10-08（同日）：自稳段 yaw 增益柔化——Stable 段 `stable_gain_scale_yaw`（未编译/待台架）
 
 - **现象（用户报）**：自稳段（Stable）偏抖 / 偏猛。
-- **根因定位**：两段共用同一套 `lqi_K[3][9]`（[lqi_gain_table.h](imcalib/lqi_tool/lqi_gain_table.h)），它是给「制导跟踪」调的——Q 里 yaw 误差权重 950（roll 才 50）→ K 里 yaw 误差增益 ≈10.79。自稳段目标锁死（`Stable_Euler_Angle`）、是调节问题，拿这强增益锁航向就偏抖。
+- **根因定位**：两段共用同一套 `lqi_K[3][9]`（[lqi_gain_table.h](imcalib/lqr_tool/lqi_gain_table.h)），它是给「制导跟踪」调的——Q 里 yaw 误差权重 950（roll 才 50）→ K 里 yaw 误差增益 ≈10.79。自稳段目标锁死（`Stable_Euler_Angle`）、是调节问题，拿这强增益锁航向就偏抖。
 - **方案（最小 + 可回退，未拆两套 K）**：只给 yaw 这一根轴加一个 Stable 段增益系数，默认 1.0（= 老行为；A/B 回退设回 1.0 即可）。
-  - [lqi_torque.h](imcalib/lqi_tool/lqi_torque.h)：`LQI_Control_t` 新增 `float stable_gain_scale_yaw`（Watch 在线调）。
-  - [lqi_torque.c](imcalib/lqi_tool/lqi_torque.c)：`LQI_Init` 初始化 1.0；`Euler_LQI_Cale` §3.6 在 `Guidance_State == Stable` 时 `attitude_error_rad[2] *= stable_gain_scale_yaw`（[2]=yaw）。只压角度误差 P 项，速率阻尼 / 积分 / roll / pitch 全不动。
+  - [lqi_torque.h](imcalib/lqr_tool/lqi_torque.h)：`LQI_Control_t` 新增 `float stable_gain_scale_yaw`（Watch 在线调）。
+  - [lqi_torque.c](imcalib/lqr_tool/lqi_torque.c)：`LQI_Init` 初始化 1.0；`Euler_LQI_Cale` §3.6 在 `Guidance_State == Stable` 时 `attitude_error_rad[2] *= stable_gain_scale_yaw`（[2]=yaw）。只压角度误差 P 项，速率阻尼 / 积分 / roll / pitch 全不动。
 - **未编译**（eIDE 需 IDE 编译）。**待台架**：Watch `lqi_ctrl.stable_gain_scale_yaw` 设 0.5 / 0.3，看自稳段 yaw 抖动是否减小，找到「稳而不钝」的值。验证有效后再议升级成两套完整 K（两套 Q/R 各导一张表）。
 
 ### 2026-09-22：自稳最短保持时间门控（未编译/待台架）
@@ -257,7 +263,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 ### LQR 状态反馈控制器（lqr.c/.h 新建，2026-06-27，**未编译/待台架**）
 - **动机**：尝试用 LQR 一步 6态→4舵替代「PID 算三轴力矩 + 混控器分配」两步链路（K 已含 X 翼混控几何）。移植自 [lqr_czn/dart_attitude_LQR_v1.m](lqr_czn/dart_attitude_LQR_v1(1)(1).m) + [移植指南](lqr_czn/MCU_LQR_PORTING_GUIDE(1).md)。
 - **方案**：状态 `x=[roll,pitch,yaw 误差(rad), p,q,r(rad/s)]`（err=测量−期望），控制律 `u=-K_d·x`，4 舵偏(rad)；`K_d[4][6]` 由 MATLAB `dlqr` 算出（连续双积分器 A + `B=I⁻¹·G·k_aero`，c2d 离散）。
-- **落地**：[lqr.c](imcalib/Tool/lqr.c) / [.h](imcalib/Tool/lqr.h)。`LQR_Update` 纯解算（与 MATLAB 对拍用）；`Euler_LQR_Cale` 桥接：取 Surface 姿态/角速度→组 x→解算→换序+×SIGN+转度，**直接写 `output_angle_Servo`、绕过 `output_gyro_Euler` 与 `Servo_Mix_*`**。[surface_control_task.c](imcalib/Task/surface_control_task.c) 新增 `lqr_mode` 切档（0=关默认/1=LQR；优先级高于 ladrc/vel_pursuit，混控分派加 `lqr_mode!=1` 跳过）。`LQR_Init` 已挂 TotalInitTask。
+- **历史落地**：旧 `lqr.c/.h`（2026-10-15 已删除，原代码见 Git 历史）。`LQR_Update` 纯解算（与 MATLAB 对拍用）；`Euler_LQR_Cale` 桥接：取 Surface 姿态/角速度→组 x→解算→换序+×SIGN+转度，**直接写 `output_angle_Servo`、绕过 `output_gyro_Euler` 与 `Servo_Mix_*`**。[surface_control_task.c](imcalib/Task/surface_control_task.c) 曾新增 `lqr_mode` 切档（0=关默认/1=LQR；优先级高于 ladrc/vel_pursuit，混控分派加 `lqr_mode!=1` 跳过）。
 - **K 矩阵粘贴区**：`dart_lqr_K[4][6]` 与 MATLAB 同名同形；调好 Q/R/惯量/速度后跑脚本 Step5，把打印的 4 行整块覆盖粘贴即可。当前是脚本**占位参数**导出值，台架前必须用真实惯量/气动/速度重跑更新。
 - **⚠ 上车前必做**：① 新增 `lqr.c` 手动加入 Keil/eIDE 工程编译列表（AI 编不了）；② 按指南 §9 逐轴阶跃验符号——MATLAB 舵号(delta1=右上/2=左上/3=左下/4=右下)≠工程索引(UL/UR/DR/DL)，已在 `K_ROW_TO_SERVO[]` 换序，符号反了在 `SIGN_xx`/`gyro_sign[]` 翻，**别改 K 行序**（飞镖一次性，G 符号反=正反馈）。
 - **pitch 仅制导段受控**（开关 `lqr_pitch_terminal_only`，lqr.c 默认 1，2026-06-27 加）：`Euler_LQR_Cale` 组完状态后、`LQR_Update` 前，非 `Terminal` 段把 pitch 状态分量 `x[1]`(pitch_err)/`x[4]`(q) 清零 → 一步解出的 4 舵**不含 pitch 通道成分**，Stable 等自稳阶段 pitch 不打舵、只 roll/yaw 受控；制导段(Terminal)恢复全三轴控；`err_deg[1]` 保留真值供观测。=0 回全程控 pitch 做 A/B。作者诉求：「只在制导段才控 pitch，其他时候舵机 pitch 不受控」。**未编译/待台架。**
@@ -352,6 +358,8 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 
 ## 当前 TODO
 
+> 当前首先由其他同学完成 `lqr_tool` 中九态源码到六态新表的接口适配；下方旧 LQI 台架待办属于移植前记录，不能跳过适配直接编译或上机。
+
 ### 🎯 2026-08-11 主链路（LQI）— 当前唯一优先级
 - **台架标定 `Vs=6` 实际舵效**：H_tau 放大 6 倍到底等于多少倍真实舵效，直接决定 LQI"推不推得动"（2026-10-08 yaw 转头慢试探 1/3/5 后改回 6，待台架定）。方法：固定一组误差，Vofa 看 `lqi_ctrl.torque_cmd_Nm` 与 `servo_cmd_deg`，反推实际力矩→舵角。
 - **验证 yaw 积分真正收敛**：拉 `lqi_ctrl.integral_error[2]`（应随误差积累、丢目标清零、不 windup）与 `torque_integral_Nm[2]`。阈值 0.5°/限幅 5° 是否合适，台架按需调。
@@ -433,7 +441,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
 - **动机**：旧 LQR 自维护积分（`lqr_ctrl.integral.err` 累加 `x[axis]*dt`）与 PID 积分是两套机制；积分分离为"冻结"（保留旧值）而非"清零"。
 - **方案**：新建 3 个专用 PID 结构体 `pid_i_for_lqr[3]`（P=D=0 纯积分，索引 [PITCH,ROLL,YAW]），用 `pid_calc()` 对误差积分，iout 叠加到 `err_deg` 再 DEG2RAD 进 LQR 状态 x。积分分离：`|err_deg| ≥ 0.5°` → 清零 iout；`< 0.5°` → `pid_calc()` 累积。分离阈值是唯一门控（PID deadband=0）。舵面饱和→回退本拍 iout（抗饱和）。
 - **符号**：`pid_calc(set=当前, get=目标)` → PID 误差 = current−target = LQR err_deg（同号），叠加方向正确。
-- **落地**：[lqr.c](imcalib/lqr_tool/lqr.c) `LQR_Init` 初始化 PID + `Euler_LQR_Cale` 积分块重写 + `LQR_Update` 移除旧积分代码；[lqr.h](imcalib/lqr_tool/lqr.h) 新增宏 `LQR_I_SEPARATION_DEG_DEFAULT`(0.5°)/`LQR_I_LIMIT_DEG_DEFAULT`(5°)/`LQR_I_KI_DEFAULT`(0.1) + `extern pid_t pid_i_for_lqr[3]`。
+- **历史落地**：旧 `lqr.c/.h`（2026-10-15 已删除，原代码见 Git 历史）曾修改 `LQR_Init`、`Euler_LQR_Cale`、`LQR_Update` 及纯积分 PID 宏；当前不要恢复这些旧接口。
 
 ### 2026-07-23：LQI 力矩控制器 + Pitch 保护型零空间分配（未编译/待台架）
 
@@ -445,7 +453,7 @@ STM32G431 + BMX055 + FreeRTOS 的 Dart 飞镖型飞行器飞控。X 翼布局（
   - 舵面顺序全线统一 [UL, UR, DR, DL]，C 端不换序
   - 保留 lqr_mode 旧开关，新增 lqi_mode=0 默认关
 - **MATLAB**：[matlab_script/](matlab_script/) 三件套（参数→主脚本→C导出）
-- **嵌入式 C**：[imcalib/lqi_tool/](imcalib/lqi_tool/) 四个新文件
+- **嵌入式 C**：[imcalib/lqr_tool/](imcalib/lqr_tool/) 四个新文件
   - `lqi_torque.c/.h`：LQI 控制器（9态→3力矩 + Euler_LQI_Cale 桥接）
   - `torque_allocator.c/.h`：Pitch 保护零空间分配器（2×4 伪逆 + 2×2 解析优化 + 限幅）
   - `lqi_gain_table.h`：K_lqi[20][3][9] 静态表（20 个速度点，线性插值）

@@ -11,13 +11,12 @@
 #include "buzzer.h"
 #include "FreeRTOS.h"
 #include "surface_control_task.h"
-#include "../lqi_tool/lqi_torque.h"     /* LQI_Velocity_Update50Hz */
+#include "../lqr_tool/lqi_torque.h"     /* LQI_Velocity_Update50Hz，算法适配待完成 */
 #include "task.h"
 #include <math.h>
 #include "TotalControl.h"
 #include "Vofa_send.h"
 #include "adrc.h"
-#include "../lqr_tool/lqr.h"
 #include "PNG_Task.h"
 uint8_t Rx_Buf[7],Tx_Buf[7],Vision_Rx_Buf[6],Vision_Tx_Buf[3] = {0x5A,0,0xA5},Vision_TxDebug_Buf[50],Trigger_Rx_Buf[10],Trigger_Tx_Buf[5];
 

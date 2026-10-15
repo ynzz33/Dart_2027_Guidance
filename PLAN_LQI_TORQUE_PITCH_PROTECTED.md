@@ -1,6 +1,6 @@
 # 飞镖 LQI 力矩控制与 Pitch 保护型零空间分配实施计划
 
-> **历史方案（2026-10-15 标注）**：本文的 LQI/积分/零空间设计不再作为 MATLAB 当前实施依据。MATLAB 已改为纯 LQR 六态→三轴力矩；下位机仍未移植，交接计划与实际验证见 [PROGRESS](PROGRESS.md#lqr-torque-handoff)。原 MATLAB 三文件已重命名，下面正文保留历史推导，不据此恢复积分、零空间或覆盖现有参数。
+> **历史方案（2026-10-15 标注）**：本文的 LQI/积分/零空间设计不再作为 MATLAB 当前实施依据。MATLAB 已改为纯 LQR 六态→三轴力矩，并按作者要求直接覆盖代码内 `lqr_tool/lqi_gain_table.h`。旧四舵目录已删除，原 `lqi_tool` 已迁入 `lqr_tool`；九态下位机仍未适配，与新增益不兼容。当前交接计划和验证见 [PROGRESS](PROGRESS.md#lqr-torque-handoff)。下面正文仅保留历史推导，不据此恢复旧接口。
 
 ## 0. 文档目的
 
@@ -134,12 +134,12 @@ matlab_script/dart_lqr_export_c.m
 嵌入式：
 
 ~~~text
-imcalib/lqi_tool/lqi_torque.c
-imcalib/lqi_tool/lqi_torque.h
-imcalib/lqi_tool/torque_allocator.c
-imcalib/lqi_tool/torque_allocator.h
-imcalib/lqi_tool/lqi_gain_table.h
-imcalib/lqi_tool/torque_geometry_table.h
+imcalib/lqr_tool/lqi_torque.c
+imcalib/lqr_tool/lqi_torque.h
+imcalib/lqr_tool/torque_allocator.c
+imcalib/lqr_tool/torque_allocator.h
+imcalib/lqr_tool/lqi_gain_table.h
+imcalib/lqr_tool/lqi_geometry_table.h
 ~~~
 
 实际目录可以按工程风格调整，但 MATLAB、LQI 控制器和分配器必须分开。

@@ -4,7 +4,7 @@ type: ARM
 deviceName: null
 packDir: null
 srcDirs:
-  - imcalib/lqi_tool
+  - imcalib/lqr_tool
 virtualFolder:
   name: <virtual_root>
   files: []
@@ -100,8 +100,6 @@ virtualFolder:
         - path: imcalib/Tool/vision_ekf.h
         - path: imcalib/Tool/adrc.c
         - path: imcalib/Tool/adrc.h
-        - path: imcalib/Tool/lqr.c
-        - path: imcalib/Tool/lqr.h
       folders: []
     - name: User
       files:
@@ -137,29 +135,6 @@ virtualFolder:
                   folders: []
     - name: ::CMSIS
       files: []
-      folders: []
-    - name: lqr_Tool
-      files:
-        - path: imcalib/lqr_tool/lqr.c
-        - path: imcalib/lqr_tool/lqr.h
-        - path: imcalib/lqr_tool/LQR_K_Dart_d.c
-        - path: imcalib/lqr_tool/LQR_K_Dart_d.h
-        - path: imcalib/lqr_tool/LQR_K_Dart_d_data.c
-        - path: imcalib/lqr_tool/LQR_K_Dart_d_data.h
-        - path: imcalib/lqr_tool/LQR_K_Dart_d_initialize.c
-        - path: imcalib/lqr_tool/LQR_K_Dart_d_initialize.h
-        - path: imcalib/lqr_tool/LQR_K_Dart_d_terminate.c
-        - path: imcalib/lqr_tool/LQR_K_Dart_d_terminate.h
-        - path: imcalib/lqr_tool/LQR_K_Dart_d_types.h
-        - path: imcalib/lqr_tool/rt_nonfinite.c
-        - path: imcalib/lqr_tool/rt_nonfinite.h
-        - path: imcalib/lqr_tool/rtGetInf.c
-        - path: imcalib/lqr_tool/rtGetInf.h
-        - path: imcalib/lqr_tool/rtGetNaN.c
-        - path: imcalib/lqr_tool/rtGetNaN.h
-        - path: imcalib/lqr_tool/rtwtypes.h
-        - path: imcalib/lqr_tool/lqr_Stable_K_Dart.c
-        - path: imcalib/lqr_tool/lqr_Stable_K_Dart.h
       folders: []
 dependenceList: []
 outDir: build

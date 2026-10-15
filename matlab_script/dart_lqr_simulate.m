@@ -54,7 +54,7 @@ tiledlayout(fig,3,1);
 nexttile;
 plot(sim.time_s,rad2deg(sim.x(1:3,:)).','LineWidth',1.2);
 ylabel('角度误差 (deg)');
-legend('roll','pitch（不追角度）','yaw','Location','best');
+legend('roll','pitch','yaw','Location','best');
 title('纯 LQR / 理想力矩输入');
 grid on;
 nexttile;

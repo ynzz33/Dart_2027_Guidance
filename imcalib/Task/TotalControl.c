@@ -11,8 +11,7 @@
 #include "cmsis_os.h"
 #include "PNG_Task.h"
 #include "usart.h"
-#include "../lqr_tool/lqr.h"
-#include "../lqi_tool/lqi_torque.h"
+#include "../lqr_tool/lqi_torque.h"
 // void ALL_reset(uint8_t reset)
 // {
 // 		HAL_Delay(100);

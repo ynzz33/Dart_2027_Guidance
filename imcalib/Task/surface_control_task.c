@@ -19,10 +19,9 @@
 #include "CallBack_Task.h"
 #include "pid.h"
 #include "adrc.h"           /* LADRC 线性自抗扰控制器(文件名仍 adrc.*) */
-#include "../lqr_tool/lqr.h"  /* LQR 姿态控制器(6态→4舵一步解算，含混控)；未编译需手动加入工程 */
-#include "../lqi_tool/lqi_torque.h"        /* LQI 力矩控制器(9态→3轴力矩)；未编译需手动加入工程 */
-#include "../lqi_tool/torque_allocator.h"  /* 力矩→舵面零空间分配器 */
-#include "../lqi_tool/lqi_geometry_table.h"/* H_tau 表 + 零空间 N_ry */
+#include "../lqr_tool/lqi_torque.h"        /* 现用模块目录已迁移；九态→六态适配待完成 */
+#include "../lqr_tool/torque_allocator.h"  /* 现有力矩→舵面分配器 */
+#include "../lqr_tool/lqi_geometry_table.h"/* 原 H_tau 与零空间数据，未修改 */
 #include "cmsis_os.h"
 #include "FreeRTOS.h"
 #include "IMU.h"
@@ -461,9 +460,8 @@ void surface_control_task(void)
         }
         else
         {
-            /* [弃用留存] 原 Euler_LQR_Cale(delta_time)——LQR 一步 6态→4舵已弃用(2026-08-11)，
-             * lqr_tool/ 已移出 eIDE 编译列表(lqr.c 不再链接)，保留该调用会链接期 undefined symbol；
-             * lqi_mode 恒=1 恒走 LQI。LQR 代码留存 lqr_tool/ 仅供对照。 */
+            /* 旧四舵 LQR 模块已删除；本分支不恢复旧 Euler_LQR_Cale。
+             * 原 lqi_tool 已迁入 lqr_tool，六态算法接入仍待其他同学完成。 */
             // Euler_LQR_Cale(delta_time);
         }
         for (int i = 0; i < 4; i++)                    /* 安全网:分配已保证在限内,此处仅兜底 FP 误差 */
