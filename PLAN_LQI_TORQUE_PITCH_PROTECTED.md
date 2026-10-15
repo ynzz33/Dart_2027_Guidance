@@ -1,5 +1,7 @@
 # 飞镖 LQI 力矩控制与 Pitch 保护型零空间分配实施计划
 
+> **历史方案（2026-10-15 标注）**：本文的 LQI/积分/零空间设计不再作为 MATLAB 当前实施依据。MATLAB 已改为纯 LQR 六态→三轴力矩；下位机仍未移植，交接计划与实际验证见 [PROGRESS](PROGRESS.md#lqr-torque-handoff)。原 MATLAB 三文件已重命名，下面正文保留历史推导，不据此恢复积分、零空间或覆盖现有参数。
+
 ## 0. 文档目的
 
 本计划用于指导其他 AI 或工程人员，在新 Git 分支中重建飞镖姿态控制器。
@@ -121,12 +123,12 @@ feature/lqi-torque-pitch-protected
 
 ### 3.2 建议新增文件
 
-MATLAB：
+MATLAB（旧路径已替换，以下为当前入口；本文其余方案仍属历史）：
 
 ~~~text
-matlab/lqi/dart_attitude_lqi_torque_pitch_protected.m
-matlab/lqi/dart_lqi_parameters.m
-matlab/lqi/dart_lqi_export_c.m
+matlab_script/dart_attitude_lqr.m
+matlab_script/dart_lqr_parameters.m
+matlab_script/dart_lqr_export_c.m
 ~~~
 
 嵌入式：

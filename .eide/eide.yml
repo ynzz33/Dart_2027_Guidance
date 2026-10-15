@@ -90,16 +90,18 @@ virtualFolder:
         - path: imcalib/Tool/ADC_Battery.h
         - path: imcalib/Tool/filter.c
         - path: imcalib/Tool/filter.h
-        - path: imcalib/Tool/vision_ins.c
-        - path: imcalib/Tool/vision_ins.h
         - path: imcalib/Tool/pid.c
         - path: imcalib/Tool/pid.h
         - path: imcalib/Tool/Vofa_send.c
         - path: imcalib/Tool/Vofa_send.h
+        - path: imcalib/Tool/vision_ins.c
+        - path: imcalib/Tool/vision_ins.h
         - path: imcalib/Tool/vision_ekf.c
         - path: imcalib/Tool/vision_ekf.h
         - path: imcalib/Tool/adrc.c
         - path: imcalib/Tool/adrc.h
+        - path: imcalib/Tool/lqr.c
+        - path: imcalib/Tool/lqr.h
       folders: []
     - name: User
       files:
@@ -136,6 +138,29 @@ virtualFolder:
     - name: ::CMSIS
       files: []
       folders: []
+    - name: lqr_Tool
+      files:
+        - path: imcalib/lqr_tool/lqr.c
+        - path: imcalib/lqr_tool/lqr.h
+        - path: imcalib/lqr_tool/LQR_K_Dart_d.c
+        - path: imcalib/lqr_tool/LQR_K_Dart_d.h
+        - path: imcalib/lqr_tool/LQR_K_Dart_d_data.c
+        - path: imcalib/lqr_tool/LQR_K_Dart_d_data.h
+        - path: imcalib/lqr_tool/LQR_K_Dart_d_initialize.c
+        - path: imcalib/lqr_tool/LQR_K_Dart_d_initialize.h
+        - path: imcalib/lqr_tool/LQR_K_Dart_d_terminate.c
+        - path: imcalib/lqr_tool/LQR_K_Dart_d_terminate.h
+        - path: imcalib/lqr_tool/LQR_K_Dart_d_types.h
+        - path: imcalib/lqr_tool/rt_nonfinite.c
+        - path: imcalib/lqr_tool/rt_nonfinite.h
+        - path: imcalib/lqr_tool/rtGetInf.c
+        - path: imcalib/lqr_tool/rtGetInf.h
+        - path: imcalib/lqr_tool/rtGetNaN.c
+        - path: imcalib/lqr_tool/rtGetNaN.h
+        - path: imcalib/lqr_tool/rtwtypes.h
+        - path: imcalib/lqr_tool/lqr_Stable_K_Dart.c
+        - path: imcalib/lqr_tool/lqr_Stable_K_Dart.h
+      folders: []
 dependenceList: []
 outDir: build
 miscInfo:
@@ -164,8 +189,7 @@ targets:
         - MDK-ARM/RTE/_Dart_2027_Guidance_Ynzz
       libList: []
     excludeList: []
-    settings:
-      debugger: cortex-debug
+    settings: {}
     toolchain: AC5
     toolchainConfigMap:
       AC5:
@@ -274,7 +298,26 @@ targets:
         archExtensions: ""
         cpuType: Cortex-M4
         floatingPointHardware: single
-        options: ""
+        options:
+          version: 3
+          afterBuildTasks: []
+          asm-compiler:
+            $use: asm-auto
+            misc-controls: ""
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            language-c: c99
+            language-cpp: c++11
+            link-time-optimization: false
+            optimization: level-0
+          global:
+            output-debug-info: enable
+            use-microLIB: false
+          linker:
+            $outputTaskExcludes:
+              - .bin
+            misc-controls: --diag_suppress=L6329
+            output-format: elf
         scatterFilePath: <YOUR_SCATTER_FILE>.sct
         storageLayout:
           RAM:
